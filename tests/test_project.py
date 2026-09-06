@@ -88,6 +88,27 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertTrue(result["stylus"]["tilt"])
         self.assertTrue(result["stylus"]["barrelButtons"])
 
+    def test_osk_has_modifiers_and_real_key_layers(self) -> None:
+        result = self.run_node(
+            "const O=require('./shell/models/Osk.js'); const rows=O.rows('en',true); "
+            "console.log(JSON.stringify({caps:rows[3].includes('Caps'),numeric:O.rows('numeric',true)[0],"
+            "control:O.isControl('Control'),alt:O.isControl('Alt'),space:O.isControl('Space')}));"
+        )
+        self.assertTrue(result["caps"])
+        self.assertEqual(result["numeric"][0], "1")
+        self.assertTrue(result["control"])
+        self.assertTrue(result["alt"])
+        self.assertTrue(result["space"])
+
+    def test_stylus_button_map_is_generic_and_validated(self) -> None:
+        result = self.run_node(
+            "const S=require('./shell/models/Stylus.js'); "
+            "console.log(JSON.stringify(S.normalizeButtonMap({primary:'annotation',secondary:'not-a-real-action'})));"
+        )
+        self.assertEqual(result["primary"], "annotation")
+        self.assertEqual(result["secondary"], "right-click")
+        self.assertIn("annotation", self.run_node("const S=require('./shell/models/Stylus.js'); console.log(JSON.stringify(S.buttonActions));"))
+
     def test_config_migrations_keep_old_user_intent(self) -> None:
         result = self.run_node(
             "const C=require('./shell/models/Config.js'); "
@@ -116,6 +137,7 @@ class OmanomeProjectTests(unittest.TestCase):
             ROOT / "input/system-state.sh",
             ROOT / "input/wifi-scan.sh",
             ROOT / "input/bluetooth-scan.sh",
+            ROOT / "input/rotation-monitor.sh",
         ):
             result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -132,7 +154,8 @@ class OmanomeProjectTests(unittest.TestCase):
         for key in ("wifiAvailable", "volumeAvailable", "recordingAvailable", "rotationAvailable"):
             self.assertIn(key, state)
             self.assertIsInstance(state[key], bool)
-        self.assertFalse(state["rotationAvailable"])
+        self.assertIn("rotationSensorAvailable", state)
+        self.assertIsInstance(state["rotationSensorAvailable"], bool)
 
     def test_uninstall_is_scoped_to_omanome_paths(self) -> None:
         cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")

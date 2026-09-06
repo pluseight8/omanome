@@ -6,7 +6,7 @@ check: validate test qmllint
 
 validate:
 	python3 scripts/validate.py
-	bash -n cli/omanome input/clipboard-capture.sh input/system-state.sh
+	bash -n cli/omanome input/clipboard-capture.sh input/system-state.sh input/wifi-scan.sh input/bluetooth-scan.sh input/rotation-monitor.sh
 
 test:
 	python3 -m unittest discover -s tests -p 'test_*.py' -v

@@ -29,6 +29,7 @@ Item {
   property bool configReady: false
   property bool _loadingConfig: false
   property bool safeMode: false
+  property bool annotationVisible: false
 
   property var devices: []
   property var monitors: []
@@ -51,6 +52,8 @@ Item {
   property var systemState: ({ wifiAvailable: false, wifiEnabled: false, wifiConnected: false, airplane: false, wifiSsid: "", wifiSignal: -1, bluetoothAvailable: false, bluetoothPowered: false, volumeAvailable: false, volume: 0, volumeMuted: false, microphoneAvailable: false, microphoneVolume: 0, microphoneMuted: false, brightnessAvailable: false, brightness: 0, powerProfileAvailable: false, powerProfile: "balanced", batteryAvailable: false, batteryPercent: -1, batteryState: "unknown", nightLightAvailable: false, nightLightEnabled: false, dndAvailable: false, dnd: false, rotationAvailable: false, rotationLock: false, recordingAvailable: false, recording: false })
   property var wifiNetworks: []
   property var bluetoothDevices: []
+  property string orientation: "normal"
+  property int rotationTransform: 0
 
   signal stateUpdated()
   signal configUpdated(string path)
@@ -102,6 +105,7 @@ Item {
       root.startClipboardWatchers()
     root.detectedMode = root.computeMode()
     if (root.hyprlandAvailable) root.applyTouchIntegration()
+    root.refreshRotationBackend()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -122,6 +126,7 @@ Item {
     }
     if (String(path).indexOf("general.mode") === 0 || String(path).indexOf("tabletMode.") === 0) root.detectedMode = root.computeMode()
     if (String(path).indexOf("touch.") === 0) root.applyTouchIntegration()
+    if (String(path).indexOf("rotation.") === 0) root.refreshRotationBackend()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -131,6 +136,7 @@ Item {
     root.saveConfig()
     root.startClipboardWatchers()
     root.detectedMode = root.computeMode()
+    root.refreshRotationBackend()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -204,6 +210,7 @@ Item {
       next.dnd = Boolean(notification.doNotDisturb)
     root.systemState = next
     root.quickState = QuickSettingsModel.stateFromSystem(next)
+    root.refreshRotationBackend()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -281,6 +288,94 @@ Item {
     return started
   }
 
+  function toggleAnnotation() {
+    if (!root.cfg("stylus.annotation", true)) {
+      root.lastError = "Annotation is disabled in stylus settings"
+      return false
+    }
+    root.annotationVisible = !root.annotationVisible
+    root.stateRevision++
+    root.stateUpdated()
+    return root.annotationVisible
+  }
+
+  function annotationScreenshot(copyToClipboard) {
+    if (copyToClipboard) {
+      Util.execDetached("grim - | wl-copy --type image/png")
+      return true
+    }
+    Util.execDetached("mkdir -p \"$HOME/Pictures/Screenshots\" && grim \"$HOME/Pictures/Screenshots/omanome-annotation-$(date +%Y%m%d-%H%M%S).png\"")
+    return true
+  }
+
+  function rotationTransformFor(value) {
+    var name = String(value || "normal").toLowerCase()
+    if (name === "right-up" || name === "portrait") return 1
+    if (name === "bottom-up" || name === "landscape-flipped") return 2
+    if (name === "left-up" || name === "portrait-flipped") return 3
+    return 0
+  }
+
+  function applyRotation(transform) {
+    if (!root.hyprlandAvailable || !root.systemState.rotationAvailable) return false
+    var value = Math.max(0, Math.min(3, Math.floor(Number(transform))))
+    root.rotationTransform = value
+    if (root.cfg("rotation.transformTouch", true)) root.execute(["hyprctl", "keyword", "input:touchdevice:transform", String(value)])
+    if (root.cfg("rotation.transformStylus", true)) root.execute(["hyprctl", "keyword", "input:tablet:transform", String(value)])
+    var outputs = Array.isArray(root.monitors) ? root.monitors : []
+    for (var i = 0; i < outputs.length; i++) {
+      var name = String(outputs[i] && outputs[i].name || "")
+      if (name) root.execute(["hyprctl", "keyword", "monitor", name + ",transform," + value])
+    }
+    root.stateRevision++
+    root.stateUpdated()
+    return true
+  }
+
+  function updateOrientation(line) {
+    var value = String(line || "").toLowerCase()
+    var next = ""
+    if (value.indexOf("right-up") >= 0) next = "right-up"
+    else if (value.indexOf("left-up") >= 0) next = "left-up"
+    else if (value.indexOf("bottom-up") >= 0) next = "bottom-up"
+    else if (value.indexOf("normal") >= 0) next = "normal"
+    if (!next) return
+    root.orientation = next
+    if (root.cfg("rotation.orientation", "auto") === "auto" && !root.cfg("rotation.lock", false))
+      root.applyRotation(root.rotationTransformFor(next))
+  }
+
+  function setRotationOrientation(value) {
+    var next = String(value || "auto").toLowerCase()
+    var allowed = ["auto", "landscape", "portrait", "landscape-flipped", "portrait-flipped"]
+    if (allowed.indexOf(next) < 0) return false
+    if (next === "auto" && !root.systemState.rotationSensorAvailable) {
+      root.lastError = "Auto rotation requires monitor-sensor (iio-sensor-proxy)"
+      return false
+    }
+    root.setConfig("rotation.orientation", next)
+    if (next !== "auto") {
+      root.orientation = next
+      return root.applyRotation(root.rotationTransformFor(next))
+    }
+    root.refreshRotationBackend()
+    return true
+  }
+
+  function refreshRotationBackend() {
+    if (!root.configReady || !root.cfg("rotation.enabled", true)) {
+      if (rotationProcess.running) rotationProcess.running = false
+      return
+    }
+    var automatic = root.cfg("rotation.orientation", "auto") === "auto"
+    var available = root.systemState.rotationSensorAvailable === true
+    if (automatic && available && !root.cfg("rotation.lock", false)) {
+      if (!rotationProcess.running) rotationProcess.running = true
+    } else if (rotationProcess.running) {
+      rotationProcess.running = false
+    }
+  }
+
   function refreshDevices() {
     if (!devicesProcess.running) devicesProcess.running = true
     if (!monitorsProcess.running) monitorsProcess.running = true
@@ -336,6 +431,12 @@ Item {
       stylusCount: root.stylusDevices.length,
       hyprland: root.hyprlandAvailable,
       wtype: root.wtypeAvailable,
+      rotation: {
+        available: root.systemState.rotationAvailable === true,
+        sensor: root.systemState.rotationSensorAvailable === true,
+        orientation: root.orientation,
+        locked: root.cfg("rotation.lock", false) === true
+      },
       configPath: root.configPath,
       clipboardEntries: root.clipboardHistory.length,
       effects: {
@@ -435,6 +536,16 @@ Item {
     if (value === "Space") return "space"
     if (value === "Tab") return "Tab"
     if (value === "Esc") return "Escape"
+    if (value === "Caps") return "Caps_Lock"
+    if (value === "Control") return "Control_L"
+    if (value === "Alt") return "Alt_L"
+    if (value === "Super") return "Super_L"
+    if (value === "←") return "Left"
+    if (value === "↑") return "Up"
+    if (value === "↓") return "Down"
+    if (value === "→") return "Right"
+    if (value === "PageUp") return "Page_Up"
+    if (value === "PageDown") return "Page_Down"
     return value
   }
 
@@ -445,6 +556,25 @@ Item {
     if (value.length === 1 && !shifted) return root.execute(["wtype", "--", value])
     if (value.length === 1 && shifted) return root.typeText(value.toUpperCase())
     return root.execute(["wtype", "-k", named])
+  }
+
+  function sendModifiedKey(key, modifiers) {
+    if (!root.wtypeAvailable) return false
+    var value = String(key || "")
+    if (!value) return false
+    var args = ["wtype"]
+    var active = Array.isArray(modifiers) ? modifiers : []
+    for (var i = 0; i < active.length; i++) {
+      var modifier = String(active[i] || "")
+      if (modifier) args.push("-M", modifier)
+    }
+    if (value.length === 1 && value.charCodeAt(0) < 128) args.push("-k", root.keyName(value))
+    else args.push("--", value)
+    for (var j = active.length - 1; j >= 0; j--) {
+      var release = String(active[j] || "")
+      if (release) args.push("-m", release)
+    }
+    return root.execute(args)
   }
 
   function typeText(text) {
@@ -694,6 +824,16 @@ Item {
   }
 
   Process {
+    id: rotationProcess
+    command: ["bash", root.sourcePath("input/rotation-monitor.sh")]
+    stdout: SplitParser { onRead: function(line) { root.updateOrientation(line) } }
+    onExited: function(exitCode) {
+      if (exitCode !== 0 && root.systemState.rotationSensorAvailable) root.lastError = "Rotation sensor backend stopped"
+      root.refreshRotationBackend()
+    }
+  }
+
+  Process {
     id: nightLightProcess
     command: ["hyprsunset", "--temperature", "4000"]
     onExited: {
@@ -783,6 +923,15 @@ Item {
     active: root.configReady && root.cfg("windowControls.enabled", true)
     source: Qt.resolvedUrl("views/WindowControls.qml")
     onLoaded: if (item && "service" in item) item.service = root
+  }
+
+  Loader {
+    id: annotationLoader
+    active: root.annotationVisible
+    source: Qt.resolvedUrl("views/Annotation.qml")
+    onLoaded: {
+      if (item && "service" in item) item.service = root
+    }
   }
 
   Timer {

@@ -32,6 +32,12 @@ small on-demand Wi-Fi/Bluetooth scanners. Those scripts return JSON snapshots;
 the QML service never keeps a guessed local toggle as the source of truth and
 marks unavailable backends explicitly.
 
+The annotation overlay is a lazy `PanelWindow` owned by the same service. Its
+Canvas stores only the current in-memory strokes and closes to release the
+overlay. Rotation uses runtime Hyprland input transforms and monitor names
+returned by `hyprctl monitors -j`; sensor polling is not started unless the
+optional `monitor-sensor` backend exists.
+
 The plugin is intentionally capability-aware. Missing `wtype`, `nmcli`, Bluetooth, brightness, screenshot, sensor, or optional compositor support disables only the affected action.
 
 ## Compatibility rules

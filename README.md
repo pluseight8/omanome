@@ -12,6 +12,9 @@ This repository is a runnable 0.2.0 baseline. It focuses on the parts that can b
 - Capability-aware Quick Settings backed by live Wi-Fi/Bluetooth/PipeWire,
   brightness, power-profile, battery, and optional night-light/recording
   session probes; unavailable backends are visibly disabled.
+- Native tablet capability inventory, an annotation overlay with undo/redo and
+  screenshot/copy, and dynamic Hyprland touch/tablet/output transforms for
+  manual rotation; sensor auto-rotation is optional.
 - An optional multi-monitor Dash-to-Dock style surface using layer-shell and native `DesktopEntries`/foreign-toplevel objects, persisted favorites, running indicators, context actions, configurable position/mode, and intelligent autohide guardrails.
 - Touch-sized active-window controls in tablet or hybrid mode.
 - Tablet-mode detection from Hyprland device inventory, adaptive desktop/tablet/hybrid modes, stylus capability inventory, and touch gesture keyword integration through Hyprland IPC.
@@ -121,7 +124,7 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/TESTING.md`](docs/
 
 ## Deliberate limitations
 
-The current public Omarchy/Hyprland APIs do not provide a portable way for a third-party QML plugin to implement compositor-rendered wobbly windows or a true 3D workspace cube. Omanome leaves both disabled and reports why in Settings/status; it does not animate screenshots and does not load an unpinned Hyprland `.so`. Live window thumbnails, automatic text-field focus detection, sensor-driven rotation, local handwriting recognition, and full drag-and-drop app-grid persistence are likewise extension points until their corresponding public backend is selected.
+The current public Omarchy/Hyprland APIs do not provide a portable way for a third-party QML plugin to implement compositor-rendered wobbly windows or a true 3D workspace cube. Omanome leaves both disabled and reports why in Settings/status; it does not animate screenshots and does not load an unpinned Hyprland `.so`. Live window thumbnails, automatic text-field focus detection, sensor-driven rotation without `monitor-sensor`, local handwriting recognition, stylus button-event mapping, and full drag-and-drop app-grid persistence are likewise extension points until their corresponding public backend is selected.
 
 These limitations are isolated: Omanome still loads without them, and `omanome safe-mode`/`omanome disable` returns to the normal Omarchy shell immediately.
 

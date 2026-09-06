@@ -19,6 +19,10 @@
 - Quick Settings now reads live Wi-Fi, Bluetooth, PipeWire, brightness,
   power-profile, battery, night-light, and recording capabilities; network
   discovery and controls are disabled cleanly when their backend is absent.
+- Expands the Wayland OSK with a number row, Caps Lock, one-shot Ctrl/Alt/Super,
+  arrows/function layer, and compact floating/one-handed layouts.
+- Adds a lazy annotation overlay with pen/highlighter/eraser, undo/redo,
+  screenshot/copy, and dynamic Hyprland touch/tablet/output rotation transforms.
 - Adds an optional multi-monitor dock, touch-sized active-window controls, and a
   notification-center view backed by Omarchy's existing notification service.
 - Adds versioned configuration, migrations, diagnostics, rollback, and safe-mode

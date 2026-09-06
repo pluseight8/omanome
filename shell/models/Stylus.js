@@ -40,5 +40,18 @@ function classify(devices) {
   return result
 }
 
-var api = { isTouchscreen: isTouchscreen, isStylus: isStylus, capabilities: capabilities, classify: classify }
+var buttonActions = ["right-click", "middle-click", "back", "forward", "eraser", "screenshot", "annotation", "overview", "launcher", "quicksettings", "clipboard", "keyboard", "undo", "redo", "copy", "paste"]
+
+function normalizeButtonMap(map) {
+  var source = map || {}
+  var result = {}
+  var keys = ["primary", "secondary", "tertiary", "eraser"]
+  for (var i = 0; i < keys.length; i++) {
+    var value = String(source[keys[i]] || "")
+    result[keys[i]] = buttonActions.indexOf(value) >= 0 ? value : (keys[i] === "eraser" ? "eraser" : "right-click")
+  }
+  return result
+}
+
+var api = { isTouchscreen: isTouchscreen, isStylus: isStylus, capabilities: capabilities, classify: classify, buttonActions: buttonActions, normalizeButtonMap: normalizeButtonMap }
 if (typeof module !== "undefined") module.exports = api

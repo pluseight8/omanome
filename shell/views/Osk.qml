@@ -10,31 +10,89 @@ Item {
   property var service: null
   property var panel: null
   property bool shifted: false
+  property bool capsLocked: false
+  property var modifierState: ({ Control: false, Alt: false, Super: false })
   property string language: "en"
-  property string layer: "letters"
+  property string inputLayer: "letters"
   property string mode: "standard"
+  property bool showModifierRow: true
+  property bool showNumberRow: true
+  property bool showNavigationRow: true
+  property bool showFunctionRow: false
+  property bool capsEnabled: true
 
   function refreshLanguage() {
     var configured = String(root.service.cfg("keyboard.layout", "auto"))
     if (configured === "ru" || configured === "en") root.language = configured
     else root.language = String(Quickshell.env("LANG") || "en").indexOf("ru") === 0 ? "ru" : "en"
     root.mode = String(root.service.cfg("keyboard.mode", "standard"))
+    root.showNumberRow = root.service.cfg("keyboard.showNumberRow", true) === true
+    root.showModifierRow = root.service.cfg("keyboard.showModifierRow", true) === true
+    root.showNavigationRow = root.service.cfg("keyboard.showNavigationRow", true) === true
+    root.showFunctionRow = root.service.cfg("keyboard.showFunctionRow", false) === true
+    root.capsEnabled = root.service.cfg("keyboard.capsLock", true) === true
   }
 
   function rows() {
-    if (root.layer === "numeric") return Osk.rows("numeric", true)
-    return Osk.rows(root.language, true)
+    var source = root.inputLayer === "numeric" ? Osk.rows("numeric", false) : (root.inputLayer === "function" ? Osk.rows("function", false) : Osk.rows(root.language, root.showNumberRow))
+    if (root.capsEnabled || root.inputLayer === "numeric") return source
+    var filtered = []
+    for (var i = 0; i < source.length; i++) filtered.push(source[i].filter(function(key) { return key !== "Caps" }))
+    return filtered
+  }
+
+  function modifierKeys() {
+    return ["Control", "Alt", "Super", "Tab", "Esc", "Fn"]
+  }
+
+  function isModifier(key) {
+    return ["Control", "Alt", "Super"].indexOf(String(key || "")) >= 0
+  }
+
+  function activeModifiers() {
+    var result = []
+    if (root.shifted) result.push("shift")
+    if (root.modifierState.Control) result.push("ctrl")
+    if (root.modifierState.Alt) result.push("alt")
+    if (root.modifierState.Super) result.push("logo")
+    return result
+  }
+
+  function clearOneShotModifiers() {
+    root.modifierState = ({ Control: false, Alt: false, Super: false })
   }
 
   function press(key) {
     root.service.recordInput("touch")
     if (key === "Shift") { root.shifted = !root.shifted; return }
-    if (key === "123") { root.layer = "numeric"; root.shifted = false; return }
-    if (key === "ABC") { root.layer = "letters"; root.shifted = false; return }
-    if (key === "Space") { root.service.sendKey("Space", false); root.shifted = false; return }
-    if (key === "Backspace" || key === "Enter") { root.service.sendKey(key, false); root.shifted = false; return }
-    root.service.sendKey(key, root.shifted)
+    if (key === "Caps") {
+      root.service.sendKey("Caps", false)
+      root.capsLocked = !root.capsLocked
+      return
+    }
+    if (key === "Fn") {
+      root.inputLayer = root.inputLayer === "function" ? "letters" : "function"
+      root.clearOneShotModifiers()
+      root.shifted = false
+      return
+    }
+    if (isModifier(key)) {
+      var next = {}
+      for (var modifier in root.modifierState) next[modifier] = root.modifierState[modifier]
+      next[key] = !Boolean(next[key])
+      root.modifierState = next
+      return
+    }
+    if (key === "123") { root.inputLayer = "numeric"; root.shifted = false; root.clearOneShotModifiers(); return }
+    if (key === "ABC") { root.inputLayer = "letters"; root.shifted = false; root.clearOneShotModifiers(); return }
+    var modifiers = root.activeModifiers()
+    if (modifiers.length > 0) root.service.sendModifiedKey(key, modifiers)
+    else if (key === "Space") root.service.sendKey("Space", false)
+    else if (key === "Backspace" || key === "Enter" || key === "Tab" || key === "Esc") root.service.sendKey(key, false)
+    else root.service.sendKey(key, root.shifted)
+    root.clearOneShotModifiers()
     root.shifted = false
+    if (root.inputLayer === "function") root.inputLayer = "letters"
   }
 
   Component.onCompleted: root.refreshLanguage()
@@ -95,12 +153,33 @@ Item {
       }
     }
 
-    Column {
+    ColumnLayout {
       id: keyRows
-      Layout.fillWidth: true
       Layout.fillHeight: true
+      width: root.mode === "floating" ? parent.width * 0.82 : ((root.mode === "one-handed" || root.mode === "thumb") ? parent.width * 0.64 : parent.width)
+      Layout.alignment: Qt.AlignHCenter
       spacing: Style.space(7)
       visible: root.mode !== "handwriting"
+
+      Flow {
+        width: keyRows.width
+        height: root.showModifierRow ? Style.space(58) : 0
+        visible: root.showModifierRow
+        spacing: Style.space(6)
+
+        Repeater {
+          model: root.modifierKeys()
+          delegate: ActionButton {
+            required property string modelData
+            height: Style.space(54)
+            minimumHeight: Style.space(54)
+            minimumWidth: modelData === "Control" || modelData === "Super" ? Style.space(90) : Style.space(68)
+            text: modelData === "Control" ? "Ctrl" : modelData
+            checked: (root.isModifier(modelData) && root.modifierState[modelData] === true) || modelData === "Fn" && root.inputLayer === "function"
+            onClicked: root.press(modelData)
+          }
+        }
+      }
 
       Repeater {
         model: root.rows()
@@ -117,8 +196,8 @@ Item {
               height: Style.space(54)
               minimumHeight: Style.space(54)
               minimumWidth: modelData === "Space" ? Math.max(Style.space(190), keyRows.width * 0.28) : (modelData.length > 6 ? Style.space(112) : Style.space(52))
-              text: modelData === "Backspace" ? "⌫" : (modelData === "Enter" ? "↵" : modelData)
-              checked: modelData === "Shift" && root.shifted
+              text: modelData === "Backspace" ? "⌫" : (modelData === "Enter" ? "↵" : (modelData === "Caps" ? "⇪" : (root.shifted && modelData.length === 1 ? modelData.toUpperCase() : modelData)))
+              checked: (modelData === "Shift" && root.shifted) || (modelData === "Caps" && root.capsLocked)
               onClicked: root.press(modelData)
             }
           }

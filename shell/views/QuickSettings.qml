@@ -86,6 +86,33 @@ Item {
       }
     }
 
+    ColumnLayout {
+      Layout.fillWidth: true
+      visible: root.system().rotationAvailable === true
+      spacing: Style.space(5)
+      Text {
+        text: root.service.tr("rotation", "Rotation") + " · " + (root.service.cfg("rotation.lock", false) ? root.service.tr("locked", "Locked") : root.service.orientation)
+        color: Color.muted
+        font.pixelSize: Style.font.caption
+      }
+      Flow {
+        Layout.fillWidth: true
+        spacing: Style.space(6)
+        Repeater {
+          model: ["auto", "landscape", "portrait", "landscape-flipped", "portrait-flipped"]
+          delegate: ActionButton {
+            required property string modelData
+            compact: true
+            text: modelData
+            checked: root.service.cfg("rotation.orientation", "auto") === modelData
+            usable: modelData !== "auto" || root.system().rotationSensorAvailable === true
+            subtitle: modelData === "auto" && !usable ? root.service.tr("systemUnavailable", "Backend unavailable") : ""
+            onClicked: root.service.setRotationOrientation(modelData)
+          }
+        }
+      }
+    }
+
     RowLayout {
       Layout.fillWidth: true
       spacing: Style.space(8)
@@ -283,6 +310,15 @@ Item {
         icon: "⌨"
         usable: root.service.wtypeAvailable
         onClicked: if (root.panel) root.panel.activeView = "keyboard"
+      }
+
+      ActionButton {
+        Layout.fillWidth: true
+        text: root.service.tr("annotation", "Annotation")
+        subtitle: root.service.tr("annotationHint", "Draw over the current screen")
+        icon: "✎"
+        usable: root.service.cfg("stylus.annotation", true)
+        onClicked: root.service.toggleAnnotation()
       }
     }
 

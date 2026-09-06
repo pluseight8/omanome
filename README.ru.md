@@ -12,6 +12,9 @@ Omanome — открытый набор улучшений рабочего ст
 - Quick Settings получает живое состояние Wi-Fi/Bluetooth/PipeWire, яркости,
   профиля питания и батареи; отсутствующие backend явно отключаются, а не
   заменяются локальными фиктивными переключателями.
+- Нативное определение возможностей планшета, annotation overlay с undo/redo,
+  screenshot/copy и динамическими Hyprland transform для touch/tablet/output;
+  автоматический поворот подключается только при наличии sensor backend.
 - Опциональный dock в стиле Dash-to-Dock на нескольких мониторах: избранное, running indicators, контекстные действия, configurable position/mode и intelligent autohide.
 - Определение touchscreen/stylus через Hyprland, режимы Automatic/Desktop/Tablet/Hybrid и применение touch-жестов через IPC.
 - English/Русский, профили, versioned config, import/export/reset и приватная история clipboard для текста/PNG.

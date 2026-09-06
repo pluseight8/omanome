@@ -43,6 +43,7 @@
     "buttonMap": {
       "primary": "right-click",
       "secondary": "middle-click",
+      "tertiary": "annotation",
       "eraser": "eraser"
     }
   },
@@ -140,6 +141,8 @@
     "mode": "standard",
     "showNumberRow": true,
     "showModifierRow": true,
+    "showNavigationRow": true,
+    "showFunctionRow": false,
     "capsLock": true,
     "symbols": true,
     "suggestions": true,

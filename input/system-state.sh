@@ -102,6 +102,13 @@ fi
 recording_available=false
 command -v wf-recorder >/dev/null 2>&1 && recording_available=true
 
+rotation_available=false
+rotation_sensor_available=false
+if command -v hyprctl >/dev/null 2>&1 && hyprctl getoption input:touchdevice:transform -j >/dev/null 2>&1; then
+  rotation_available=true
+fi
+command -v monitor-sensor >/dev/null 2>&1 && rotation_sensor_available=true
+
 jq -cn \
   --argjson wifiAvailable "$(bool_value "$wifi_available")" \
   --argjson wifiEnabled "$(bool_value "$wifi_enabled")" \
@@ -127,4 +134,6 @@ jq -cn \
   --argjson nightLightAvailable "$(bool_value "$night_light_available")" \
   --argjson nightLightEnabled "$(bool_value "$night_light_enabled")" \
   --argjson recordingAvailable "$(bool_value "$recording_available")" \
-  '{wifiAvailable:$wifiAvailable,wifiEnabled:$wifiEnabled,wifiConnected:$wifiConnected,airplane:$airplane,wifiSsid:$wifiSsid,wifiSignal:$wifiSignal,bluetoothAvailable:$bluetoothAvailable,bluetoothPowered:$bluetoothPowered,volumeAvailable:$volumeAvailable,volume:$volume,volumeMuted:$volumeMuted,microphoneAvailable:$microphoneAvailable,microphoneVolume:$microphoneVolume,microphoneMuted:$microphoneMuted,brightnessAvailable:$brightnessAvailable,brightness:$brightness,powerProfileAvailable:$powerProfileAvailable,powerProfile:$powerProfile,batteryAvailable:$batteryAvailable,batteryPercent:$batteryPercent,batteryState:$batteryState,nightLightAvailable:$nightLightAvailable,nightLightEnabled:$nightLightEnabled,dndAvailable:false,rotationAvailable:false,rotationLock:false,recordingAvailable:$recordingAvailable,recording:false}'
+  --argjson rotationAvailable "$(bool_value "$rotation_available")" \
+  --argjson rotationSensorAvailable "$(bool_value "$rotation_sensor_available")" \
+  '{wifiAvailable:$wifiAvailable,wifiEnabled:$wifiEnabled,wifiConnected:$wifiConnected,airplane:$airplane,wifiSsid:$wifiSsid,wifiSignal:$wifiSignal,bluetoothAvailable:$bluetoothAvailable,bluetoothPowered:$bluetoothPowered,volumeAvailable:$volumeAvailable,volume:$volume,volumeMuted:$volumeMuted,microphoneAvailable:$microphoneAvailable,microphoneVolume:$microphoneVolume,microphoneMuted:$microphoneMuted,brightnessAvailable:$brightnessAvailable,brightness:$brightness,powerProfileAvailable:$powerProfileAvailable,powerProfile:$powerProfile,batteryAvailable:$batteryAvailable,batteryPercent:$batteryPercent,batteryState:$batteryState,nightLightAvailable:$nightLightAvailable,nightLightEnabled:$nightLightEnabled,dndAvailable:false,rotationAvailable:$rotationAvailable,rotationSensorAvailable:$rotationSensorAvailable,rotationLock:false,recordingAvailable:$recordingAvailable,recording:false}'

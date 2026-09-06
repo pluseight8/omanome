@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import qs.Commons
 import "../components"
+import "../models/Stylus.js" as StylusModel
 
 Item {
   id: root
@@ -127,8 +128,10 @@ Item {
           width: parent.width
           spacing: Style.space(10)
           visible: root.category === "rotation" || root.category === "updates" || root.category === "shortcuts"
-          ActionButton { width: parent.width; text: root.service.tr(root.category, root.category); subtitle: root.category === "rotation" ? root.service.cfg("rotation.orientation", "auto") : (root.category === "updates" ? root.service.cfg("updates.channel", "stable") : "user-owned Hyprland bindings"); checked: root.service.cfg(root.category + ".enabled", true); usable: root.category !== "shortcuts"; onClicked: { if (root.category === "rotation") root.toggle("rotation.enabled"); else if (root.category === "updates") root.service.setConfig("updates.channel", root.service.cfg("updates.channel", "stable") === "stable" ? "beta" : "stable") } }
-          ActionButton { width: parent.width; text: "Rotation lock"; visible: root.category === "rotation"; checked: root.service.cfg("rotation.lock", false); onClicked: root.toggle("rotation.lock") }
+          ActionButton { width: parent.width; text: root.service.tr(root.category, root.category); subtitle: root.category === "rotation" ? (root.service.systemState.rotationAvailable ? root.service.cfg("rotation.orientation", "auto") : "Hyprland transform backend unavailable") : (root.category === "updates" ? root.service.cfg("updates.channel", "stable") : "user-owned Hyprland bindings"); checked: root.service.cfg(root.category + ".enabled", true); usable: root.category !== "shortcuts" && (root.category !== "rotation" || root.service.systemState.rotationAvailable); onClicked: { if (root.category === "rotation") root.toggle("rotation.enabled"); else if (root.category === "updates") root.service.setConfig("updates.channel", root.service.cfg("updates.channel", "stable") === "stable" ? "beta" : "stable") } }
+          ActionButton { width: parent.width; text: "Rotation lock"; visible: root.category === "rotation"; checked: root.service.cfg("rotation.lock", false); usable: root.service.systemState.rotationAvailable; onClicked: root.toggle("rotation.lock") }
+          Row { visible: root.category === "rotation"; spacing: Style.space(8); Repeater { model: ["auto", "landscape", "portrait", "landscape-flipped", "portrait-flipped"]; delegate: ActionButton { required property string modelData; compact: true; text: modelData; checked: root.service.cfg("rotation.orientation", "auto") === modelData; usable: root.service.systemState.rotationAvailable && (modelData !== "auto" || root.service.systemState.rotationSensorAvailable); onClicked: root.service.setRotationOrientation(modelData) } } }
+          Text { width: parent.width; visible: root.category === "rotation"; text: root.service.systemState.rotationSensorAvailable ? "Auto rotation uses monitor-sensor (iio-sensor-proxy)." : "Auto rotation unavailable: install iio-sensor-proxy/monitor-sensor; manual Hyprland transforms remain available."; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
           ActionButton { width: parent.width; text: "Automatic install"; visible: root.category === "updates"; checked: root.service.cfg("updates.automaticInstall", false); onClicked: root.toggle("updates.automaticInstall") }
           Text { width: parent.width; visible: root.category === "shortcuts"; text: "Omanome exposes namespaced shell commands and never overwrites existing keybindings. Assign the commands shown in README to your own Hyprland config."; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
         }
@@ -151,10 +154,13 @@ Item {
           spacing: Style.space(10)
           visible: root.category === "stylus"
           ActionButton { width: parent.width; text: root.service.tr("stylus", "Stylus"); subtitle: root.service.hasStylus ? root.service.stylusDevices.length + " device(s)" : root.service.tr("disabled", "Not detected"); checked: root.service.cfg("stylus.enabled", true); onClicked: root.toggle("stylus.enabled") }
-          ActionButton { width: parent.width; text: root.service.tr("palmRejection", "Palm rejection"); subtitle: root.service.cfg("stylus.palmRejection", "automatic"); onClicked: root.service.setConfig("stylus.palmRejection", root.service.cfg("stylus.palmRejection", "automatic") === "automatic" ? "balanced" : "automatic") }
-          Text { text: root.service.tr("pressure", "Pressure") + ": " + root.service.cfg("stylus.pressureMin", 0) + " – " + root.service.cfg("stylus.pressureMax", 1); color: Color.foreground; font.pixelSize: Style.font.body }
-          Row { spacing: Style.space(8); ActionButton { compact: true; text: root.service.tr("automatic", "Automatic"); checked: root.service.cfg("stylus.pressureCurve", "linear") === "linear"; onClicked: root.service.setConfig("stylus.pressureCurve", "linear") } ActionButton { compact: true; text: "Soft"; checked: root.service.cfg("stylus.pressureCurve", "linear") === "soft"; onClicked: root.service.setConfig("stylus.pressureCurve", "soft") } ActionButton { compact: true; text: "Firm"; checked: root.service.cfg("stylus.pressureCurve", "linear") === "firm"; onClicked: root.service.setConfig("stylus.pressureCurve", "firm") } }
-          Text { width: parent.width; text: root.service.tr("detectedDevices", "Detected devices") + ": " + (root.service.stylusDevices.map(function(device) { return String(device.name || "stylus") }).join(", ") || "none"); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+          ActionButton { width: parent.width; text: root.service.tr("palmRejection", "Palm rejection"); subtitle: "Native libinput policy · custom filter unavailable"; checked: root.service.cfg("stylus.palmRejection", "automatic") !== "off"; usable: false }
+          ActionButton { width: parent.width; text: root.service.tr("annotation", "Annotation"); subtitle: root.service.cfg("stylus.annotation", true) ? "Overlay available from Quick Settings" : "Disabled"; checked: root.service.cfg("stylus.annotation", true); onClicked: root.toggle("stylus.annotation") }
+          Text { text: root.service.tr("pressure", "Pressure") + ": " + root.service.cfg("stylus.pressureMin", 0) + " – " + root.service.cfg("stylus.pressureMax", 1) + " · " + root.service.cfg("stylus.pressureCurve", "linear"); color: Color.foreground; font.pixelSize: Style.font.body }
+          Text { width: parent.width; text: "Pressure/tilt/rotation/proximity/eraser/barrel capabilities are passed through to native Wayland tablet clients; Omanome does not synthesize mouse events."; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+          Text { width: parent.width; text: root.service.tr("detectedDevices", "Detected devices") + ": " + (root.service.stylusDevices.map(function(device) { var info = StylusModel.capabilities(device); return String(device.name || "stylus") + " [" + Object.keys(info).filter(function(key) { return info[key] === true }).join(", ") + "]" }).join(", ") || "none"); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+          Text { width: parent.width; text: "Button mapping is shown for the generic device contract. A portable libinput button-event hook is not exposed by the current Omarchy public API, so mappings remain unavailable until an input companion is installed."; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+          Repeater { model: ["primary", "secondary", "tertiary", "eraser"]; delegate: ActionButton { required property string modelData; width: parent.width; text: modelData; subtitle: String(root.service.cfg("stylus.buttonMap." + modelData, "right-click")); usable: false } }
         }
 
         Column {
@@ -200,7 +206,7 @@ Item {
           width: parent.width
           spacing: Style.space(10)
           visible: root.category === "about"
-          Text { text: "Omanome 0.1.0"; color: Color.accent; font.pixelSize: Style.font.title; font.bold: true }
+          Text { text: "Omanome 0.2.0"; color: Color.accent; font.pixelSize: Style.font.title; font.bold: true }
           Text { width: parent.width; text: "GNOME-inspired touch and stylus experience inside the existing Omarchy/Hyprland shell. It stays a single Omarchy plugin and never replaces the standard bar."; color: Color.foreground; font.pixelSize: Style.font.body; wrapMode: Text.WordWrap }
           Text { width: parent.width; text: "Detected: Hyprland " + (root.service.hyprlandAvailable ? "yes" : "no") + " · touchscreen " + (root.service.hasTouchscreen ? "yes" : "no") + " · stylus " + (root.service.hasStylus ? "yes" : "no") + " · wtype " + (root.service.wtypeAvailable ? "yes" : "no"); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
           ActionButton { width: parent.width; text: root.service.tr("reset", "Reset"); subtitle: "Reset Omanome config only"; onClicked: root.service.resetConfig() }
