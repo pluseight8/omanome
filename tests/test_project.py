@@ -75,12 +75,13 @@ class OmanomeProjectTests(unittest.TestCase):
     def test_quick_settings_and_stylus_are_capability_aware(self) -> None:
         result = self.run_node(
             "const Q=require('./shell/models/QuickSettings.js'); const S=require('./shell/models/Stylus.js'); "
-            "console.log(JSON.stringify({state:Q.stateFromSystem({wifiEnabled:true,bluetoothPowered:false,volumeMuted:true,powerProfile:'balanced'}), "
+            "console.log(JSON.stringify({state:Q.stateFromSystem({wifiEnabled:true,bluetoothPowered:false,volumeMuted:true,nightLightEnabled:true,powerProfile:'balanced'}), "
             "cycle:Q.cyclePowerProfile('balanced'), touch:S.isTouchscreen({type:'touchpad',name:'Touchpad'}), "
             "stylus:S.classify([{name:'Generic Linux Tablet Pen',type:'tablet',pressure:true,tiltX:true,buttons:2}])[0].capabilities}));"
         )
         self.assertTrue(result["state"]["wifi"])
         self.assertFalse(result["state"]["volume"])
+        self.assertTrue(result["state"]["nightLight"])
         self.assertEqual(result["cycle"], "performance")
         self.assertFalse(result["touch"])
         self.assertTrue(result["stylus"]["pressure"])
@@ -109,9 +110,29 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertNotIn('"bar"', (ROOT / "manifest.json").read_text(encoding="utf-8"))
 
     def test_shell_scripts_parse(self) -> None:
-        for script in (ROOT / "cli/omanome", ROOT / "input/clipboard-capture.sh"):
+        for script in (
+            ROOT / "cli/omanome",
+            ROOT / "input/clipboard-capture.sh",
+            ROOT / "input/system-state.sh",
+            ROOT / "input/wifi-scan.sh",
+            ROOT / "input/bluetooth-scan.sh",
+        ):
             result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_system_state_probe_is_json_and_marks_unavailable_backends(self) -> None:
+        jq = shutil.which("jq")
+        if not jq:
+            self.skipTest("jq is not installed")
+        result = subprocess.run(
+            [str(ROOT / "input/system-state.sh")], capture_output=True, text=True
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads(result.stdout)
+        for key in ("wifiAvailable", "volumeAvailable", "recordingAvailable", "rotationAvailable"):
+            self.assertIn(key, state)
+            self.assertIsInstance(state[key], bool)
+        self.assertFalse(state["rotationAvailable"])
 
     def test_uninstall_is_scoped_to_omanome_paths(self) -> None:
         cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")

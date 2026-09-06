@@ -1,10 +1,46 @@
 var en = {
   omanome: "Omanome", overview: "Overview", launcher: "Apps", quickSettings: "Quick settings", keyboard: "Keyboard", clipboard: "Clipboard", settings: "Settings", notifications: "Notifications", close: "Close", minimize: "Minimize", maximize: "Maximize", back: "Back", search: "Search", currentWindows: "Current windows", workspaces: "Workspaces", noWindows: "No windows found", noApps: "No applications found", open: "Open", running: "Running", favorite: "Favorite", quickActions: "Quick actions", wifi: "Wi-Fi", bluetooth: "Bluetooth", airplane: "Airplane mode", volume: "Volume", microphone: "Microphone", brightness: "Brightness", nightLight: "Night light", powerProfile: "Power profile", darkMode: "Dark mode", doNotDisturb: "Do not disturb", rotationLock: "Rotation lock", screenshot: "Screenshot", screenRecording: "Screen recording", lock: "Lock", logout: "Log out", reboot: "Reboot", shutdown: "Shut down", touchMode: "Touch mode", stylus: "Stylus", forceQuit: "Force quit", showKeyboard: "Show keyboard", overviewHint: "A GNOME-like overview that keeps Hyprland and Omarchy intact.", mode: "Mode", automatic: "Automatic", desktop: "Desktop", tablet: "Tablet", hybrid: "Hybrid", profile: "Profile", language: "Language", appearance: "Appearance", touch: "Touch", gestures: "Gestures", windowControls: "Window controls", dock: "Dock", effects: "Effects", privacy: "Privacy", updates: "Updates", compatibility: "Plugin compatibility", general: "General", tabletMode: "Tablet mode", stylusButtons: "Stylus buttons", handwriting: "Handwriting", palmRejection: "Palm rejection", appGrid: "App grid", workspacesSettings: "Workspaces", altTab: "Alt-Tab", blur: "Blur", rotation: "Rotation", multiMonitor: "Multi-monitor", performance: "Performance", accessibility: "Accessibility", shortcuts: "Shortcuts", advanced: "Advanced", about: "About", save: "Save", reset: "Reset", enabled: "Enabled", disabled: "Disabled", detectedDevices: "Detected devices", touchscreen: "Touchscreen", pressure: "Pressure", tilt: "Tilt", eraser: "Eraser", buttons: "Buttons", palm: "Palm rejection", wlroots: "Wayland-native", noClipboard: "Clipboard history is empty", privateMode: "Private mode", copy: "Copy", paste: "Paste", delete: "Delete", add: "Add", useTouch: "Touch mode", safeMode: "Safe mode", standardBar: "Standard Omarchy bar is preserved", effectsUnavailable: "Optional compositor effects are disabled until a compatible companion is installed.", wtype: "virtual-keyboard-v1 backend", serviceReady: "Service ready", notificationCenter: "Notification center", showHistory: "Show history", dismissAll: "Dismiss all", noNotifications: "No recent notifications", standardNotificationService: "Using Omarchy's native notification service"
 }
+en.quickSettingsHint = "Live controls use the session backends available on this system."
+en.systemUnavailable = "Backend unavailable"
+en.wifiNetworks = "Wi-Fi networks"
+en.wifiPassword = "Password for secured network"
+en.noNetworks = "No networks found"
+en.connected = "Connected"
+en.notConnected = "Not connected"
+en.bluetoothDevices = "Bluetooth devices"
+en.bluetoothHint = "Select a discovered device to connect or disconnect."
+en.noDevices = "No devices found"
+en.powered = "Powered"
+en.off = "Off"
+en.scan = "Scan"
+en.wfRecorder = "wf-recorder backend"
+en.escCancels = "Esc cancels"
+en.battery = "Battery"
+en.batteryUnavailable = "Battery backend unavailable"
+en.unavailable = "Unavailable"
 
 var ru = {
   omanome: "Omanome", overview: "Обзор", launcher: "Приложения", quickSettings: "Быстрые настройки", keyboard: "Клавиатура", clipboard: "Буфер обмена", settings: "Настройки", notifications: "Уведомления", close: "Закрыть", minimize: "Свернуть", maximize: "Развернуть", back: "Назад", search: "Поиск", currentWindows: "Текущие окна", workspaces: "Рабочие столы", noWindows: "Окон нет", noApps: "Приложений нет", open: "Открыть", running: "Запущено", favorite: "Избранное", quickActions: "Быстрые действия", wifi: "Wi-Fi", bluetooth: "Bluetooth", airplane: "Авиарежим", volume: "Громкость", microphone: "Микрофон", brightness: "Яркость", nightLight: "Ночной свет", powerProfile: "Профиль питания", darkMode: "Тёмная тема", doNotDisturb: "Не беспокоить", rotationLock: "Блокировка вращения", screenshot: "Снимок экрана", screenRecording: "Запись экрана", lock: "Заблокировать", logout: "Выйти", reboot: "Перезагрузить", shutdown: "Выключить", touchMode: "Режим касания", stylus: "Стилус", forceQuit: "Завершить принудительно", showKeyboard: "Показать клавиатуру", overviewHint: "Обзор в стиле GNOME, сохраняя Hyprland и Omarchy.", mode: "Режим", automatic: "Автоматический", desktop: "Компьютер", tablet: "Планшет", hybrid: "Гибридный", profile: "Профиль", language: "Язык", appearance: "Внешний вид", touch: "Касание", gestures: "Жесты", windowControls: "Управление окнами", dock: "Док", effects: "Эффекты", privacy: "Приватность", updates: "Обновления", compatibility: "Совместимость плагинов", general: "Общие", tabletMode: "Режим планшета", stylusButtons: "Кнопки стилуса", handwriting: "Рукописный ввод", palmRejection: "Защита от ладони", appGrid: "Сетка приложений", workspacesSettings: "Рабочие столы", altTab: "Alt-Tab", blur: "Размытие", rotation: "Поворот", multiMonitor: "Несколько мониторов", performance: "Производительность", accessibility: "Доступность", shortcuts: "Сочетания", advanced: "Дополнительно", about: "О программе", save: "Сохранить", reset: "Сбросить", enabled: "Включено", disabled: "Выключено", detectedDevices: "Обнаруженные устройства", touchscreen: "Сенсорный экран", pressure: "Нажим", tilt: "Наклон", eraser: "Ластик", buttons: "Кнопки", palm: "Защита от ладони", wlroots: "Нативный Wayland", noClipboard: "История буфера пуста", privateMode: "Приватный режим", copy: "Копировать", paste: "Вставить", delete: "Удалить", add: "Добавить", useTouch: "Режим касания", safeMode: "Безопасный режим", standardBar: "Стандартная панель Omarchy сохранена", effectsUnavailable: "Дополнительные compositor-эффекты отключены до установки совместимого companion.", wtype: "backend virtual-keyboard-v1", serviceReady: "Сервис готов", notificationCenter: "Центр уведомлений", showHistory: "Показать историю", dismissAll: "Скрыть все", noNotifications: "Нет новых уведомлений", standardNotificationService: "Используется нативный сервис уведомлений Omarchy"
 }
+ru.quickSettingsHint = "Живые элементы управления используют доступные в системе backend-службы."
+ru.systemUnavailable = "Backend недоступен"
+ru.wifiNetworks = "Сети Wi-Fi"
+ru.wifiPassword = "Пароль защищённой сети"
+ru.noNetworks = "Сети не найдены"
+ru.connected = "Подключено"
+ru.notConnected = "Не подключено"
+ru.bluetoothDevices = "Устройства Bluetooth"
+ru.bluetoothHint = "Выберите найденное устройство для подключения или отключения."
+ru.noDevices = "Устройства не найдены"
+ru.powered = "Включён"
+ru.off = "Выключен"
+ru.scan = "Сканировать"
+ru.wfRecorder = "Backend wf-recorder"
+ru.escCancels = "Esc отменяет"
+ru.battery = "Батарея"
+ru.batteryUnavailable = "Backend батареи недоступен"
+ru.unavailable = "Недоступно"
 
 function text(locale, key, fallback) {
   var table = String(locale || "").toLowerCase().indexOf("ru") === 0 ? ru : en

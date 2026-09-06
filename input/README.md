@@ -16,3 +16,10 @@ Required for the current backend:
 - a compositor advertising `zwp_virtual_keyboard_v1`
 
 Use `omanome doctor` to see whether the backend is available.
+
+Quick Settings reads its live state through `system-state.sh`. The probe is
+best-effort and reports backend availability instead of inventing toggle
+state. `wifi-scan.sh` and `bluetooth-scan.sh` expose nearby devices as JSON
+without storing network passwords or starting a second daemon. Volume,
+microphone, brightness, power-profile, Wi-Fi, Bluetooth, screenshot, and
+recording actions remain capability-gated in the shared service.

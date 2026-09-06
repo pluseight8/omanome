@@ -11,7 +11,7 @@ function stateFromSystem(system) {
     airplane: value.airplane === true,
     volume: value.volumeMuted !== true,
     microphone: value.microphoneMuted !== true,
-    nightLight: value.nightLight === true,
+    nightLight: value.nightLightEnabled === true,
     dnd: value.dnd === true,
     rotationLock: value.rotationLock === true,
     recording: value.recording === true,

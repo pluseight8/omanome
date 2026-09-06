@@ -9,6 +9,9 @@ This repository is a runnable 0.2.0 baseline. It focuses on the parts that can b
 - An Omarchy Quattro manifest with `service`, `bar-widget`, and `panel` entry points. It never declares the replacement `bar` kind.
 - A compact Omanome bar widget that is added to the existing Omarchy layout like any other widget.
 - One lazy-loaded panel with Overview, workspaces, launcher, quick settings, OSK, clipboard, notifications, and settings views.
+- Capability-aware Quick Settings backed by live Wi-Fi/Bluetooth/PipeWire,
+  brightness, power-profile, battery, and optional night-light/recording
+  session probes; unavailable backends are visibly disabled.
 - An optional multi-monitor Dash-to-Dock style surface using layer-shell and native `DesktopEntries`/foreign-toplevel objects, persisted favorites, running indicators, context actions, configurable position/mode, and intelligent autohide guardrails.
 - Touch-sized active-window controls in tablet or hybrid mode.
 - Tablet-mode detection from Hyprland device inventory, adaptive desktop/tablet/hybrid modes, stylus capability inventory, and touch gesture keyword integration through Hyprland IPC.

@@ -9,6 +9,9 @@ Omanome — открытый набор улучшений рабочего ст
 - Manifest с `service`, `bar-widget` и `panel`; replacement-тип `bar` отсутствует.
 - Компактный Omanome widget в существующей панели Omarchy.
 - Единая ленивая панель: Overview, workspaces, launcher, Quick Settings, OSK, clipboard, notifications и Settings.
+- Quick Settings получает живое состояние Wi-Fi/Bluetooth/PipeWire, яркости,
+  профиля питания и батареи; отсутствующие backend явно отключаются, а не
+  заменяются локальными фиктивными переключателями.
 - Опциональный dock в стиле Dash-to-Dock на нескольких мониторах: избранное, running indicators, контекстные действия, configurable position/mode и intelligent autohide.
 - Определение touchscreen/stylus через Hyprland, режимы Automatic/Desktop/Tablet/Hybrid и применение touch-жестов через IPC.
 - English/Русский, профили, versioned config, import/export/reset и приватная история clipboard для текста/PNG.

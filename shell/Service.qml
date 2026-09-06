@@ -5,6 +5,7 @@ import qs.Commons
 import "models/Config.js" as Config
 import "models/Clipboard.js" as ClipboardModel
 import "models/I18n.js" as I18n
+import "models/QuickSettings.js" as QuickSettingsModel
 import "models/Stylus.js" as StylusModel
 
 // Omanome's one shared service. It is deliberately headless: all visible
@@ -46,7 +47,10 @@ Item {
   property bool clipboardWatching: false
   property string captureScript: ""
   property var notificationService: null
-  property var quickState: ({ wifi: true, bluetooth: true, airplane: false, volume: true, microphone: true, nightLight: false, dnd: false, rotationLock: false, recording: false })
+  property var quickState: ({ wifi: false, bluetooth: false, airplane: false, volume: true, microphone: true, nightLight: false, dnd: false, rotationLock: false, recording: false, powerProfile: "balanced" })
+  property var systemState: ({ wifiAvailable: false, wifiEnabled: false, wifiConnected: false, airplane: false, wifiSsid: "", wifiSignal: -1, bluetoothAvailable: false, bluetoothPowered: false, volumeAvailable: false, volume: 0, volumeMuted: false, microphoneAvailable: false, microphoneVolume: 0, microphoneMuted: false, brightnessAvailable: false, brightness: 0, powerProfileAvailable: false, powerProfile: "balanced", batteryAvailable: false, batteryPercent: -1, batteryState: "unknown", nightLightAvailable: false, nightLightEnabled: false, dndAvailable: false, dnd: false, rotationAvailable: false, rotationLock: false, recordingAvailable: false, recording: false })
+  property var wifiNetworks: []
+  property var bluetoothDevices: []
 
   signal stateUpdated()
   signal configUpdated(string path)
@@ -177,6 +181,104 @@ Item {
 
   function parseJson(text, fallback) {
     try { return JSON.parse(String(text || "")) } catch (error) { return fallback }
+  }
+
+  function refreshSystemState() {
+    if (!systemStateProcess.running) systemStateProcess.running = true
+  }
+
+  function updateSystemState(raw) {
+    var parsed = root.parseJson(raw, null)
+    if (!parsed || typeof parsed !== "object") {
+      root.lastError = "Quick Settings backend returned invalid state"
+      return
+    }
+    var next = {}
+    for (var key in parsed) next[key] = parsed[key]
+    next.rotationLock = root.cfg("rotation.lock", false) === true
+    next.recording = recorderProcess.running || parsed.recording === true
+    next.nightLightEnabled = nightLightProcess.running || parsed.nightLightEnabled === true
+    var notification = root.notificationService
+    next.dndAvailable = Boolean(notification && typeof notification.setDoNotDisturb === "function")
+    if (next.dndAvailable && notification && notification.doNotDisturb !== undefined)
+      next.dnd = Boolean(notification.doNotDisturb)
+    root.systemState = next
+    root.quickState = QuickSettingsModel.stateFromSystem(next)
+    root.stateRevision++
+    root.stateUpdated()
+  }
+
+  function scanWifi() {
+    if (!wifiScanProcess.running) wifiScanProcess.running = true
+  }
+
+  function updateWifiScan(raw) {
+    var parsed = root.parseJson(raw, [])
+    root.wifiNetworks = Array.isArray(parsed) ? parsed : []
+    root.stateRevision++
+    root.stateUpdated()
+  }
+
+  function scanBluetooth() {
+    if (!bluetoothScanProcess.running) bluetoothScanProcess.running = true
+  }
+
+  function updateBluetoothScan(raw) {
+    var parsed = root.parseJson(raw, [])
+    root.bluetoothDevices = Array.isArray(parsed) ? parsed : []
+    root.stateRevision++
+    root.stateUpdated()
+  }
+
+  function connectWifi(ssid, password) {
+    var network = String(ssid || "")
+    if (!network || !root.systemState.wifiAvailable) return false
+    var args = ["nmcli", "device", "wifi", "connect", network]
+    var secret = String(password || "")
+    if (secret) args.push("password", secret)
+    var started = root.execute(args)
+    if (started) systemRefresh.restart()
+    return started
+  }
+
+  function connectBluetooth(address) {
+    var mac = String(address || "")
+    if (!mac || !root.systemState.bluetoothAvailable) return false
+    var started = root.execute(["bluetoothctl", "connect", mac])
+    if (started) systemRefresh.restart()
+    return started
+  }
+
+  function disconnectBluetooth(address) {
+    var mac = String(address || "")
+    if (!mac || !root.systemState.bluetoothAvailable) return false
+    var started = root.execute(["bluetoothctl", "disconnect", mac])
+    if (started) systemRefresh.restart()
+    return started
+  }
+
+  function setVolume(value) {
+    if (!root.systemState.volumeAvailable) return false
+    var level = Math.max(0, Math.min(150, Math.round(Number(value) * 100)))
+    var started = root.execute(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", level + "%"])
+    if (started) systemRefresh.restart()
+    return started
+  }
+
+  function setMicrophoneVolume(value) {
+    if (!root.systemState.microphoneAvailable) return false
+    var level = Math.max(0, Math.min(150, Math.round(Number(value) * 100)))
+    var started = root.execute(["wpctl", "set-volume", "@DEFAULT_AUDIO_SOURCE@", level + "%"])
+    if (started) systemRefresh.restart()
+    return started
+  }
+
+  function setBrightness(value) {
+    if (!root.systemState.brightnessAvailable) return false
+    var level = Math.max(0, Math.min(100, Math.round(Number(value))))
+    var started = root.execute(["brightnessctl", "set", level + "%"])
+    if (started) systemRefresh.restart()
+    return started
   }
 
   function refreshDevices() {
@@ -442,35 +544,65 @@ Item {
 
   function quickAction(name) {
     var key = String(name || "")
-    var next = {}
-    for (var existing in root.quickState) next[existing] = root.quickState[existing]
-    var value = !Boolean(next[key])
-    next[key] = value
-    root.quickState = next
-    if (key === "wifi") root.execute(["nmcli", "radio", "wifi", value ? "on" : "off"])
-    else if (key === "bluetooth") root.execute(["bluetoothctl", "power", value ? "on" : "off"])
-    else if (key === "airplane") root.execute(["nmcli", "radio", "all", value ? "on" : "off"])
-    else if (key === "volume") root.execute(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", value ? "0" : "1"])
-    else if (key === "microphone") root.execute(["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", value ? "0" : "1"])
-    else if (key === "nightLight") root.execute(["hyprctl", "hyprsunset", "temperature", value ? "4000" : "6500"])
-    else if (key === "powerProfile") root.execute(["powerprofilesctl", "set", value ? "performance" : "power-saver"])
-    else if (key === "rotationLock") root.setConfig("rotation.lock", value)
-    else if (key === "dnd") {
+    var current = root.quickState[key]
+    var value = !Boolean(current)
+    var started = false
+    if (key === "wifi") {
+      if (!root.systemState.wifiAvailable) { root.lastError = "Wi-Fi backend unavailable"; return false }
+      started = root.execute(["nmcli", "radio", "wifi", root.systemState.wifiEnabled ? "off" : "on"])
+    } else if (key === "bluetooth") {
+      if (!root.systemState.bluetoothAvailable) { root.lastError = "Bluetooth backend unavailable"; return false }
+      started = root.execute(["bluetoothctl", "power", root.systemState.bluetoothPowered ? "off" : "on"])
+    } else if (key === "airplane") {
+      if (!root.systemState.wifiAvailable) { root.lastError = "Radio backend unavailable"; return false }
+      started = root.execute(["nmcli", "radio", "all", root.systemState.airplane ? "on" : "off"])
+    } else if (key === "volume") {
+      if (!root.systemState.volumeAvailable) { root.lastError = "Audio backend unavailable"; return false }
+      started = root.execute(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", root.systemState.volumeMuted ? "0" : "1"])
+    } else if (key === "microphone") {
+      if (!root.systemState.microphoneAvailable) { root.lastError = "Microphone backend unavailable"; return false }
+      started = root.execute(["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", root.systemState.microphoneMuted ? "0" : "1"])
+    } else if (key === "nightLight") {
+      if (!root.systemState.nightLightAvailable) { root.lastError = "Night-light backend unavailable"; return false }
+      if (nightLightProcess.running) nightLightProcess.running = false
+      else { nightLightProcess.command = ["hyprsunset", "--temperature", "4000"]; nightLightProcess.running = true }
+      started = true
+    } else if (key === "powerProfile") {
+      if (!root.systemState.powerProfileAvailable) { root.lastError = "Power-profile backend unavailable"; return false }
+      var profile = QuickSettingsModel.cyclePowerProfile(root.systemState.powerProfile)
+      started = root.execute(["powerprofilesctl", "set", profile])
+    } else if (key === "rotationLock") {
+      if (!root.systemState.rotationAvailable) { root.lastError = "Rotation backend unavailable"; return false }
+      root.setConfig("rotation.lock", value)
+      started = true
+    } else if (key === "dnd") {
       var notification = root.notificationService
-      if (notification && typeof notification.setDoNotDisturb === "function") notification.setDoNotDisturb(value)
-    }
-    else if (key === "lock") root.execute(["loginctl", "lock-session"])
-    else if (key === "screenshot") Util.execDetached("mkdir -p \"$HOME/Pictures/Screenshots\" && grim \"$HOME/Pictures/Screenshots/omanome-$(date +%Y%m%d-%H%M%S).png\"")
-    else if (key === "recording") {
-      if (value) {
+      if (!notification || typeof notification.setDoNotDisturb !== "function") { root.lastError = "Do-not-disturb backend unavailable"; return false }
+      notification.setDoNotDisturb(value)
+      started = true
+    } else if (key === "lock") {
+      started = root.execute(["loginctl", "lock-session"])
+    } else if (key === "screenshot") {
+      Util.execDetached("mkdir -p \"$HOME/Pictures/Screenshots\" && grim \"$HOME/Pictures/Screenshots/omanome-$(date +%Y%m%d-%H%M%S).png\"")
+      started = true
+    } else if (key === "recording") {
+      if (recorderProcess.running) recorderProcess.running = false
+      else {
         recorderProcess.command = ["bash", "-c", "mkdir -p \"$HOME/Videos/Screencasts\"; exec wf-recorder -f \"$HOME/Videos/Screencasts/omanome-$(date +%Y%m%d-%H%M%S).mkv\""]
         recorderProcess.running = true
-      } else if (recorderProcess.running) recorderProcess.running = false
+      }
+      started = true
+    } else if (key === "forceQuit") {
+      started = root.execute(["hyprctl", "kill"])
+    } else {
+      return false
     }
-    else if (key === "forceQuit") root.execute(["hyprctl", "kill"])
-    root.stateRevision++
-    root.stateUpdated()
-    return value
+    if (started) {
+      root.stateRevision++
+      root.stateUpdated()
+      systemRefresh.restart()
+    }
+    return started
   }
 
   function applyHyprSetting(path, value) {
@@ -541,6 +673,35 @@ Item {
   }
 
   Process {
+    id: systemStateProcess
+    command: ["bash", root.sourcePath("input/system-state.sh")]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateSystemState(text) }
+    onExited: function(exitCode) {
+      if (exitCode !== 0) root.lastError = "Quick Settings state probe failed"
+    }
+  }
+
+  Process {
+    id: wifiScanProcess
+    command: ["bash", root.sourcePath("input/wifi-scan.sh")]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateWifiScan(text) }
+  }
+
+  Process {
+    id: bluetoothScanProcess
+    command: ["bash", root.sourcePath("input/bluetooth-scan.sh")]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateBluetoothScan(text) }
+  }
+
+  Process {
+    id: nightLightProcess
+    command: ["hyprsunset", "--temperature", "4000"]
+    onExited: {
+      root.refreshSystemState()
+    }
+  }
+
+  Process {
     id: wtypeCheck
     command: ["bash", "-c", "command -v wtype >/dev/null 2>&1"]
     onExited: function(exitCode) { root.wtypeAvailable = exitCode === 0 }
@@ -596,6 +757,14 @@ Item {
   }
 
   Timer {
+    id: systemRefresh
+    interval: 4000
+    repeat: true
+    running: root.configReady
+    onTriggered: root.refreshSystemState()
+  }
+
+  Timer {
     id: initialConfigSave
     interval: 300
     repeat: false
@@ -647,6 +816,7 @@ Item {
     root.refreshIntegrations()
     root.ensureDirectories()
     root.refreshDevices()
+    root.refreshSystemState()
     wtypeCheck.running = true
   }
 }

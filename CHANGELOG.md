@@ -16,6 +16,9 @@
 - Uses the existing Omarchy bar through a namespaced, optional `bar-widget`.
 - Adds a single-process service and panel for overview, launcher, quick settings,
   clipboard history, and a Wayland-native `wtype` keyboard surface.
+- Quick Settings now reads live Wi-Fi, Bluetooth, PipeWire, brightness,
+  power-profile, battery, night-light, and recording capabilities; network
+  discovery and controls are disabled cleanly when their backend is absent.
 - Adds an optional multi-monitor dock, touch-sized active-window controls, and a
   notification-center view backed by Omarchy's existing notification service.
 - Adds versioned configuration, migrations, diagnostics, rollback, and safe-mode

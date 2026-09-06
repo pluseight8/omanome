@@ -27,6 +27,11 @@ The only global IPC name is `io.omanome.shell`. The service owns configuration m
 - Omarchy's first-party notification service for DND/history/popups;
 - `PanelWindow`/`WlrLayershell` for non-exclusive overlays.
 
+Quick Settings uses one coalesced session probe (`input/system-state.sh`) and
+small on-demand Wi-Fi/Bluetooth scanners. Those scripts return JSON snapshots;
+the QML service never keeps a guessed local toggle as the source of truth and
+marks unavailable backends explicitly.
+
 The plugin is intentionally capability-aware. Missing `wtype`, `nmcli`, Bluetooth, brightness, screenshot, sensor, or optional compositor support disables only the affected action.
 
 ## Compatibility rules
