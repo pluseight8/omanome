@@ -828,7 +828,8 @@ Item {
 
   function statusObject() {
     return {
-      version: root.manifest ? String(root.manifest.version || "0.1.0") : "0.1.0",
+      version: root.manifest ? String(root.manifest.version || "0.4.0") : "0.4.0",
+      quickshell: String(Quickshell.env("QUICKSHELL_VERSION") || "host-provided"),
       service: "ready",
       safeMode: root.safeMode,
       mode: root.detectedMode,

@@ -2,7 +2,7 @@
 
 Omanome — открытый набор улучшений рабочего стола для актуального Omarchy Quattro на Hyprland. Он добавляет GNOME-подобный интерфейс для touchscreen и стилуса, но остаётся обычным Omarchy Shell Plugin: стандартная верхняя панель не заменяется, второй Quickshell не запускается, GNOME Shell и Mutter не нужны.
 
-Это запускаемая фаза версии 0.3.0. Реализованы возможности, для которых достаточно публичных API Omarchy/Quickshell/Hyprland. Функции, требующие ABI compositor, text-input/persistent input или handwriting backend, оставлены явными безопасными точками расширения, а не подменены фальшивыми скриншотами.
+Это запускаемая фаза версии 0.4.0. Ядро использует публичные API Omarchy/Quickshell/Hyprland, а дополнительные compositor-возможности подключаются только через явные version-aware companion boundaries. Если настоящего backend нет, функция остаётся явно недоступной, а не подменяется декоративной имитацией.
 
 ## Возможности
 
@@ -18,6 +18,12 @@ Omanome — открытый набор улучшений рабочего ст
 - Опциональный dock в стиле Dash-to-Dock на нескольких мониторах: избранное, running indicators, контекстные действия, configurable position/mode и intelligent autohide.
 - Определение touchscreen/stylus через Hyprland, режимы Automatic/Desktop/Tablet/Hybrid и применение touch-жестов через IPC.
 - English/Русский, профили, versioned config, import/export/reset и приватная история clipboard для текста/PNG.
+- Настоящий compositor-backed blur Omanome layer surfaces через Hyprland layer rules, с per-surface settings, adaptive quality и app-rule exclusions; стандартная панель Omarchy по умолчанию не изменяется.
+- Native foreign-toplevel Coverflow Alt-Tab с grouping/scope, общими animations и capability-gated live preview; в текущем окружении preview недоступен, потому что Quickshell не предоставляет texture provider.
+- Безопасный Force Quit: native close, PID-scoped TERM/KILL fallback, защита session-процессов и отмена без `pkill` по имени.
+- Clipboard 2.0: pin/search/text edit/tags/image preview/retention/max storage/per-app exclusions/clear-unpinned, password/secret MIME filtering и передача payload только через stdin.
+- Notification center с grouping, timestamps, actions, touch/stylus swipe dismiss, per-app mute и clear group/all на базе нативного Omarchy notification service.
+- Real Desktop Cube backend интегрируется через внешний `omarchy-desktop-cube`, если он загружен; wobbly остаётся fail-closed до появления совместимого native renderer.
 - Wayland-native OSK через `wtype`: English/Russian QWERTY, standard/floating/split/thumb/one-handed left/right, numeric/symbols/emoji/editing и handwriting canvas; есть toolbar, long-press alternates, key popup и configurable repeat.
 - Использование нативного Omarchy notification service для DND, истории и dismiss.
 - CLI для диагностики, включая `stylus-info`, `touch-info`, `sensor-info`, установки из GitHub, safe mode, обновления, rollback и удаления.
@@ -55,7 +61,7 @@ omarchy-shell shell toggle io.omanome.shell '{"view":"quicksettings"}'
 
 Можно назначить эти команды на пользовательские Hyprland keybindings. Omanome не перезаписывает занятые shortcuts молча.
 
-Конфигурация: `~/.config/omanome/config.json` (либо `$XDG_CONFIG_HOME/omanome/config.json`). Состояние и изображения clipboard: `$XDG_STATE_HOME/omanome`. Sensitive clipboard не сохраняется при `CLIPBOARD_STATE=sensitive`, password/secret MIME hints или Private mode; содержимое не попадает в логи и аргументы команд.
+Конфигурация: `~/.config/omanome/config.json` (либо `$XDG_CONFIG_HOME/omanome/config.json`). Состояние и изображения clipboard: `$XDG_STATE_HOME/omanome`. Sensitive/private clipboard не сохраняется при MIME hints `password`, `secret`, `credential`, `token`, `private-key`; содержимое не попадает в логи и аргументы команд.
 
 ## CLI
 
@@ -78,6 +84,9 @@ omanome stylus-info
 omanome touch-info
 omanome sensor-info
 omanome devices
+omanome effects
+omanome benchmark
+omanome companion status|doctor|build|install|rebuild|enable|disable
 omanome uninstall [--purge-settings] [--yes]
 ```
 
@@ -104,9 +113,13 @@ make check
 
 Подробности: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) и [`docs/TESTING.md`](docs/TESTING.md).
 
-## Ограничения
+## Границы 0.4 compositor и safety
 
-Публичные API текущих Omarchy/Hyprland не дают безопасного portable backend для настоящего compositor-level wobbly windows и 3D workspace cube. Omanome оставляет их выключенными и показывает причину, не загружая неприкреплённый Hyprland `.so`. Live thumbnails, автоматическое обнаружение focused text field, persistent input, handwriting recognition, stylus button-event mapping и полная persistence drag-and-drop app grid также ожидают отдельного backend. Весь основной shell при этом остаётся работоспособным.
+Blur применяется через Hyprland layer-rule IPC к namespace Omanome, а не рисуется как прозрачный прямоугольник. Coverflow работает с реальными Hyprland foreign-toplevel объектами и native activation. Live preview остаётся выключенным, пока активный Quickshell/companion не даст настоящий texture provider. Force Quit сначала вызывает native close выбранного окна и только затем использует выбранный numeric PID; session-процессы защищены, broadcast по имени не используется.
+
+Настоящий Desktop Cube подключается через отдельно сопровождаемый version-matched `omarchy-desktop-cube`, если он загружен; Omanome не дублирует его renderer. Без этого backend cube недоступен. Portable compositor-level wobbly renderer пока отсутствует, поэтому функция fail-closed. Omanome не анимирует screenshots и не загружает неприкреплённый Hyprland `.so`.
+
+Автоматическое обнаружение focused text field, persistent input, handwriting recognition, stylus button-event mapping и полная persistence drag-and-drop app grid по-прежнему требуют отдельного backend. Весь основной shell остаётся работоспособным без companion.
 
 ## Лицензия
 

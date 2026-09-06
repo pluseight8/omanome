@@ -194,6 +194,7 @@ class OmanomeProjectTests(unittest.TestCase):
             ROOT / "input/rotation-monitor.sh",
             ROOT / "input/sensor-info.sh",
             ROOT / "input/force-quit.sh",
+            ROOT / "input/companion-info.sh",
             ROOT / "input/audio-devices.sh",
         ):
             result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
@@ -243,6 +244,8 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertIn("HyprlandAPI::getHyprlandVersion", source)
         self.assertIn("companion_doctor_cmd", cli)
         self.assertIn("companion_enable_cmd", cli)
+        self.assertIn("companion_pending_marker", cli)
+        self.assertIn("load.pending", cli)
         self.assertNotIn("sudo pacman", cli)
         self.assertNotIn("LD_PRELOAD", source)
 
@@ -252,11 +255,26 @@ class OmanomeProjectTests(unittest.TestCase):
             "runtime:{abi:'same'},build:{abi:'same'},compatibility:{pluginVersion:'0.4.0'}," \
             "capabilities:{desktopCube:true}}; " \
             "const bad={...good,runtime:{abi:'new'},build:{abi:'old'}}; " \
-            "console.log(JSON.stringify({good:C.normalize(good),bad:C.normalize(bad),cube:C.effectAvailable(good,'desktopCube')}));"
+            "const crashed={...good,crashMarker:true}; "
+            "console.log(JSON.stringify({good:C.normalize(good),bad:C.normalize(bad),crashed:C.normalize(crashed),canLoad:C.canLoad(good),crashedCanLoad:C.canLoad(crashed),cube:C.effectAvailable(good,'desktopCube')}));"
         )
         self.assertTrue(result["good"]["compatible"])
         self.assertFalse(result["bad"]["compatible"])
+        self.assertTrue(result["canLoad"])
+        self.assertTrue(result["crashed"]["crashMarker"])
+        self.assertFalse(result["crashed"]["compatible"])
+        self.assertFalse(result["crashedCanLoad"])
         self.assertTrue(result["cube"])
+
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env.update({"HOME": temp, "XDG_STATE_HOME": temp + "/state", "XDG_CONFIG_HOME": temp + "/config", "XDG_DATA_HOME": temp + "/data"})
+            info = subprocess.run([str(ROOT / "input/companion-info.sh")], capture_output=True, text=True, env=env)
+        self.assertEqual(info.returncode, 0, info.stderr)
+        payload = json.loads(info.stdout)
+        for key in ("crashMarker", "safeMode", "abiMatch"):
+            self.assertIn(key, payload)
+            self.assertIsInstance(payload[key], bool)
 
     def test_effects_animation_and_rules_are_adaptive_without_fake_backends(self) -> None:
         result = self.run_node(

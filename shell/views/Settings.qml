@@ -74,7 +74,7 @@ Item {
           Row { spacing: Style.space(8); Repeater { model: ["Desktop", "Tablet", "Stylus", "Performance", "Battery Saver", "GNOME-like"]; delegate: ActionButton { required property string modelData; compact: true; text: modelData; checked: root.service.cfg("general.profile", "Desktop") === modelData; onClicked: root.service.applyProfile(modelData) } } }
           Row { spacing: Style.space(8); ActionButton { compact: true; text: "System"; checked: root.service.cfg("general.language", "system") === "system"; onClicked: root.service.setConfig("general.language", "system") } ActionButton { compact: true; text: "English"; checked: root.service.cfg("general.language", "system") === "en"; onClicked: root.service.setConfig("general.language", "en") } ActionButton { compact: true; text: "Русский"; checked: root.service.cfg("general.language", "system") === "ru"; onClicked: root.service.setConfig("general.language", "ru") } }
           ActionButton { width: parent.width; text: "Large UI"; subtitle: "Requires a host-wide Style token API; touch target size is available below"; checked: root.service.cfg("general.largeUi", false); usable: false }
-          ActionButton { width: parent.width; text: "Reduce motion"; subtitle: "Requires a host-wide animation policy API"; checked: root.service.cfg("general.reduceMotion", false); usable: false }
+          ActionButton { width: parent.width; text: "Reduce motion"; subtitle: "Simplifies coverflow, cube transitions and window effects"; checked: root.service.cfg("general.reduceMotion", false); onClicked: root.toggle("general.reduceMotion") }
         }
 
         Column {
@@ -126,7 +126,10 @@ Item {
           spacing: Style.space(10)
           visible: root.category === "notifications"
           ActionButton { width: parent.width; text: root.service.tr("notifications", "Notifications"); subtitle: root.service.cfg("notifications.enabled", true) ? "Native Omarchy notification service" : "Disabled"; checked: root.service.cfg("notifications.enabled", true); onClicked: root.toggle("notifications.enabled") }
-          ActionButton { width: parent.width; text: "Group by app"; subtitle: "Grouping is owned by Omarchy's native notification service"; checked: root.service.cfg("notifications.groupByApp", true); usable: false }
+          ActionButton { width: parent.width; text: "Group by app"; subtitle: "Omanome groups the native popup model without starting a daemon"; checked: root.service.cfg("notifications.groupByApp", true); onClicked: root.toggle("notifications.groupByApp") }
+          ActionButton { width: parent.width; text: "Timestamps"; checked: root.service.cfg("notifications.timestamps", true); onClicked: root.toggle("notifications.timestamps") }
+          ActionButton { width: parent.width; text: "Notification actions"; checked: root.service.cfg("notifications.actions", true); onClicked: root.toggle("notifications.actions") }
+          Text { text: "Maximum visible history: " + root.service.cfg("notifications.maxHistory", 200) + " · per-app mute is available from the center"; color: Color.muted; font.pixelSize: Style.font.caption }
           ActionButton { width: parent.width; text: root.service.tr("doNotDisturb", "Do not disturb"); subtitle: root.service.systemState.dndAvailable ? "Omarchy notification service" : "Notification backend unavailable"; checked: root.service.systemState.dnd === true; usable: root.service.systemState.dndAvailable === true; onClicked: root.service.setDoNotDisturb(!root.service.systemState.dnd) }
           Text { width: parent.width; text: "The notification center reuses Omarchy's native service; no second notification daemon is started."; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
         }
@@ -210,7 +213,9 @@ Item {
           visible: root.category === "clipboard" || root.category === "privacy"
           ActionButton { width: parent.width; text: root.service.tr("clipboard", "Clipboard"); subtitle: root.service.clipboardHistory.length + " entries · never logged"; checked: root.service.cfg("clipboard.enabled", true); onClicked: root.toggle("clipboard.enabled") }
           ActionButton { width: parent.width; text: root.service.tr("privateMode", "Private mode"); subtitle: "Stop capture and keep existing history"; checked: root.service.cfg("privacy.clipboardPrivate", false); onClicked: root.toggle("privacy.clipboardPrivate") }
-          ActionButton { width: parent.width; text: "Persist pinned only"; subtitle: "Requires pinning UI in a future history backend"; checked: root.service.cfg("clipboard.persistPinnedOnly", false); usable: false }
+          ActionButton { width: parent.width; text: "Persist pinned only"; subtitle: "Unpinned entries remain available until the session ends"; checked: root.service.cfg("clipboard.persistPinnedOnly", false); onClicked: root.toggle("clipboard.persistPinnedOnly") }
+          Text { text: "Retention: " + root.service.cfg("clipboard.retentionDays", 30) + " days · storage cap: " + root.service.cfg("clipboard.maxStorageMb", 256) + " MiB"; color: Color.muted; font.pixelSize: Style.font.caption }
+          ActionButton { width: parent.width; text: "Clear unpinned clipboard"; onClicked: root.service.clearClipboardUnpinned() }
           ActionButton { width: parent.width; text: "Clear clipboard history"; onClicked: root.service.clearClipboard() }
         }
 
@@ -218,10 +223,13 @@ Item {
           width: parent.width
           spacing: Style.space(10)
           visible: root.category === "effects" || root.category === "blur"
-          ActionButton { width: parent.width; text: "Blur surfaces"; subtitle: "Requires a version-pinned compositor blur companion; solid surfaces remain available"; checked: root.service.cfg("blur.enabled", true); usable: false }
-          ActionButton { width: parent.width; text: "Wobbly windows"; subtitle: root.service.tr("effectsUnavailable", "Optional compositor effects are disabled until a compatible companion is installed."); checked: false; usable: false }
-          ActionButton { width: parent.width; text: "Desktop cube"; subtitle: root.service.tr("effectsUnavailable", "Optional compositor effects are disabled until a compatible companion is installed."); checked: false; usable: false }
-          ActionButton { width: parent.width; text: "Reduce effects on battery"; subtitle: "Requires a compositor effects backend"; checked: root.service.cfg("effects.disableOnBattery", true); usable: false }
+          ActionButton { width: parent.width; text: "Blur surfaces"; subtitle: root.service.statusObject().effects.blur ? "Hyprland layer-rule compositor blur" : "Hyprland layer-rule backend unavailable"; checked: root.service.cfg("blur.enabled", true); usable: root.service.statusObject().effects.blur; onClicked: root.toggle("blur.enabled") }
+          ActionButton { width: parent.width; text: "Blur quality"; subtitle: root.service.cfg("blur.quality", "balanced"); checked: root.service.cfg("blur.quality", "balanced") !== "performance"; usable: root.service.statusObject().effects.blur; onClicked: { var q = root.service.cfg("blur.quality", "balanced"); root.service.setConfig("blur.quality", q === "balanced" ? "quality" : (q === "quality" ? "performance" : "balanced")) } }
+          Text { text: "Blur radius: " + root.service.cfg("blur.radius", 18) + " · passes: " + root.service.cfg("blur.passes", 2) + " · opacity: " + Math.round(root.service.cfg("blur.opacity", 0.9) * 100) + "%"; color: Color.muted; font.pixelSize: Style.font.caption }
+          ActionButton { width: parent.width; text: "Wobbly windows"; subtitle: root.service.statusObject().wobbly.reason; checked: root.service.statusObject().wobbly.enabled; usable: root.service.statusObject().wobbly.available; onClicked: root.toggle("wobbly.enabled") }
+          ActionButton { width: parent.width; text: "Desktop cube"; subtitle: root.service.statusObject().cube.reason; checked: root.service.statusObject().cube.enabled; usable: root.service.statusObject().cube.available; onClicked: root.toggle("cube.enabled") }
+          ActionButton { width: parent.width; text: "Reduce effects on battery"; subtitle: "Adaptive quality and reduced motion"; checked: root.service.cfg("effects.disableOnBattery", true); onClicked: root.toggle("effects.disableOnBattery") }
+          Text { width: parent.width; text: "Live previews: " + (root.service.statusObject().preview.available ? "available" : root.service.statusObject().preview.reason); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
         }
 
         Column {
@@ -231,15 +239,18 @@ Item {
           ActionButton { width: parent.width; text: root.service.tr("standardBar", "Standard Omarchy bar is preserved"); subtitle: "Omanome declares no replacement 'bar' kind"; checked: true; usable: false }
           ActionButton { width: parent.width; text: "Namespaced IPC"; subtitle: "io.omanome.shell · no shared singleton names"; checked: true; usable: false }
           ActionButton { width: parent.width; text: "Safe fallback"; subtitle: "Disable Omanome with omarchy plugin disable io.omanome.shell"; checked: true; usable: false }
+          Text { width: parent.width; text: "Companion: " + (root.service.companionState.installed ? "installed" : "not installed") + " · loaded: " + (root.service.companionState.loaded ? "yes" : "no") + " · ABI: " + (root.service.companionState.abiMatch ? "match" : "unavailable/mismatch") + (root.service.companionState.crashMarker ? " · previous load marker" : ""); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+          Text { width: parent.width; text: "Effects: blur " + (root.service.statusObject().effects.blur ? "yes" : "no") + " · wobbly " + (root.service.statusObject().effects.wobblyWindows ? "yes" : "no") + " · cube " + (root.service.statusObject().effects.desktopCube ? "yes" : "no") + " · preview " + (root.service.statusObject().preview.available ? "yes" : "no") + " · safe mode " + (root.service.safeMode ? "on" : "off"); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
         }
 
         Column {
           width: parent.width
           spacing: Style.space(10)
           visible: root.category === "about"
-          Text { text: "Omanome 0.3.0"; color: Color.accent; font.pixelSize: Style.font.title; font.bold: true }
+          Text { text: "Omanome 0.4.0"; color: Color.accent; font.pixelSize: Style.font.title; font.bold: true }
           Text { width: parent.width; text: "GNOME-inspired touch and stylus experience inside the existing Omarchy/Hyprland shell. It stays a single Omarchy plugin and never replaces the standard bar."; color: Color.foreground; font.pixelSize: Style.font.body; wrapMode: Text.WordWrap }
-          Text { width: parent.width; text: "Detected: Hyprland " + (root.service.hyprlandAvailable ? "yes" : "no") + " · touchscreen " + (root.service.hasTouchscreen ? "yes" : "no") + " · stylus " + (root.service.hasStylus ? "yes" : "no") + " · wtype " + (root.service.wtypeAvailable ? "yes" : "no"); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+          Text { width: parent.width; text: "Detected: Hyprland " + (root.service.hyprlandAvailable ? (root.service.effectBackend.runtime ? root.service.effectBackend.runtime.version : "yes") : "no") + " · Quickshell " + (root.service.statusObject().quickshell || "host-provided") + " · touchscreen " + (root.service.hasTouchscreen ? "yes" : "no") + " · stylus " + (root.service.hasStylus ? "yes" : "no") + " · wtype " + (root.service.wtypeAvailable ? "yes" : "no"); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+          Text { width: parent.width; text: "Companion installed " + (root.service.companionState.installed ? "yes" : "no") + " · loaded " + (root.service.companionState.loaded ? "yes" : "no") + " · ABI " + (root.service.companionState.runtime.abi || "unknown") + " · live preview " + (root.service.statusObject().preview.available ? "yes" : "no") + " · safe mode " + (root.service.safeMode ? "on" : "off"); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
           ActionButton { width: parent.width; text: root.service.tr("reset", "Reset"); subtitle: "Reset Omanome config only"; onClicked: root.service.resetConfig() }
         }
       }

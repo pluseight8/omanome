@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.0
+
+- Adds real Hyprland layer-rule blur for Omanome surfaces with per-surface
+  configuration, adaptive quality, fullscreen/battery policies, and app rules.
+- Adds native foreign-toplevel Coverflow Alt-Tab and shared animation/performance
+  models; live previews remain capability-gated until a real texture provider exists.
+- Adds compositor-only cube integration through the external `omarchy-desktop-cube`
+  API and keeps wobbly fail-closed without a compatible native renderer.
+- Adds safe Force Quit with native close, PID-scoped TERM/KILL fallback,
+  protected session processes, cancellation, and tests for the safety boundary.
+- Adds clipboard pinning, tags, text editing, image preview, retention/storage
+  controls, app exclusions, sensitive MIME filtering, and clear-unpinned.
+- Adds grouped native notification-center views with timestamps, actions,
+  swipe dismissal, per-app mute, and clear-group/all controls.
+- Adds companion ABI/crash-marker diagnostics, 0.4 Settings/About capability
+  reporting, effects/benchmark CLI diagnostics, and CI coverage.
+
 ## 0.3.0
 
 - Expands the Wayland OSK with standard, floating, split, thumb, left/right

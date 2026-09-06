@@ -2,7 +2,7 @@
 
 Omanome is an open-source, GNOME-inspired touch and stylus enhancement suite for the current Omarchy Quattro shell on Hyprland. It is intentionally an Omarchy plugin, not a replacement desktop session: the standard Omarchy bar remains in charge of the top edge, the existing Quickshell process hosts the plugin, and all plugin state is namespaced under `io.omanome.shell`.
 
-This repository is the runnable 0.3.0 phase. It focuses on the parts that can be implemented safely with the public Omarchy/Quickshell/Hyprland interfaces. Features that require a compositor ABI, text-input companion, persistent virtual input, or handwriting engine are explicit optional integration points rather than fake overlays.
+This repository is the runnable 0.4.0 phase. It uses public Omarchy/Quickshell/Hyprland interfaces for the core and explicit, version-aware optional compositor integrations for advanced effects. Features without a real backend remain visibly unavailable rather than becoming fake overlays.
 
 ## What is included
 
@@ -19,6 +19,12 @@ This repository is the runnable 0.3.0 phase. It focuses on the parts that can be
 - Touch-sized active-window controls in tablet or hybrid mode.
 - Tablet-mode detection from Hyprland device inventory, adaptive desktop/tablet/hybrid modes, stylus capability inventory, and touch gesture keyword integration through Hyprland IPC.
 - English/Russian UI strings, profiles, versioned configuration, import/export/reset, and privacy-aware clipboard history for text and PNG images.
+- Compositor-backed blur for Omanome layer surfaces through Hyprland layer rules, with per-surface settings, adaptive quality, battery/fullscreen policies, and application-rule exclusions. The standard Omarchy bar remains untouched by default.
+- Native foreign-toplevel Coverflow Alt-Tab with grouping, workspace scope, shared animations, and a capability-gated live-preview path; this environment reports previews unavailable because no real compositor texture provider is exposed.
+- Safe Force Quit mode with native close, PID-scoped TERM/KILL fallback, protected session processes, cancellation, and no name-based `pkill` behavior.
+- Clipboard 2.0 with pinning, search, text edit, tags, image preview, retention/storage limits, per-app exclusions, clear-unpinned, password/secret MIME filtering, private mode, and stdin-only payload handling.
+- Notification center grouping, timestamps, actions, touch/stylus swipe dismissal, per-app mute, and clear-group/all controls backed by Omarchy's native notification service.
+- Optional compositor capability boundary: Omanome integrates the real `omarchy-desktop-cube` API when loaded; wobbly remains fail-closed until a compatible native renderer exists.
 - A Wayland-native OSK surface driven by `wtype` (`virtual-keyboard-v1`), with English/Russian QWERTY, standard/floating/split/thumb/left-right one-handed layouts, numeric/symbols/emoji/editing layers, toolbar, key popup, long-press alternates, repeat settings, and a local handwriting canvas.
 - Integration with Omarchy's native notification service for DND, popups, history, and dismissal.
 - Diagnostics and lifecycle commands: status, doctor, logs, enable/disable, safe mode, devices, stylus-info, touch-info, sensor-info, GitHub install/update checks, rollback, and uninstall.
@@ -70,7 +76,7 @@ omarchy-shell shell toggle io.omanome.shell '{"view":"quicksettings"}'
 
 Use a user-owned Hyprland keybinding for those commands if desired. Omanome does not overwrite existing shortcuts silently.
 
-Configuration is stored at `~/.config/omanome/config.json` (or `$XDG_CONFIG_HOME/omanome/config.json`). Runtime state and clipboard images are stored below `$XDG_STATE_HOME/omanome`. Clipboard capture skips `CLIPBOARD_STATE=sensitive`, password/secret MIME hints, and private mode; payloads are never written to logs or command-line arguments.
+Configuration is stored at `~/.config/omanome/config.json` (or `$XDG_CONFIG_HOME/omanome/config.json`). Runtime state and clipboard images are stored below `$XDG_STATE_HOME/omanome`. Clipboard capture skips sensitive/private state and password, secret, credential, token, and private-key MIME hints; payloads are never written to logs or command-line arguments.
 
 ## CLI
 
@@ -95,6 +101,9 @@ omanome stylus-info
 omanome touch-info
 omanome sensor-info
 omanome devices
+omanome effects
+omanome benchmark
+omanome companion status|doctor|build|install|rebuild|enable|disable
 omanome uninstall [--purge-settings] [--yes]
 ```
 
@@ -126,9 +135,13 @@ The check runs repository validation, shell syntax checks, Python tests includin
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/TESTING.md`](docs/TESTING.md) for the plugin contract, coexistence rules, test matrix, and safe integration boundaries.
 
-## Deliberate limitations
+## 0.4 compositor and safety boundaries
 
-The current public Omarchy/Hyprland APIs do not provide a portable way for a third-party QML plugin to implement compositor-rendered wobbly windows or a true 3D workspace cube. Omanome leaves both disabled and reports why in Settings/status; it does not animate screenshots and does not load an unpinned Hyprland `.so`. Live window thumbnails, automatic text-field focus detection, persistent virtual input, local handwriting recognition, stylus button-event mapping, and full drag-and-drop app-grid persistence are likewise extension points until their corresponding public backend is selected. Auto-rotation remains manual-only when neither sensor backend is present.
+Blur is applied through Hyprland layer-rule IPC to Omanome namespaces; it is not a translucent-rectangle imitation. Coverflow selects real Hyprland foreign-toplevel objects and activates them through native APIs. Live previews stay disabled unless the running Quickshell/companion exposes an actual texture provider. Force Quit starts with the selected foreign window's native close request and only falls back to the selected numeric PID; session processes are protected and no process-name broadcast is used.
+
+The current public Omarchy/Hyprland APIs do not provide a portable third-party QML path for compositor-rendered wobbly windows. The true Desktop Cube is integrated through the separately maintained, version-matched `omarchy-desktop-cube` backend when it is loaded; Omanome does not duplicate its renderer. Without that external backend, cube controls remain unavailable. Omanome never animates screenshots and never loads an unpinned Hyprland `.so`.
+
+Automatic text-field focus detection, persistent virtual input, local handwriting recognition, stylus button-event mapping, and full drag-and-drop app-grid persistence remain extension points until their corresponding public backend is selected. Auto-rotation remains manual-only when neither sensor backend is present.
 
 These limitations are isolated: Omanome still loads without them, and `omanome safe-mode`/`omanome disable` returns to the normal Omarchy shell immediately.
 

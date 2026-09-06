@@ -20,6 +20,8 @@ companion_root="$repo_dir/hypr/omanome-hypr"
 companion_manifest="$companion_root/compatibility.json"
 companion_data_dir="$data_home/omanome/companion"
 companion_artifact="$companion_data_dir/omanome-hypr.so"
+companion_state_dir="$omanome_state_dir/companion"
+companion_pending_marker="$companion_state_dir/load.pending"
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'omanome: %s\n' "$*" >&2; exit 1; }
@@ -218,6 +220,10 @@ companion_doctor_cmd() {
   else
     say "INFO: companion is not installed; core Omanome remains fully available"
   fi
+  if [[ -f "$companion_pending_marker" ]]; then
+    say "FAIL: previous companion load did not complete; run 'omanome companion disable' or rebuild before enabling"
+    failed=1
+  fi
   if [[ -f "$omanome_config_dir/safe-mode" ]]; then
     say "WARN: Omanome safe mode marker disables companion loading"
   fi
@@ -247,6 +253,7 @@ companion_install_cmd() {
     '. + {hyprland:{version:$version,abi:$abi}}' \
     "$companion_data_dir/compatibility.json" >"$metadata"
   mv -f -- "$metadata" "$companion_data_dir/compatibility.json"
+  rm -f -- "$companion_pending_marker"
   say "Installed user-owned companion at $companion_artifact"
   say "No compositor module was loaded; run 'omanome companion enable' explicitly after reviewing the artifact."
 }
@@ -256,19 +263,31 @@ companion_rebuild_cmd() {
 }
 
 companion_enable_cmd() {
+  ensure_dirs
   [[ ! -f "$omanome_config_dir/safe-mode" ]] || die "Omanome safe mode is active; run 'omanome enable' first"
+  [[ ! -f "$companion_pending_marker" ]] || die "previous companion load did not complete; run 'omanome companion disable' or 'omanome companion rebuild' first"
   [[ -f "$companion_artifact" ]] || die "companion is not installed; run 'omanome companion install'"
   companion_doctor_cmd || die "companion is not compatible with the running Hyprland"
   has hyprctl || die "hyprctl is unavailable"
-  hyprctl plugin load "$companion_artifact"
+  mkdir -p -- "$companion_state_dir"
+  : >"$companion_pending_marker"
+  if ! hyprctl plugin load "$companion_artifact"; then
+    say "Companion load failed; marker kept so the next startup will not retry it automatically."
+    return 1
+  fi
+  if ! hyprctl plugins list 2>/dev/null | grep -Fq 'omanome-hypr'; then
+    say "Companion load was not confirmed; marker kept and the core remains usable."
+    return 1
+  fi
+  rm -f -- "$companion_pending_marker"
   say "Requested load of the version-matched Omanome companion."
 }
 
 companion_disable_cmd() {
-  if ! has hyprctl; then return 0; fi
-  if [[ -f "$companion_artifact" ]]; then
+  if has hyprctl && [[ -f "$companion_artifact" ]]; then
     hyprctl plugin unload "$companion_artifact" >/dev/null 2>&1 || true
   fi
+  rm -f -- "$companion_pending_marker"
   say "Omanome companion disabled (if it was loaded)."
 }
 

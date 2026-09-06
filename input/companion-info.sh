@@ -8,6 +8,10 @@ user_home="${HOME:-}"
 data_home="${XDG_DATA_HOME:-$user_home/.local/share}"
 install_dir="$data_home/omanome/companion"
 artifact="$install_dir/omanome-hypr.so"
+state_home="${XDG_STATE_HOME:-$user_home/.local/state}"
+config_home="${XDG_CONFIG_HOME:-$user_home/.config}"
+pending_marker="$state_home/omanome/companion/load.pending"
+safe_mode_marker="$config_home/omanome/safe-mode"
 
 json_bool() {
   [[ "$1" == "1" ]] && printf true || printf false
@@ -29,6 +33,10 @@ fi
 built=0
 [[ -f "$artifact" ]] && built=1
 installed="$built"
+crash_marker=false
+safe_mode=false
+[[ -f "$pending_marker" ]] && crash_marker=true
+[[ -f "$safe_mode_marker" ]] && safe_mode=true
 
 protocol="0"
 plugin_version="unknown"
@@ -48,7 +56,9 @@ if [[ "$runtime_abi" != "unknown" && "$build_abi" != "unknown" && "$runtime_abi"
 fi
 
 reason="companion unavailable"
-if [[ "$loaded" -eq 1 && "$abi_match" -eq 1 ]]; then reason="compatible and loaded"
+if [[ "$crash_marker" == true ]]; then reason="previous load did not complete; explicit disable or rebuild is required"
+elif [[ "$safe_mode" == true ]]; then reason="Omanome safe mode is active"
+elif [[ "$loaded" -eq 1 && "$abi_match" -eq 1 ]]; then reason="compatible and loaded"
 elif [[ "$loaded" -eq 1 ]]; then reason="loaded state could not be matched to the current ABI"
 elif [[ "$built" -eq 1 ]]; then reason="installed but not loaded"
 elif ! command -v hyprctl >/dev/null 2>&1; then reason="Hyprland IPC unavailable"
@@ -60,9 +70,11 @@ jq -n \
   --arg buildAbi "$build_abi" \
   --arg pluginVersion "$plugin_version" \
   --arg reason "$reason" \
+  --argjson crashMarker "$crash_marker" \
+  --argjson safeMode "$safe_mode" \
   --argjson protocolVersion "$protocol" \
   --argjson installed "$(json_bool "$installed")" \
   --argjson built "$(json_bool "$built")" \
   --argjson loaded "$(json_bool "$loaded")" \
   --argjson abiMatch "$(json_bool "$abi_match")" \
-  '{protocolVersion:$protocolVersion,pluginVersion:$pluginVersion,installed:$installed,built:$built,loaded:$loaded,abiMatch:$abiMatch,reason:$reason,runtime:{version:$runtimeVersion,abi:$runtimeAbi},build:{abi:$buildAbi},capabilities:{blur:false,livePreview:false,wobblyWindows:false,desktopCube:false}}'
+  '{protocolVersion:$protocolVersion,pluginVersion:$pluginVersion,installed:$installed,built:$built,loaded:$loaded,abiMatch:$abiMatch,crashMarker:$crashMarker,safeMode:$safeMode,reason:$reason,runtime:{version:$runtimeVersion,abi:$runtimeAbi},build:{abi:$buildAbi},capabilities:{blur:false,livePreview:false,wobblyWindows:false,desktopCube:false}}'

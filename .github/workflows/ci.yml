@@ -29,6 +29,9 @@ jobs:
       - name: Verify safety invariants
         run: |
           ! grep -RIn --exclude-dir=.git --exclude='*.md' 'xdotool\|gnome-shell[[:space:]]*--replace' .
+          ! grep -RIn --exclude-dir=.git --exclude='*.md' 'pkill\|killall' shell input cli
+          test -x input/force-quit.sh
+          grep -Fq 'companion_pending_marker' cli/omanome
           python3 - <<'PY'
           import json
           manifest = json.load(open("manifest.json", encoding="utf-8"))

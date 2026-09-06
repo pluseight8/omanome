@@ -20,18 +20,20 @@ function normalize(snapshot) {
   var installed = boolValue(source.installed)
   var loaded = boolValue(source.loaded)
   var safeMode = boolValue(source.safeMode)
+  var crashMarker = boolValue(source.crashMarker)
   var protocolVersion = Number(source.protocolVersion || compatibility.protocolVersion || 0)
   var runtimeAbi = stringValue(runtime.abi, source.runtimeAbi)
   var buildAbi = stringValue(build.abi, source.buildAbi)
   var abiMatch = boolValue(source.abiMatch) || Boolean(runtimeAbi && buildAbi && runtimeAbi === buildAbi)
   var pluginVersion = stringValue(source.pluginVersion, compatibility.pluginVersion)
   var versionMatch = boolValue(source.versionMatch) || !compatibility.pluginVersion || Boolean(pluginVersion && pluginVersion === stringValue(compatibility.pluginVersion))
-  var compatible = !safeMode && installed && loaded && protocolVersion === 1 && abiMatch && versionMatch
+  var compatible = !safeMode && !crashMarker && installed && loaded && protocolVersion === 1 && abiMatch && versionMatch
   return {
     installed: installed,
     built: boolValue(source.built),
     loaded: loaded,
     safeMode: safeMode,
+    crashMarker: crashMarker,
     protocolVersion: protocolVersion,
     pluginVersion: pluginVersion || "unknown",
     runtime: { version: stringValue(runtime.version, "unknown"), abi: runtimeAbi || "unknown" },
@@ -51,7 +53,7 @@ function normalize(snapshot) {
 
 function canLoad(snapshot) {
   var state = normalize(snapshot)
-  return state.installed && state.built && !state.safeMode && state.protocolVersion === 1 && state.abiMatch && state.versionMatch
+  return state.installed && state.built && !state.safeMode && !state.crashMarker && state.protocolVersion === 1 && state.abiMatch && state.versionMatch
 }
 
 function effectAvailable(snapshot, name) {

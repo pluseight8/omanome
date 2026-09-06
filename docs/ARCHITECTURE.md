@@ -16,7 +16,7 @@ The manifest deliberately has no `bar` kind. The plugin therefore cannot become 
 
 The Omarchy shell creates the service and injects `shell` and `manifest`. The panel is created by the existing panel loader. Dock and window controls are QML `Loader` children of the service and use layer-shell `PanelWindow`; they are not separate Quickshell processes.
 
-The only global IPC name is `io.omanome.shell`. The service owns configuration migration and persistence at `XDG_CONFIG_HOME/omanome/config.json`. Clipboard state is separate below `XDG_STATE_HOME/omanome`, with images content-addressed by SHA-256. Clipboard capture uses stdin and JSON records; secrets are never put in process arguments or diagnostic output.
+The only global IPC name is `io.omanome.shell`. The service owns configuration migration and persistence at `XDG_CONFIG_HOME/omanome/config.json`. Clipboard state is separate below `XDG_STATE_HOME/omanome`, with images content-addressed by SHA-256. Clipboard capture uses stdin and JSON records; sensitive MIME hints are rejected before persistence, and secrets are never put in process arguments or diagnostic output. Pinning, tags, retention, storage limits, and per-app exclusions are applied by `shell/models/Clipboard.js`.
 
 ## Public APIs used
 
@@ -24,7 +24,7 @@ The only global IPC name is `io.omanome.shell`. The service owns configuration m
 - `ToplevelManager` and `Hyprland.workspaces` for overview and active-window controls;
 - `hyprctl ... -j` and `hyprctl keyword` for device discovery and stable compositor IPC;
 - `wtype` for the optional virtual-keyboard-v1 insertion path;
-- Omarchy's first-party notification service for DND/history/popups;
+- Omarchy's first-party notification service for DND/history/popups; Omanome only groups and presents its native popup model and never starts a second notification daemon;
 - `PanelWindow`/`WlrLayershell` for non-exclusive overlays.
 
 Quick Settings uses one coalesced session probe (`input/system-state.sh`) and
@@ -41,7 +41,7 @@ one batch and a failed batch triggers a rollback batch. Sensor rotation is a
 persistent event stream: `monitor-sensor` is preferred and
 `net.hadess.SensorProxy` D-Bus signals are the fallback.
 
-The plugin is intentionally capability-aware. Missing `wtype`, `nmcli`, Bluetooth, brightness, screenshot, sensor, persistent input, or optional compositor support disables only the affected action.
+The plugin is intentionally capability-aware. Missing `wtype`, `nmcli`, Bluetooth, brightness, screenshot, sensor, persistent input, compositor blur, live preview, or optional effect support disables only the affected action. Force Quit is a separate PID-scoped safety path: it starts with native foreign-toplevel close and rejects protected session processes.
 
 ## Compatibility rules
 
@@ -49,4 +49,4 @@ The standard bar remains untouched except for a normal registered `bar-widget`, 
 
 ## Companion boundary
 
-`hypr/README.md`, `input/README.md`, and `stylus/README.md` document the boundaries for future companions. A real wobbly renderer or workspace cube must be version-pinned to a compatible Hyprland ABI and fail closed. Until that companion exists, the settings report those effects as unavailable instead of displaying a QML imitation of a compositor transform.
+`hypr/README.md`, `input/README.md`, and `stylus/README.md` document the boundaries for future companions. The optional `omanome-hypr` handshake is exact-ABI and protocol-version aware; a pending load marker blocks an automatic retry after an incomplete load. The real external `omarchy-desktop-cube` backend is detected and called through its documented Lua API, while wobbly remains fail-closed until a compatible native renderer exists. Settings report these states instead of displaying a QML imitation of a compositor transform.
