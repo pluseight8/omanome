@@ -310,6 +310,22 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertEqual(result["next"], 0)
         self.assertGreater(result["visual"]["rotation"], 0)
 
+        cube = self.run_node(
+            "const C=require('./shell/models/Cube.js'); const W=require('./shell/models/Wobbly.js'); "
+            "console.log(JSON.stringify({lua:C.lua('workspace','left'),bad:C.lua('workspace','other'),nan:C.lua('select',NaN),"
+            "cube:C.state({enabled:true},{desktopCube:true,desktopCubeBackend:'omarchy-desktop-cube'}),"
+            "wobbly:W.state({enabled:true},{wobblyWindows:false},{appId:'steam',fullscreen:false})}));"
+        )
+        self.assertEqual(cube["lua"], 'hl.plugin.desktop_cube.workspace("left")')
+        self.assertEqual(cube["bad"], "")
+        self.assertEqual(cube["nan"], "")
+        self.assertTrue(cube["cube"]["available"])
+        self.assertFalse(cube["wobbly"]["enabled"])
+
+        cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")
+        self.assertIn("effects_cmd", cli)
+        self.assertIn("benchmark_cmd", cli)
+
     def test_touch_policy_separates_fullscreen_conflicts_and_target_sizes(self) -> None:
         result = self.run_node(
             "const T=require('./shell/models/Touch.js'); const config={enabled:true,disableOnFullscreen:true,conflictPolicy:'disable-fullscreen',fullscreenAllowList:[]}; "

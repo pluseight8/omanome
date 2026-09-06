@@ -8,6 +8,8 @@ import "models/Companion.js" as CompanionModel
 import "models/Effects.js" as EffectsModel
 import "models/Performance.js" as PerformanceModel
 import "models/AppRules.js" as AppRulesModel
+import "models/Cube.js" as CubeModel
+import "models/Wobbly.js" as WobblyModel
 import "models/I18n.js" as I18n
 import "models/QuickSettings.js" as QuickSettingsModel
 import "models/Stylus.js" as StylusModel
@@ -163,6 +165,31 @@ Item {
     var result = root.surfaceBlur(surface)
     return result.enabled === true && result.backendAvailable === true
   }
+
+  function cubeState() {
+    return CubeModel.state(root.cfg("cube", {}), root.effectCapabilities)
+  }
+
+  function wobblyState() {
+    return WobblyModel.state(root.cfg("wobbly", {}), root.effectCapabilities, root.activeClient())
+  }
+
+  function cubeEval(action, value) {
+    var state = root.cubeState()
+    var expression = CubeModel.lua(action, value)
+    if (!state.available || !expression) {
+      root.lastError = state.reason
+      return false
+    }
+    return root.execute(["hyprctl", "eval", expression])
+  }
+
+  function cubeToggle() { return root.cubeEval("toggle") }
+  function cubeOverview(visible) { return root.cubeEval("overview", Boolean(visible)) }
+  function cubeRotate(direction) { return root.cubeEval("rotate", direction) }
+  function cubePitch(value) { return root.cubeEval("pitch", value) }
+  function cubeWorkspace(direction) { return root.cubeEval("workspace", direction) }
+  function cubeSelect(index) { return root.cubeEval("select", index) }
 
   function applyBlurRules() {
     if (!root.hyprlandAvailable || root.effectBackend.layerRulesAvailable !== true) return false
@@ -736,6 +763,8 @@ Item {
         backend: root.effectBackend.backend || "none",
         reason: root.effectBackend.livePreviewReason || root.companionState.reason || "Effect backend unavailable"
       },
+      wobbly: root.wobblyState(),
+      cube: root.cubeState(),
       performance: root.performanceState,
       preview: {
         available: root.effectBackend.livePreviewAvailable === true,
@@ -1016,6 +1045,8 @@ Item {
         recorderProcess.running = true
       }
       started = true
+    } else if (key === "desktopCube" || key === "cube") {
+      started = root.cubeToggle()
     } else if (key === "forceQuit") {
       started = root.execute(["hyprctl", "kill"])
     } else {
@@ -1305,6 +1336,13 @@ Item {
     function reload(): string { root.refreshDevices(); return "ok" }
     function recordInput(kind: string): string { root.recordInput(kind); return root.detectedMode }
     function quickAction(action: string): string { return root.quickAction(action) ? "on" : "off" }
+    function cube(action: string): string {
+      var value = String(action || "toggle")
+      if (value === "toggle") return root.cubeToggle() ? "ok" : "unavailable"
+      if (value === "left" || value === "right" || value === "previous" || value === "next") return root.cubeWorkspace(value) ? "ok" : "unavailable"
+      if (value === "overview") return root.cubeOverview(true) ? "ok" : "unavailable"
+      return "invalid"
+    }
   }
 
   Component.onCompleted: {

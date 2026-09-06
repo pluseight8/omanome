@@ -25,7 +25,7 @@ function normalize(snapshot) {
   var buildAbi = stringValue(build.abi, source.buildAbi)
   var abiMatch = boolValue(source.abiMatch) || Boolean(runtimeAbi && buildAbi && runtimeAbi === buildAbi)
   var pluginVersion = stringValue(source.pluginVersion, compatibility.pluginVersion)
-  var versionMatch = boolValue(source.versionMatch) || Boolean(pluginVersion && pluginVersion === stringValue(compatibility.pluginVersion))
+  var versionMatch = boolValue(source.versionMatch) || !compatibility.pluginVersion || Boolean(pluginVersion && pluginVersion === stringValue(compatibility.pluginVersion))
   var compatible = !safeMode && installed && loaded && protocolVersion === 1 && abiMatch && versionMatch
   return {
     installed: installed,

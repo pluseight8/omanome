@@ -274,7 +274,7 @@ companion_disable_cmd() {
 
 setup_cmd() {
   ensure_dirs
-  chmod +x -- "$repo_dir/cli/omanome" "$repo_dir/input/clipboard-capture.sh" "$repo_dir/input/sensor-info.sh" "$repo_dir/input/companion-info.sh" 2>/dev/null || true
+  chmod +x -- "$repo_dir/cli/omanome" "$repo_dir/input/clipboard-capture.sh" "$repo_dir/input/sensor-info.sh" "$repo_dir/input/companion-info.sh" "$repo_dir/input/effects-info.sh" 2>/dev/null || true
   cat <<'EOF'
 Omanome setup is user-only and never invokes sudo.
 
@@ -517,6 +517,27 @@ sensor_info_cmd() {
   "$repo_dir/input/sensor-info.sh" | jq .
 }
 
+effects_cmd() {
+  [[ -x "$repo_dir/input/effects-info.sh" ]] || die "effect diagnostics are unavailable"
+  "$repo_dir/input/effects-info.sh" | jq .
+}
+
+benchmark_cmd() {
+  local layers="unavailable"
+  local clients="unavailable"
+  if has hyprctl; then
+    layers="$(hyprctl layers 2>/dev/null | awk '/namespace:/ { count++ } END { print count + 0 }')"
+    clients="$(hyprctl clients -j 2>/dev/null | jq 'length' 2>/dev/null || printf 'unavailable')"
+  fi
+  jq -n \
+    --arg version "$(manifest_value version)" \
+    --arg quickshell "$(quickshell --version 2>/dev/null | head -n 1 || printf 'unavailable')" \
+    --arg hyprland "$(hyprctl version 2>/dev/null | head -n 1 || printf 'unavailable')" \
+    --arg layers "$layers" \
+    --arg clients "$clients" \
+    '{version:$version,quickshell:$quickshell,hyprland:$hyprland,layerCount:($layers|tonumber? // null),clientCount:($clients|tonumber? // null),method:"snapshot only; no per-frame polling"}'
+}
+
 version_cmd() { manifest_value version; }
 
 command_name="${1:-}"
@@ -541,6 +562,8 @@ case "$command_name" in
   stylus-info) stylus_info_cmd "$@" ;;
   touch-info) touch_info_cmd "$@" ;;
   sensor-info) sensor_info_cmd "$@" ;;
+  effects) effects_cmd "$@" ;;
+  benchmark) benchmark_cmd "$@" ;;
   companion)
     companion_command="${1:-status}"
     shift || true

@@ -105,12 +105,13 @@ function layerRules(config, backend, context) {
 function capabilityState(companion, external) {
   var native = object(companion)
   var other = object(external)
+  var nativeUsable = native.compatible === undefined ? true : native.compatible === true
   return {
-    blur: native.blur === true,
-    livePreview: native.livePreview === true,
-    wobblyWindows: native.wobblyWindows === true,
-    desktopCube: native.desktopCube === true || other.desktopCube === true,
-    desktopCubeBackend: native.desktopCube === true ? "omanome-hypr" : (other.desktopCube === true ? String(other.desktopCubeBackend || "external") : "none")
+    blur: nativeUsable && native.blur === true,
+    livePreview: nativeUsable && native.livePreview === true,
+    wobblyWindows: nativeUsable && native.wobblyWindows === true,
+    desktopCube: nativeUsable && native.desktopCube === true || other.desktopCube === true,
+    desktopCubeBackend: nativeUsable && native.desktopCube === true ? "omanome-hypr" : (other.desktopCube === true ? String(other.desktopCubeBackend || "external") : "none")
   }
 }
 
