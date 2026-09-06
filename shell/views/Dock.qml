@@ -206,7 +206,7 @@ Item {
           anchors.rightMargin: root.position === "right" ? Style.space(root.service.cfg("dock.margin", 18)) : 0
           surfaceRadius: root.mode === "panel" ? 0 : Style.space(root.service.cfg("dock.radius", 22))
           surfaceColor: Color.menu.background
-          surfaceOpacity: root.service.cfg("dock.backgroundOpacity", 0.82)
+          surfaceOpacity: root.service.surfaceOpacity("dock", root.service.cfg("dock.backgroundOpacity", 0.82))
           border.width: root.service.cfg("dock.border", true) ? 1 : 0
           border.color: Util.alpha(Color.menu.border, root.service.cfg("dock.borderOpacity", 0.34))
 

@@ -76,7 +76,7 @@ Item {
         width: Math.min(parent.width - Style.space(36), Style.space(920))
         height: Style.space(64)
         surfaceColor: Color.menu.background
-        surfaceOpacity: 0.94
+        surfaceOpacity: root.service.surfaceOpacity("annotation", 0.94)
 
         RowLayout {
           anchors.fill: parent

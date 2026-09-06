@@ -65,7 +65,7 @@ Item {
         anchors.centerIn: parent
         surfaceRadius: Style.space(root.service && root.service.cfg("appearance.radius", 18) || 18)
         surfaceColor: Color.menu.background
-        surfaceOpacity: root.service ? root.service.cfg("appearance.opacity", 0.96) : 0.96
+        surfaceOpacity: root.service ? root.service.surfaceOpacity("settings", root.service.cfg("appearance.opacity", 0.96)) : 0.96
 
         MouseArea { anchors.fill: parent; onClicked: {} }
 

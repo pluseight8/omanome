@@ -1,5 +1,19 @@
 var SURFACES = ["dock", "overview", "launcher", "quickSettings", "notifications", "clipboard", "altTab", "osk", "settings", "windowControls", "annotation"]
 
+var NAMESPACE_BY_SURFACE = {
+  dock: ["omanome-dock", "omanome-dock-reveal"],
+  overview: ["omanome-shell"],
+  launcher: ["omanome-shell"],
+  quickSettings: ["omanome-shell"],
+  notifications: ["omanome-shell"],
+  clipboard: ["omanome-shell"],
+  altTab: ["omanome-shell"],
+  osk: ["omanome-shell"],
+  settings: ["omanome-shell"],
+  windowControls: ["omanome-window-controls"],
+  annotation: ["omanome-annotation"]
+}
+
 var QUALITY_PRESETS = {
   quality: { radius: 28, passes: 4, opacity: 0.92, brightness: 0.82, saturation: 1.12, noise: 0.025, vibrancy: 0.12 },
   balanced: { radius: 18, passes: 2, opacity: 0.9, brightness: 0.86, saturation: 1.08, noise: 0.015, vibrancy: 0.06 },
@@ -30,7 +44,9 @@ function surfaceConfig(config, surface) {
   Object.keys(preset).forEach(function(key) { result[key] = preset[key] })
   Object.keys(defaults).forEach(function(key) { result[key] = defaults[key] })
   Object.keys(selected).forEach(function(key) { result[key] = selected[key] })
-  result.enabled = selected.enabled !== undefined ? selected.enabled !== false : source.enabled !== false
+  var legacyEnabled = surface === "notifications" && source.notificationCenter !== undefined ? source.notificationCenter : source[surface]
+  if (legacyEnabled === undefined) legacyEnabled = source.enabled
+  result.enabled = selected.enabled !== undefined ? selected.enabled !== false : legacyEnabled !== false
   result.quality = qualityName(selected.quality || source.quality)
   result.radius = Math.round(clamp(result.radius, 0, 64, preset.radius))
   result.passes = Math.round(clamp(result.passes, 0, 6, preset.passes))
@@ -42,6 +58,7 @@ function surfaceConfig(config, surface) {
   result.tint = String(result.tint || "")
   result.border = result.border !== false
   result.shadow = result.shadow !== false
+  result.namespaces = (NAMESPACE_BY_SURFACE[surface] || []).slice()
   return result
 }
 
@@ -60,7 +77,28 @@ function effectiveBlur(config, surface, context) {
     result.passes = Math.round(preset.passes)
   }
   if (source.reducedMotion === true && source.reduceBlurWithMotion !== false) result.noise = 0.0
+  result.backendAvailable = source.backendAvailable !== false
   if (source.backendAvailable === false) result.enabled = false
+  return result
+}
+
+function layerRules(config, backend, context) {
+  var state = object(backend)
+  var result = []
+  if (state.layerRulesAvailable !== true || state.backend !== "hyprland-layer-rule") return result
+  for (var i = 0; i < SURFACES.length; i++) {
+    var surface = SURFACES[i]
+    var blur = effectiveBlur(config, surface, context)
+    var namespaces = Array.isArray(blur.namespaces) ? blur.namespaces : []
+    for (var j = 0; j < namespaces.length; j++) {
+      result.push({
+        surface: surface,
+        namespace: namespaces[j],
+        enabled: blur.enabled === true,
+        rule: blur.enabled === true ? "blur,namespace:" + namespaces[j] : "unset,namespace:" + namespaces[j]
+      })
+    }
+  }
   return result
 }
 
@@ -76,5 +114,5 @@ function capabilityState(companion, external) {
   }
 }
 
-var api = { SURFACES: SURFACES, QUALITY_PRESETS: QUALITY_PRESETS, surfaceConfig: surfaceConfig, effectiveBlur: effectiveBlur, capabilityState: capabilityState }
+var api = { SURFACES: SURFACES, NAMESPACE_BY_SURFACE: NAMESPACE_BY_SURFACE, QUALITY_PRESETS: QUALITY_PRESETS, surfaceConfig: surfaceConfig, effectiveBlur: effectiveBlur, layerRules: layerRules, capabilityState: capabilityState }
 if (typeof module !== "undefined") module.exports = api

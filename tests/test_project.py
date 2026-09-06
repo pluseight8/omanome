@@ -266,7 +266,8 @@ class OmanomeProjectTests(unittest.TestCase):
             "const motion=A.transition({enabled:true,preset:'Smooth'},180,true); "
             "const performance=P.snapshot({qualityPreset:'balanced',adaptiveQuality:true,highGpuThreshold:0.85},{gpuLoad:0.92}); "
             "const caps=E.capabilityState({desktopCube:false},{desktopCube:true,desktopCubeBackend:'omarchy-desktop-cube'}); "
-            "console.log(JSON.stringify({blur,rule,motion,performance,caps}));"
+            "const rules=E.layerRules({enabled:true,quality:'balanced',surfaces:{dock:{enabled:true}}},{backend:'hyprland-layer-rule',layerRulesAvailable:true},{backendAvailable:true}); "
+            "console.log(JSON.stringify({blur,rule,motion,performance,caps,rules}));"
         )
         self.assertEqual(result["blur"]["quality"], "battery-saver")
         self.assertEqual(result["blur"]["passes"], 0)
@@ -275,6 +276,39 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertTrue(result["motion"]["duration"] <= 80)
         self.assertEqual(result["performance"]["quality"], "performance")
         self.assertEqual(result["caps"]["desktopCubeBackend"], "omarchy-desktop-cube")
+        self.assertTrue(any(item["rule"] == "blur,namespace:omanome-dock" for item in result["rules"]))
+
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        switcher = (ROOT / "shell/views/Switcher.qml").read_text(encoding="utf-8")
+        self.assertIn("keyword layerrule", service)
+        self.assertIn("surfaceBlur", service)
+        self.assertIn("previewTexture", switcher)
+
+    def test_effects_info_and_alt_tab_are_capability_gated(self) -> None:
+        effects_info = ROOT / "input/effects-info.sh"
+        result = subprocess.run([str(effects_info)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        for key in ("hyprlandAvailable", "layerRulesAvailable", "livePreviewAvailable"):
+            self.assertIn(key, payload)
+            self.assertIsInstance(payload[key], bool)
+        self.assertFalse(payload["livePreviewAvailable"])
+
+        result = self.run_node(
+            "const A=require('./shell/models/AltTab.js'); "
+            "const windows=[{appId:'one',title:'One',workspace:{id:2},monitor:{name:'HDMI-A-1'}},"
+            "{appId:'one',title:'One second',workspace:{id:2},monitor:{name:'HDMI-A-1'}},"
+            "{appId:'two',title:'Two',workspace:{id:1},monitor:{name:'HDMI-A-1'}}]; "
+            "const rows=A.selectable(windows,{style:'coverflow',groupByApp:true,scope:'current-workspace'},"
+            "{workspaceId:2,monitorName:'HDMI-A-1'}); "
+            "console.log(JSON.stringify({count:rows.length,groupSize:rows[0].count,preview:A.previewState({livePreview:'auto'},windows),"
+            "visual:A.visual(1,0,3,{style:'coverflow',angle:28}),next:A.moveIndex(2,1,3)}));"
+        )
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["groupSize"], 2)
+        self.assertFalse(result["preview"]["enabled"])
+        self.assertEqual(result["next"], 0)
+        self.assertGreater(result["visual"]["rotation"], 0)
 
     def test_touch_policy_separates_fullscreen_conflicts_and_target_sizes(self) -> None:
         result = self.run_node(

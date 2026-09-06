@@ -1,35 +1,54 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell.Wayland
+import Quickshell.Hyprland
 import qs.Commons
 import "../components"
+import "../models/AltTab.js" as AltTab
 
-// A touch-friendly window switcher surface.  It uses foreign-toplevel
-// objects directly; no screenshot or fake preview is produced.  A future
-// compositor preview protocol can replace the card body without changing the
-// selection and activation model.
+// A native foreign-toplevel switcher. The coverflow geometry is local UI
+// state; previews are rendered only when a real texture property is exposed
+// by the active Toplevel API.
 Item {
   id: root
 
   property var service: null
   property var panel: null
   property var windows: []
+  property var previewState: ({ requested: false, available: false, enabled: false, reason: "not probed" })
   property int selectedIndex: 0
+  property int revision: 0
+
+  function altTabConfig() { return root.service ? root.service.cfg("altTab", {}) : {} }
 
   function refresh() {
-    try { root.windows = ToplevelManager.toplevels.values || [] } catch (error) { root.windows = [] }
+    var raw = []
+    var hasHyprland = false
+    try { raw = Hyprland.toplevels.values || []; hasHyprland = true } catch (error) { raw = [] }
+    if (raw.length === 0) {
+      try { raw = ToplevelManager.toplevels.values || [] } catch (error2) { raw = [] }
+    }
+    var workspaceId
+    var monitorName
+    if (hasHyprland && Hyprland.focusedWorkspace) workspaceId = Number(Hyprland.focusedWorkspace.id)
+    if (hasHyprland && Hyprland.focusedMonitor) monitorName = String(Hyprland.focusedMonitor.name || "")
+    root.windows = AltTab.selectable(raw, root.altTabConfig(), { workspaceId: workspaceId, monitorName: monitorName })
     root.selectedIndex = Math.max(0, Math.min(root.selectedIndex, root.windows.length - 1))
+    root.previewState = AltTab.previewState(root.altTabConfig(), root.windows.map(function(entry) { return AltTab.windowOf(entry) }))
+    root.revision++
   }
 
   function activate(index) {
-    var target = root.windows[index]
-    if (target && typeof target.activate === "function") target.activate()
+    var entry = root.windows[index]
+    var target = AltTab.windowOf(entry)
+    var item = AltTab.foreign(target)
+    if (item && typeof item.activate === "function") item.activate()
+    else if (target && typeof target.activate === "function") target.activate()
     if (root.panel) root.panel.close()
   }
 
   function move(delta) {
-    if (root.windows.length === 0) return
-    root.selectedIndex = (root.selectedIndex + delta + root.windows.length) % root.windows.length
+    root.selectedIndex = AltTab.moveIndex(root.selectedIndex, delta, root.windows.length)
   }
 
   Connections {
@@ -37,8 +56,18 @@ Item {
     function onValuesChanged() { root.refresh() }
   }
   Connections {
+    target: Hyprland.toplevels
+    function onValuesChanged() { root.refresh() }
+  }
+  Connections {
     target: ToplevelManager
     function onActiveToplevelChanged() { root.refresh() }
+  }
+  Connections {
+    target: Hyprland
+    function onActiveToplevelChanged() { root.refresh() }
+    function onFocusedWorkspaceChanged() { root.refresh() }
+    function onFocusedMonitorChanged() { root.refresh() }
   }
 
   Component.onCompleted: root.refresh()
@@ -58,13 +87,20 @@ Item {
     SectionHeader {
       Layout.fillWidth: true
       title: root.service.tr("altTab", "Alt-Tab")
-      subtitle: "Touch switcher · " + root.service.cfg("altTab.style", "coverflow") + " · native toplevels"
+      subtitle: "" + root.altTabConfig().style + " · " + root.altTabConfig().scope + " · native toplevels"
     }
 
     RowLayout {
       Layout.fillWidth: true
+      spacing: Style.space(8)
       ActionButton { compact: true; text: "‹"; onClicked: root.move(-1) }
-      Text { Layout.fillWidth: true; text: root.windows.length > 0 ? (root.selectedIndex + 1) + " / " + root.windows.length : root.service.tr("noWindows", "No windows found"); color: Color.muted; horizontalAlignment: Text.AlignHCenter; font.pixelSize: Style.font.body }
+      Text {
+        Layout.fillWidth: true
+        text: root.windows.length > 0 ? (root.selectedIndex + 1) + " / " + root.windows.length : root.service.tr("noWindows", "No windows found")
+        color: Color.muted
+        horizontalAlignment: Text.AlignHCenter
+        font.pixelSize: Style.font.body
+      }
       ActionButton { compact: true; text: "›"; onClicked: root.move(1) }
     }
 
@@ -75,39 +111,81 @@ Item {
       orientation: ListView.Horizontal
       spacing: Style.space(12)
       clip: true
-      model: root.windows
+      model: root.revision >= 0 ? root.windows : []
       currentIndex: root.selectedIndex
       onCurrentIndexChanged: if (root.selectedIndex !== currentIndex) root.selectedIndex = currentIndex
 
       delegate: Surface {
+        id: card
         required property var modelData
         required property int index
+        property var geometry: AltTab.visual(index, root.selectedIndex, root.windows.length, root.altTabConfig())
+        property var targetWindow: AltTab.windowOf(modelData)
+        property var preview: AltTab.previewTexture(targetWindow)
         width: Math.min(cards.width * 0.62, Style.space(420))
         height: Math.min(cards.height - Style.space(24), Style.space(300))
         anchors.verticalCenter: parent ? parent.verticalCenter : undefined
         surfaceRadius: Style.space(20)
-        surfaceColor: index === root.selectedIndex ? Color.accent : Color.menu.background
-        surfaceOpacity: index === root.selectedIndex ? 0.24 : 0.88
-        scale: index === root.selectedIndex ? 1.0 : 0.92
-        rotation: root.windows.length > 1 ? Math.max(-8, Math.min(8, (index - root.selectedIndex) * 4)) : 0
+        surfaceColor: geometry.selected ? Color.accent : Color.menu.background
+        surfaceOpacity: geometry.selected ? 0.24 : 0.88
+        scale: geometry.scale
+        opacity: geometry.opacity
+        rotation: geometry.rotation
+        z: geometry.z
 
         Column {
           anchors.fill: parent
           anchors.margins: Style.space(18)
           spacing: Style.space(10)
-          Text { text: modelData ? (modelData.appId || "Window") : "Window"; color: Color.accent; font.pixelSize: Style.font.caption; elide: Text.ElideRight; width: parent.width }
-          Text { text: modelData ? (modelData.title || modelData.appId || "") : ""; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.title; font.bold: true; wrapMode: Text.WordWrap; maximumLineCount: 3; width: parent.width }
+
+          Text {
+            text: modelData ? modelData.appId : "Window"
+            color: Color.accent
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
+            width: parent.width
+          }
+          Text {
+            text: modelData ? modelData.title : ""
+            color: Color.foreground
+            font.family: Style.font.family
+            font.pixelSize: Style.font.title
+            font.bold: true
+            wrapMode: Text.WordWrap
+            maximumLineCount: 3
+            width: parent.width
+          }
+
+          Image {
+            visible: card.preview.available && typeof card.preview.value === "string"
+            source: visible ? card.preview.value : ""
+            width: parent.width
+            height: visible ? Style.space(120) : 0
+            sourceSize.width: width * 2
+            sourceSize.height: height * 2
+            fillMode: Image.PreserveAspectFit
+            asynchronous: true
+          }
+
+          Text {
+            text: modelData && modelData.count > 1 ? modelData.count + " windows · native foreign-toplevel" : "Native foreign-toplevel"
+            color: Color.muted
+            font.pixelSize: Style.font.caption
+          }
           Item { height: Style.space(12); width: 1 }
-          Text { text: "Foreign-toplevel surface"; color: Color.muted; font.pixelSize: Style.font.caption }
-          Item { Layout.fillHeight: true }
-          ActionButton { width: parent.width; text: root.service.tr("open", "Open"); checked: index === root.selectedIndex; onClicked: root.activate(index) }
+          ActionButton { width: parent.width; text: root.service.tr("open", "Open"); checked: geometry.selected; onClicked: root.activate(index) }
         }
 
         MouseArea {
           anchors.fill: parent
           z: -1
+          acceptedButtons: Qt.LeftButton
           onClicked: { root.selectedIndex = index; root.activate(index) }
-          onPressed: root.service.recordInput("touch")
+          onPressed: root.service.recordInput("mouse")
+          onWheel: function(wheel) {
+            if (wheel.angleDelta.y > 0) root.move(-1)
+            else if (wheel.angleDelta.y < 0) root.move(1)
+          }
         }
       }
 
@@ -122,8 +200,8 @@ Item {
 
     Text {
       Layout.fillWidth: true
-      text: "Live previews require a compositor preview protocol; activation remains native and screenshot-free."
-      color: Color.muted
+      text: root.previewState.enabled ? "Live preview: native texture provider" : "Live previews unavailable: " + root.previewState.reason
+      color: root.previewState.enabled ? Color.accent : Color.muted
       font.pixelSize: Style.font.caption
       wrapMode: Text.WordWrap
     }

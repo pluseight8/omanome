@@ -4,6 +4,10 @@ import Quickshell.Io
 import qs.Commons
 import "models/Config.js" as Config
 import "models/Clipboard.js" as ClipboardModel
+import "models/Companion.js" as CompanionModel
+import "models/Effects.js" as EffectsModel
+import "models/Performance.js" as PerformanceModel
+import "models/AppRules.js" as AppRulesModel
 import "models/I18n.js" as I18n
 import "models/QuickSettings.js" as QuickSettingsModel
 import "models/Stylus.js" as StylusModel
@@ -46,6 +50,11 @@ Item {
   // the OSK never presents cursor/prediction features as available when only
   // one-shot wtype is installed.
   property bool inputBackendAvailable: false
+  property var companionState: CompanionModel.normalize({})
+  property var effectBackend: ({ hyprlandAvailable: false, backend: "hyprland-layer-rule", layerRulesAvailable: false, livePreviewAvailable: false, livePreviewReason: "not probed", external: { desktopCube: false, desktopCubeBackend: "none" } })
+  property var effectCapabilities: EffectsModel.capabilityState({}, {})
+  property var performanceState: PerformanceModel.snapshot({}, {})
+  property string blurRuleSignature: ""
   property string lastInput: "keyboard"
   property string detectedMode: "desktop"
   property string lastError: ""
@@ -100,6 +109,95 @@ Item {
       root.notificationService = root.cfg("notifications.enabled", true) ? root.shell.firstPartyServiceFor("omarchy.notifications") : null
   }
 
+  function refreshEffectBackend() {
+    if (!effectsInfoProcess.running) effectsInfoProcess.running = true
+  }
+
+  function activeClient() {
+    var list = Array.isArray(root.clients) ? root.clients : []
+    for (var i = 0; i < list.length; i++) if (list[i] && (list[i].focused === true || Number(list[i].focusHistoryID) === 0)) return list[i]
+    return list.length > 0 ? list[0] : {}
+  }
+
+  function fullscreenActive() {
+    var list = Array.isArray(root.clients) ? root.clients : []
+    for (var i = 0; i < list.length; i++) if (list[i] && (list[i].fullscreen === true || Number(list[i].fullscreen) > 0)) return true
+    return false
+  }
+
+  function performanceContext() {
+    var performance = root.cfg("performance", {})
+    var batteryState = String(root.systemState.batteryState || "unknown").toLowerCase()
+    var batterySaver = performance.disableOnBattery !== false && batteryState === "discharging"
+    return {
+      batterySaver: batterySaver,
+      fullscreen: root.fullscreenActive(),
+      disableOnFullscreen: performance.disableOnFullscreen !== false,
+      highGpuThreshold: Number(performance.highGpuThreshold || 0.85),
+      reducedMotion: root.cfg("general.reduceMotion", false) === true || root.cfg("animations.reducedMotion", false) === true,
+      reduceBlurWithMotion: root.cfg("blur.reduceBlurWithMotion", true) !== false,
+      backendAvailable: root.effectBackend.layerRulesAvailable === true && root.safeMode !== true
+    }
+  }
+
+  function appRuleDecision() {
+    var rules = root.cfg("applicationRules.rules", [])
+    if (root.cfg("applicationRules.enabled", true) === false) rules = []
+    return AppRulesModel.decision(rules, root.activeClient(), { inputKind: root.lastInput })
+  }
+
+  function surfaceBlur(surface) {
+    var result = EffectsModel.effectiveBlur(root.cfg("blur", {}), String(surface || "settings"), root.performanceContext())
+    var decision = root.appRuleDecision()
+    if (decision.disableBlur) result.enabled = false
+    result.ruleDisabled = decision.disableBlur
+    return result
+  }
+
+  function surfaceOpacity(surface, fallback) {
+    var result = root.surfaceBlur(surface)
+    return result.enabled && result.backendAvailable ? Number(result.opacity) : Number(fallback)
+  }
+
+  function surfaceBlurEnabled(surface) {
+    var result = root.surfaceBlur(surface)
+    return result.enabled === true && result.backendAvailable === true
+  }
+
+  function applyBlurRules() {
+    if (!root.hyprlandAvailable || root.effectBackend.layerRulesAvailable !== true) return false
+    var context = root.performanceContext()
+    var rules = root.safeMode ? [] : EffectsModel.layerRules(root.cfg("blur", {}), root.effectBackend, context)
+    var commands = []
+    var namespaces = {}
+    for (var surfaceIndex = 0; surfaceIndex < EffectsModel.SURFACES.length; surfaceIndex++) {
+      var names = EffectsModel.NAMESPACE_BY_SURFACE[EffectsModel.SURFACES[surfaceIndex]] || []
+      for (var nameIndex = 0; nameIndex < names.length; nameIndex++) namespaces[names[nameIndex]] = true
+    }
+    for (var namespace in namespaces) commands.push("keyword layerrule unset,namespace:" + namespace)
+    for (var i = 0; i < rules.length; i++) if (rules[i].enabled) commands.push("keyword layerrule " + rules[i].rule)
+    var signature = JSON.stringify({ rules: commands, mode: root.safeMode })
+    if (signature === root.blurRuleSignature) return true
+    root.blurRuleSignature = signature
+    return commands.length > 0 ? root.execute(["hyprctl", "--batch", commands.join(";")]) : false
+  }
+
+  function updateEffectBackend(raw) {
+    var parsed = root.parseJson(raw, null)
+    if (!parsed || typeof parsed !== "object") {
+      root.lastError = "Effect backend probe returned invalid state"
+      return
+    }
+    root.effectBackend = parsed
+    root.companionState = CompanionModel.normalize(parsed.companion || {})
+    root.effectCapabilities = EffectsModel.capabilityState(root.companionState.capabilities, parsed.external || {})
+    if (parsed.hyprlandAvailable === true) root.hyprlandAvailable = true
+    root.performanceState = PerformanceModel.snapshot(root.cfg("performance", {}), root.performanceContext())
+    root.applyBlurRules()
+    root.stateRevision++
+    root.stateUpdated()
+  }
+
   function ensureDirectories() {
     directoryProcess.command = ["mkdir", "-p", root.configDir, root.stateDir, root.stateDir + "/clipboard-images"]
     directoryProcess.running = true
@@ -118,6 +216,7 @@ Item {
     root.detectedMode = root.computeMode()
     if (root.hyprlandAvailable) root.applyTouchIntegration()
     root.refreshRotationBackend()
+    root.refreshEffectBackend()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -140,6 +239,10 @@ Item {
     if (String(path).indexOf("touch.") === 0) root.applyTouchIntegration()
     if (String(path).indexOf("rotation.") === 0) root.refreshRotationBackend()
     if (String(path).indexOf("notifications.enabled") === 0) root.refreshIntegrations()
+    if (String(path).indexOf("blur.") === 0 || String(path).indexOf("performance.") === 0 || String(path).indexOf("effects.") === 0 || String(path).indexOf("applicationRules.") === 0 || String(path).indexOf("animations.") === 0) {
+      root.performanceState = PerformanceModel.snapshot(root.cfg("performance", {}), root.performanceContext())
+      root.applyBlurRules()
+    }
     root.stateRevision++
     root.stateUpdated()
   }
@@ -150,6 +253,8 @@ Item {
     root.startClipboardWatchers()
     root.detectedMode = root.computeMode()
     root.refreshRotationBackend()
+    root.blurRuleSignature = ""
+    root.applyBlurRules()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -167,8 +272,8 @@ Item {
     } else if (name === "Performance" || name === "Battery Saver") {
       next = Config.set(next, "general.reduceMotion", true)
       next = Config.set(next, "blur.enabled", false)
-      next = Config.set(next, "effects.wobblyWindows", false)
-      next = Config.set(next, "effects.desktopCube", false)
+      next = Config.set(next, "wobbly.enabled", false)
+      next = Config.set(next, "cube.enabled", false)
     } else if (name === "GNOME-like") {
       next = Config.set(next, "general.mode", "hybrid")
       next = Config.set(next, "overview.style", "gnome")
@@ -226,6 +331,8 @@ Item {
     root.systemState = next
     root.quickState = QuickSettingsModel.stateFromSystem(next)
     root.refreshRotationBackend()
+    root.performanceState = PerformanceModel.snapshot(root.cfg("performance", {}), root.performanceContext())
+    root.applyBlurRules()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -578,6 +685,8 @@ Item {
   function updateClients(raw) {
     root.clients = parseJson(raw, [])
     if (root.hyprlandAvailable) root.applyTouchIntegration()
+    root.performanceState = PerformanceModel.snapshot(root.cfg("performance", {}), root.performanceContext())
+    root.applyBlurRules()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -618,9 +727,19 @@ Item {
       configPath: root.configPath,
       clipboardEntries: root.clipboardHistory.length,
       effects: {
-        wobblyWindows: false,
-        desktopCube: false,
-        reason: "No version-pinned Hyprland companion loaded"
+        blur: root.effectBackend.layerRulesAvailable === true,
+        livePreview: root.effectBackend.livePreviewAvailable === true,
+        wobblyWindows: root.effectCapabilities.wobblyWindows === true,
+        desktopCube: root.effectCapabilities.desktopCube === true,
+        desktopCubeBackend: String(root.effectCapabilities.desktopCubeBackend || "none"),
+        companion: root.companionState,
+        backend: root.effectBackend.backend || "none",
+        reason: root.effectBackend.livePreviewReason || root.companionState.reason || "Effect backend unavailable"
+      },
+      performance: root.performanceState,
+      preview: {
+        available: root.effectBackend.livePreviewAvailable === true,
+        reason: root.effectBackend.livePreviewReason || "No compositor texture provider"
       }
     }
   }
@@ -995,6 +1114,15 @@ Item {
   }
 
   Process {
+    id: effectsInfoProcess
+    command: ["bash", root.sourcePath("input/effects-info.sh")]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateEffectBackend(text) }
+    onExited: function(exitCode) {
+      if (exitCode !== 0) root.lastError = "Effect backend probe failed"
+    }
+  }
+
+  Process {
     id: wifiScanProcess
     command: ["bash", root.sourcePath("input/wifi-scan.sh")]
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateWifiScan(text) }
@@ -1116,6 +1244,14 @@ Item {
   }
 
   Timer {
+    id: effectRefresh
+    interval: 15000
+    repeat: true
+    running: root.configReady
+    onTriggered: root.refreshEffectBackend()
+  }
+
+  Timer {
     id: initialConfigSave
     interval: 300
     repeat: false
@@ -1177,6 +1313,7 @@ Item {
     root.ensureDirectories()
     root.refreshDevices()
     root.refreshSystemState()
+    root.refreshEffectBackend()
     wtypeCheck.running = true
   }
 }

@@ -71,7 +71,7 @@ Item {
           anchors.rightMargin: Style.space(18)
           surfaceRadius: Style.space(16)
           surfaceColor: Color.menu.background
-          surfaceOpacity: root.service.cfg("windowControls.opacity", 0.94)
+          surfaceOpacity: root.service.surfaceOpacity("windowControls", root.service.cfg("windowControls.opacity", 0.94))
 
           RowLayout {
             anchors.fill: parent
