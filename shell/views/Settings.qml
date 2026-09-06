@@ -16,6 +16,13 @@ Item {
 
   function label(item) { return root.service.tr(item.label, item.label) }
   function toggle(path) { root.service.setConfig(path, !Boolean(root.service.cfg(path, false))) }
+  function hasStylusButtons() {
+    var devices = root.service && Array.isArray(root.service.stylusDevices) ? root.service.stylusDevices : []
+    for (var i = 0; i < devices.length; i++) {
+      if (StylusModel.capabilities(devices[i]).buttons > 0) return true
+    }
+    return false
+  }
 
   RowLayout {
     anchors.fill: parent
@@ -131,7 +138,8 @@ Item {
           ActionButton { width: parent.width; text: root.service.tr(root.category, root.category); subtitle: root.category === "rotation" ? (root.service.systemState.rotationAvailable ? root.service.cfg("rotation.orientation", "auto") : "Hyprland transform backend unavailable") : (root.category === "updates" ? "Updates are managed by the Omarchy plugin manager" : "user-owned Hyprland bindings"); checked: root.service.cfg(root.category + ".enabled", true); usable: root.category === "rotation" ? root.service.systemState.rotationAvailable : false; onClicked: if (root.category === "rotation") root.toggle("rotation.enabled") }
           ActionButton { width: parent.width; text: "Rotation lock"; visible: root.category === "rotation"; checked: root.service.cfg("rotation.lock", false); usable: root.service.systemState.rotationAvailable; onClicked: root.toggle("rotation.lock") }
           Row { visible: root.category === "rotation"; spacing: Style.space(8); Repeater { model: ["auto", "landscape", "portrait", "landscape-flipped", "portrait-flipped"]; delegate: ActionButton { required property string modelData; compact: true; text: modelData; checked: root.service.cfg("rotation.orientation", "auto") === modelData; usable: root.service.systemState.rotationAvailable && (modelData !== "auto" || root.service.systemState.rotationSensorAvailable); onClicked: root.service.setRotationOrientation(modelData) } } }
-          Text { width: parent.width; visible: root.category === "rotation"; text: root.service.systemState.rotationSensorAvailable ? "Auto rotation uses monitor-sensor (iio-sensor-proxy)." : "Auto rotation unavailable: install iio-sensor-proxy/monitor-sensor; manual Hyprland transforms remain available."; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+          Text { width: parent.width; visible: root.category === "rotation"; text: root.service.systemState.rotationSensorAvailable ? "Auto rotation backend: " + String(root.service.systemState.rotationSensorBackend || "unknown") + (root.service.systemState.rotationDbusAvailable ? " · D-Bus available" : "") : "Auto rotation unavailable: install iio-sensor-proxy/monitor-sensor; manual Hyprland transforms remain available."; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+          Text { width: parent.width; visible: root.category === "rotation"; text: "Dynamic target: " + (root.service.statusObject().rotation.targets.join(", ") || "focused monitor fallback") + " · touch/tablet transforms are applied in the same batch."; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
           ActionButton { width: parent.width; text: "Automatic install"; visible: root.category === "updates"; subtitle: "The official Omarchy updater requires an explicit user command"; checked: root.service.cfg("updates.automaticInstall", false); usable: false }
           Text { width: parent.width; visible: root.category === "shortcuts"; text: "Omanome exposes namespaced shell commands and never overwrites existing keybindings. Assign the commands shown in README to your own Hyprland config."; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
         }
@@ -158,9 +166,21 @@ Item {
           ActionButton { width: parent.width; text: root.service.tr("annotation", "Annotation"); subtitle: root.service.cfg("stylus.annotation", true) ? "Overlay available from Quick Settings" : "Disabled"; checked: root.service.cfg("stylus.annotation", true); onClicked: root.toggle("stylus.annotation") }
           Text { text: root.service.tr("pressure", "Pressure") + ": " + root.service.cfg("stylus.pressureMin", 0) + " – " + root.service.cfg("stylus.pressureMax", 1) + " · " + root.service.cfg("stylus.pressureCurve", "linear"); color: Color.foreground; font.pixelSize: Style.font.body }
           Text { width: parent.width; text: "Pressure/tilt/rotation/proximity/eraser/barrel capabilities are passed through to native Wayland tablet clients; Omanome does not synthesize mouse events."; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
-          Text { width: parent.width; text: root.service.tr("detectedDevices", "Detected devices") + ": " + (root.service.stylusDevices.map(function(device) { var info = StylusModel.capabilities(device); return String(device.name || "stylus") + " [" + Object.keys(info).filter(function(key) { return info[key] === true }).join(", ") + "]" }).join(", ") || "none"); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+          Text { width: parent.width; text: root.service.tr("detectedDevices", "Detected devices") + ": " + (root.service.stylusDevices.length || 0); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+          Repeater {
+            model: root.service.stylusDevices
+            delegate: Column {
+              id: deviceCard
+              required property var modelData
+              width: parent.width
+              property var info: StylusModel.diagnostics(modelData, "hyprland")
+              spacing: Style.space(3)
+              Text { width: parent.width; text: deviceCard.info.name + " · " + deviceCard.info.type + " · " + deviceCard.info.backend + " · output " + deviceCard.info.mappedOutput; color: Color.foreground; font.pixelSize: Style.font.body; elide: Text.ElideRight }
+              Text { width: parent.width; text: "pressure " + (deviceCard.info.pressure ? "yes" : "no") + " · tilt X/Y " + (deviceCard.info.tiltX ? "yes" : "no") + "/" + (deviceCard.info.tiltY ? "yes" : "no") + " · rotation " + (deviceCard.info.rotation ? "yes" : "no") + " · distance " + (deviceCard.info.distance ? "yes" : "no") + " · proximity " + (deviceCard.info.proximity ? "yes" : "no") + " · eraser " + (deviceCard.info.eraser ? "yes" : "no") + " · buttons " + deviceCard.info.buttons; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+            }
+          }
           Text { width: parent.width; text: "Button mapping is shown for the generic device contract. A portable libinput button-event hook is not exposed by the current Omarchy public API, so mappings remain unavailable until an input companion is installed."; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
-          Repeater { model: ["primary", "secondary", "tertiary", "eraser"]; delegate: ActionButton { required property string modelData; width: parent.width; text: modelData; subtitle: String(root.service.cfg("stylus.buttonMap." + modelData, "right-click")); usable: false } }
+          Repeater { visible: root.hasStylusButtons(); model: ["primary", "secondary", "tertiary", "eraser"]; delegate: ActionButton { required property string modelData; width: parent.width; text: modelData; subtitle: String(root.service.cfg("stylus.buttonMap." + modelData, "right-click")); usable: false } }
         }
 
         Column {
@@ -168,14 +188,20 @@ Item {
           spacing: Style.space(10)
           visible: root.category === "keyboard"
           ActionButton { width: parent.width; text: root.service.tr("keyboard", "Keyboard"); subtitle: root.service.wtypeAvailable ? root.service.tr("wlroots", "Wayland-native") : "wtype unavailable"; checked: root.service.cfg("keyboard.enabled", true); onClicked: root.toggle("keyboard.enabled") }
-          ActionButton { width: parent.width; text: "Auto-show on editable fields"; subtitle: "Requires a compositor text-input focus provider"; checked: root.service.cfg("keyboard.autoShow", true); usable: false }
+          ActionButton { width: parent.width; text: "Auto-show on editable fields"; subtitle: root.service.inputBackendAvailable ? "Optional input-method backend" : "Requires optional input-method companion"; checked: root.service.cfg("keyboard.autoShow", true); usable: root.service.inputBackendAvailable; onClicked: root.toggle("keyboard.autoShow") }
           ActionButton { width: parent.width; text: "Suggestions and learning"; subtitle: "Requires a local input-method engine; no engine is bundled"; checked: root.service.cfg("keyboard.learning", false); usable: false }
+          ActionButton { width: parent.width; text: "Toolbar"; checked: root.service.cfg("keyboard.toolbar", true); onClicked: root.toggle("keyboard.toolbar") }
+          ActionButton { width: parent.width; text: "Key popup"; checked: root.service.cfg("keyboard.keyPopup", true); onClicked: root.toggle("keyboard.keyPopup") }
+          ActionButton { width: parent.width; text: "Long-press alternates"; checked: root.service.cfg("keyboard.longPress", true); onClicked: root.toggle("keyboard.longPress") }
+          ActionButton { width: parent.width; text: "Space cursor mode"; subtitle: root.service.inputBackendAvailable ? "Persistent input backend available" : "Requires optional persistent input backend"; checked: root.service.cfg("keyboard.spaceCursor", true); usable: root.service.inputBackendAvailable; onClicked: root.toggle("keyboard.spaceCursor") }
+          Text { text: "Keyboard height: " + root.service.cfg("keyboard.height", 300) + " logical px"; color: Color.foreground; font.pixelSize: Style.font.body }
+          Slider { width: parent.width; from: 220; to: 520; value: root.service.cfg("keyboard.height", 300); onMoved: root.service.setConfig("keyboard.height", Math.round(value)) }
           ActionButton { width: parent.width; text: "Number row"; checked: root.service.cfg("keyboard.showNumberRow", true); onClicked: root.toggle("keyboard.showNumberRow") }
           ActionButton { width: parent.width; text: "Modifier row"; checked: root.service.cfg("keyboard.showModifierRow", true); onClicked: root.toggle("keyboard.showModifierRow") }
           ActionButton { width: parent.width; text: "Navigation keys"; checked: root.service.cfg("keyboard.showNavigationRow", true); onClicked: root.toggle("keyboard.showNavigationRow") }
           ActionButton { width: parent.width; text: "Function layer"; checked: root.service.cfg("keyboard.showFunctionRow", false); onClicked: root.toggle("keyboard.showFunctionRow") }
           ActionButton { width: parent.width; text: "Caps Lock key"; checked: root.service.cfg("keyboard.capsLock", true); onClicked: root.toggle("keyboard.capsLock") }
-          Row { spacing: Style.space(8); Repeater { model: ["standard", "floating", "split", "thumb", "one-handed", "handwriting"]; delegate: ActionButton { required property string modelData; compact: true; text: modelData; checked: root.service.cfg("keyboard.mode", "standard") === modelData; onClicked: root.service.setConfig("keyboard.mode", modelData) } } }
+          Row { spacing: Style.space(8); Repeater { model: ["standard", "floating", "split", "thumb", "one-handed-left", "one-handed-right", "handwriting"]; delegate: ActionButton { required property string modelData; compact: true; text: modelData.replace("one-handed-", ""); checked: root.service.cfg("keyboard.mode", "standard") === modelData; onClicked: root.service.setConfig("keyboard.mode", modelData) } } }
         }
 
         Column {
