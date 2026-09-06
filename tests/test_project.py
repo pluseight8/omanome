@@ -191,6 +191,7 @@ class OmanomeProjectTests(unittest.TestCase):
             ROOT / "input/wifi-scan.sh",
             ROOT / "input/bluetooth-scan.sh",
             ROOT / "input/rotation-monitor.sh",
+            ROOT / "input/sensor-info.sh",
             ROOT / "input/audio-devices.sh",
         ):
             result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
@@ -208,8 +209,22 @@ class OmanomeProjectTests(unittest.TestCase):
         for key in ("wifiAvailable", "volumeAvailable", "recordingAvailable", "rotationAvailable"):
             self.assertIn(key, state)
             self.assertIsInstance(state[key], bool)
-        self.assertIn("rotationSensorAvailable", state)
-        self.assertIsInstance(state["rotationSensorAvailable"], bool)
+        for key in ("rotationSensorAvailable", "rotationDbusAvailable", "rotationAccelerometerAvailable"):
+            self.assertIn(key, state)
+            self.assertIsInstance(state[key], bool)
+        self.assertIn(state["rotationSensorBackend"], ("manual", "monitor-sensor", "dbus-iio"))
+
+    def test_sensor_and_touch_diagnostics_contracts(self) -> None:
+        sensor = subprocess.run([str(ROOT / "input/sensor-info.sh")], capture_output=True, text=True)
+        self.assertEqual(sensor.returncode, 0, sensor.stderr)
+        payload = json.loads(sensor.stdout)
+        for key in ("monitorSensorAvailable", "dbusAvailable", "accelerometerAvailable", "autoRotationSupported"):
+            self.assertIn(key, payload)
+            self.assertIsInstance(payload[key], bool)
+        self.assertIn(payload["selectedBackend"], ("manual", "monitor-sensor", "dbus-iio"))
+        cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")
+        self.assertIn("touch-info", cli)
+        self.assertIn("sensor-info", cli)
 
     def test_uninstall_is_scoped_to_omanome_paths(self) -> None:
         cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")

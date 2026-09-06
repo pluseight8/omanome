@@ -43,6 +43,8 @@ Commands:
   uninstall [--purge-settings] [--yes]
   version                Print Omanome version
   stylus-info            Print capability inventory without changing input
+  touch-info             Print touchscreen inventory without changing input
+  sensor-info            Print rotation sensor backend diagnostics
   devices                Print Hyprland's device inventory
 EOF
 }
@@ -151,7 +153,7 @@ safe_mode_cmd() {
 
 setup_cmd() {
   ensure_dirs
-  chmod +x -- "$repo_dir/cli/omanome" "$repo_dir/input/clipboard-capture.sh" 2>/dev/null || true
+  chmod +x -- "$repo_dir/cli/omanome" "$repo_dir/input/clipboard-capture.sh" "$repo_dir/input/sensor-info.sh" 2>/dev/null || true
   cat <<'EOF'
 Omanome setup is user-only and never invokes sudo.
 
@@ -377,6 +379,16 @@ stylus_info_cmd() {
   hyprctl devices -j | jq '{tablets: (.tablets // .tabletTools // []), touchDevices: (.touch // .touchDevices // [])}'
 }
 
+touch_info_cmd() {
+  has hyprctl || die "hyprctl is not installed"
+  hyprctl devices -j | jq '{touchDevices: (.touch // .touchDevices // .touchdevices // [])}'
+}
+
+sensor_info_cmd() {
+  [[ -x "$repo_dir/input/sensor-info.sh" ]] || die "sensor-info backend is unavailable"
+  "$repo_dir/input/sensor-info.sh" | jq .
+}
+
 version_cmd() { manifest_value version; }
 
 command_name="${1:-}"
@@ -399,6 +411,8 @@ case "$command_name" in
   uninstall) uninstall_cmd "$@" ;;
   devices) devices_cmd "$@" ;;
   stylus-info) stylus_info_cmd "$@" ;;
+  touch-info) touch_info_cmd "$@" ;;
+  sensor-info) sensor_info_cmd "$@" ;;
   version) version_cmd "$@" ;;
   help|-h|--help|"") usage ;;
   *) usage >&2; die "unknown command: $command_name" ;;

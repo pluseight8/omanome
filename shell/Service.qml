@@ -55,7 +55,7 @@ Item {
   property string captureScript: ""
   property var notificationService: null
   property var quickState: ({ wifi: false, bluetooth: false, airplane: false, volume: true, microphone: true, nightLight: false, dnd: false, rotationLock: false, recording: false, powerProfile: "balanced" })
-  property var systemState: ({ wifiAvailable: false, wifiEnabled: false, wifiConnected: false, airplane: false, wifiSsid: "", wifiSignal: -1, bluetoothAvailable: false, bluetoothPowered: false, volumeAvailable: false, volume: 0, volumeMuted: false, microphoneAvailable: false, microphoneVolume: 0, microphoneMuted: false, brightnessAvailable: false, brightness: 0, powerProfileAvailable: false, powerProfile: "balanced", batteryAvailable: false, batteryPercent: -1, batteryState: "unknown", nightLightAvailable: false, nightLightEnabled: false, dndAvailable: false, dnd: false, rotationAvailable: false, rotationLock: false, recordingAvailable: false, recording: false })
+  property var systemState: ({ wifiAvailable: false, wifiEnabled: false, wifiConnected: false, airplane: false, wifiSsid: "", wifiSignal: -1, bluetoothAvailable: false, bluetoothPowered: false, volumeAvailable: false, volume: 0, volumeMuted: false, microphoneAvailable: false, microphoneVolume: 0, microphoneMuted: false, brightnessAvailable: false, brightness: 0, powerProfileAvailable: false, powerProfile: "balanced", batteryAvailable: false, batteryPercent: -1, batteryState: "unknown", nightLightAvailable: false, nightLightEnabled: false, dndAvailable: false, dnd: false, rotationAvailable: false, rotationSensorAvailable: false, rotationDbusAvailable: false, rotationAccelerometerAvailable: false, rotationSensorBackend: "manual", rotationLock: false, recordingAvailable: false, recording: false })
   property var wifiNetworks: []
   property var bluetoothDevices: []
   property var audioDevices: []
@@ -393,7 +393,7 @@ Item {
     var allowed = ["auto", "landscape", "portrait", "landscape-flipped", "portrait-flipped"]
     if (allowed.indexOf(next) < 0) return false
     if (next === "auto" && !root.systemState.rotationSensorAvailable) {
-      root.lastError = "Auto rotation requires monitor-sensor (iio-sensor-proxy)"
+      root.lastError = "Auto rotation requires monitor-sensor or iio-sensor-proxy D-Bus"
       return false
     }
     root.setConfig("rotation.orientation", next)
@@ -487,6 +487,9 @@ Item {
       rotation: {
         available: root.systemState.rotationAvailable === true,
         sensor: root.systemState.rotationSensorAvailable === true,
+        sensorBackend: String(root.systemState.rotationSensorBackend || "manual"),
+        dbus: root.systemState.rotationDbusAvailable === true,
+        accelerometer: root.systemState.rotationAccelerometerAvailable === true,
         orientation: root.orientation,
         locked: root.cfg("rotation.lock", false) === true
       },

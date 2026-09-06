@@ -104,10 +104,30 @@ command -v wf-recorder >/dev/null 2>&1 && recording_available=true
 
 rotation_available=false
 rotation_sensor_available=false
+rotation_dbus_available=false
+rotation_accelerometer_available=false
+rotation_sensor_backend="manual"
 if command -v hyprctl >/dev/null 2>&1 && hyprctl getoption input:touchdevice:transform -j >/dev/null 2>&1; then
   rotation_available=true
 fi
-command -v monitor-sensor >/dev/null 2>&1 && rotation_sensor_available=true
+if command -v monitor-sensor >/dev/null 2>&1; then
+  rotation_sensor_available=true
+  rotation_accelerometer_available=true
+  rotation_sensor_backend="monitor-sensor"
+fi
+if command -v gdbus >/dev/null 2>&1 && \
+   gdbus introspect --system --dest net.hadess.SensorProxy --object-path /net/hadess/SensorProxy >/dev/null 2>&1; then
+  rotation_dbus_available=true
+  [[ "$rotation_sensor_backend" == "manual" ]] && rotation_sensor_backend="dbus-iio"
+  has_accelerometer="$(gdbus call --system --dest net.hadess.SensorProxy \
+    --object-path /net/hadess/SensorProxy \
+    --method org.freedesktop.DBus.Properties.Get \
+    net.hadess.SensorProxy HasAccelerometer 2>/dev/null || true)"
+  if [[ "$has_accelerometer" == *true* ]]; then
+    rotation_sensor_available=true
+    rotation_accelerometer_available=true
+  fi
+fi
 
 jq -cn \
   --argjson wifiAvailable "$(bool_value "$wifi_available")" \
@@ -136,4 +156,7 @@ jq -cn \
   --argjson recordingAvailable "$(bool_value "$recording_available")" \
   --argjson rotationAvailable "$(bool_value "$rotation_available")" \
   --argjson rotationSensorAvailable "$(bool_value "$rotation_sensor_available")" \
-  '{wifiAvailable:$wifiAvailable,wifiEnabled:$wifiEnabled,wifiConnected:$wifiConnected,airplane:$airplane,wifiSsid:$wifiSsid,wifiSignal:$wifiSignal,bluetoothAvailable:$bluetoothAvailable,bluetoothPowered:$bluetoothPowered,volumeAvailable:$volumeAvailable,volume:$volume,volumeMuted:$volumeMuted,microphoneAvailable:$microphoneAvailable,microphoneVolume:$microphoneVolume,microphoneMuted:$microphoneMuted,brightnessAvailable:$brightnessAvailable,brightness:$brightness,powerProfileAvailable:$powerProfileAvailable,powerProfile:$powerProfile,batteryAvailable:$batteryAvailable,batteryPercent:$batteryPercent,batteryState:$batteryState,nightLightAvailable:$nightLightAvailable,nightLightEnabled:$nightLightEnabled,dndAvailable:false,rotationAvailable:$rotationAvailable,rotationSensorAvailable:$rotationSensorAvailable,rotationLock:false,recordingAvailable:$recordingAvailable,recording:false}'
+  --argjson rotationDbusAvailable "$(bool_value "$rotation_dbus_available")" \
+  --argjson rotationAccelerometerAvailable "$(bool_value "$rotation_accelerometer_available")" \
+  --arg rotationSensorBackend "$rotation_sensor_backend" \
+  '{wifiAvailable:$wifiAvailable,wifiEnabled:$wifiEnabled,wifiConnected:$wifiConnected,airplane:$airplane,wifiSsid:$wifiSsid,wifiSignal:$wifiSignal,bluetoothAvailable:$bluetoothAvailable,bluetoothPowered:$bluetoothPowered,volumeAvailable:$volumeAvailable,volume:$volume,volumeMuted:$volumeMuted,microphoneAvailable:$microphoneAvailable,microphoneVolume:$microphoneVolume,microphoneMuted:$microphoneMuted,brightnessAvailable:$brightnessAvailable,brightness:$brightness,powerProfileAvailable:$powerProfileAvailable,powerProfile:$powerProfile,batteryAvailable:$batteryAvailable,batteryPercent:$batteryPercent,batteryState:$batteryState,nightLightAvailable:$nightLightAvailable,nightLightEnabled:$nightLightEnabled,dndAvailable:false,rotationAvailable:$rotationAvailable,rotationSensorAvailable:$rotationSensorAvailable,rotationDbusAvailable:$rotationDbusAvailable,rotationAccelerometerAvailable:$rotationAccelerometerAvailable,rotationSensorBackend:$rotationSensorBackend,rotationLock:false,recordingAvailable:$recordingAvailable,recording:false}'
