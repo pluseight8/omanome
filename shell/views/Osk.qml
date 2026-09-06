@@ -33,6 +33,13 @@ Item {
     root.capsEnabled = root.service.cfg("keyboard.capsLock", true) === true
   }
 
+  Connections {
+    target: root.service
+    function onConfigUpdated(path) {
+      if (String(path || "").indexOf("keyboard.") === 0) root.refreshLanguage()
+    }
+  }
+
   function rows() {
     var source = root.inputLayer === "numeric" ? Osk.rows("numeric", false) : (root.inputLayer === "function" ? Osk.rows("function", false) : Osk.rows(root.language, root.showNumberRow))
     if (root.capsEnabled || root.inputLayer === "numeric") return source
@@ -42,7 +49,10 @@ Item {
   }
 
   function modifierKeys() {
-    return ["Control", "Alt", "Super", "Tab", "Esc", "Fn"]
+    var keys = ["Control", "Alt", "Super"]
+    if (root.showNavigationRow) keys.push("Tab", "Esc")
+    if (root.showFunctionRow) keys.push("Fn")
+    return keys
   }
 
   function isModifier(key) {

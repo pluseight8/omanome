@@ -114,7 +114,7 @@ Item {
   function saveConfig() {
     if (!root.configReady || root._loadingConfig) return
     root.config.schemaVersion = 1
-    configFile.setText(JSON.stringify(root.config, null, 2) + "\n")
+    configWriteDebounce.restart()
   }
 
   function setConfig(path, value) {
@@ -252,7 +252,8 @@ Item {
   function setAudioDefault(kind, id) {
     var type = String(kind || "")
     var value = Math.floor(Number(id))
-    if ((type !== "sink" && type !== "source") || !isFinite(value) || value <= 0 || !root.systemState.volumeAvailable) return false
+    var available = type === "sink" ? root.systemState.volumeAvailable : root.systemState.microphoneAvailable
+    if ((type !== "sink" && type !== "source") || !isFinite(value) || value <= 0 || !available) return false
     var started = root.execute(["wpctl", "set-default", String(value)])
     if (started) systemRefresh.restart()
     return started
@@ -800,6 +801,13 @@ Item {
     }
   }
 
+  Timer {
+    id: configWriteDebounce
+    interval: 180
+    repeat: false
+    onTriggered: configFile.setText(JSON.stringify(root.config, null, 2) + "\n")
+  }
+
   FileView {
     id: clipboardFile
     path: root.clipboardPath
@@ -972,9 +980,9 @@ Item {
 
   Timer {
     id: deviceRefresh
-    interval: 5000
+    interval: 10000
     repeat: true
-    running: true
+    running: root.configReady
     onTriggered: root.refreshDevices()
   }
 

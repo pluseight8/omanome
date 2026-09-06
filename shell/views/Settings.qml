@@ -66,16 +66,16 @@ Item {
           Row { spacing: Style.space(8); Repeater { model: ["automatic", "desktop", "tablet", "hybrid"]; delegate: ActionButton { required property string modelData; compact: true; text: root.service.tr(modelData, modelData); checked: root.service.cfg("general.mode", "automatic") === modelData; onClicked: root.service.setConfig("general.mode", modelData) } } }
           Row { spacing: Style.space(8); Repeater { model: ["Desktop", "Tablet", "Stylus", "Performance", "Battery Saver", "GNOME-like"]; delegate: ActionButton { required property string modelData; compact: true; text: modelData; checked: root.service.cfg("general.profile", "Desktop") === modelData; onClicked: root.service.applyProfile(modelData) } } }
           Row { spacing: Style.space(8); ActionButton { compact: true; text: "System"; checked: root.service.cfg("general.language", "system") === "system"; onClicked: root.service.setConfig("general.language", "system") } ActionButton { compact: true; text: "English"; checked: root.service.cfg("general.language", "system") === "en"; onClicked: root.service.setConfig("general.language", "en") } ActionButton { compact: true; text: "Русский"; checked: root.service.cfg("general.language", "system") === "ru"; onClicked: root.service.setConfig("general.language", "ru") } }
-          ActionButton { width: parent.width; text: "Large UI"; subtitle: "Larger touch targets and typography"; checked: root.service.cfg("general.largeUi", false); onClicked: root.toggle("general.largeUi") }
-          ActionButton { width: parent.width; text: "Reduce motion"; subtitle: "Disable non-essential animation"; checked: root.service.cfg("general.reduceMotion", false); onClicked: root.toggle("general.reduceMotion") }
+          ActionButton { width: parent.width; text: "Large UI"; subtitle: "Requires a host-wide Style token API; touch target size is available below"; checked: root.service.cfg("general.largeUi", false); usable: false }
+          ActionButton { width: parent.width; text: "Reduce motion"; subtitle: "Requires a host-wide animation policy API"; checked: root.service.cfg("general.reduceMotion", false); usable: false }
         }
 
         Column {
           width: parent.width
           spacing: Style.space(10)
           visible: root.category === "appearance"
-          ActionButton { width: parent.width; text: "Theme"; subtitle: root.service.cfg("appearance.theme", "follow-omarchy"); checked: true; onClicked: root.service.setConfig("appearance.theme", root.service.cfg("appearance.theme", "follow-omarchy") === "follow-omarchy" ? "dark" : "follow-omarchy") }
-          ActionButton { width: parent.width; text: "Large UI"; subtitle: "Shared typography and touch-target preference"; checked: root.service.cfg("general.largeUi", false); onClicked: root.toggle("general.largeUi") }
+          ActionButton { width: parent.width; text: "Theme"; subtitle: "Follows Omarchy Color tokens; independent plugin theme backend unavailable"; checked: root.service.cfg("appearance.theme", "follow-omarchy") === "follow-omarchy"; usable: false }
+          ActionButton { width: parent.width; text: "Large UI"; subtitle: "Requires a host-wide Style token API; touch target size is available in Tablet mode"; checked: root.service.cfg("general.largeUi", false); usable: false }
           Text { text: "Surface radius: " + root.service.cfg("appearance.radius", 18) + " logical px"; color: Color.foreground; font.pixelSize: Style.font.body }
           Slider { width: parent.width; from: 8; to: 32; value: root.service.cfg("appearance.radius", 18); onMoved: root.service.setConfig("appearance.radius", Math.round(value)) }
           Text { text: "Surface opacity: " + Math.round(root.service.cfg("appearance.opacity", 0.96) * 100) + "%"; color: Color.foreground; font.pixelSize: Style.font.body }
@@ -119,7 +119,7 @@ Item {
           spacing: Style.space(10)
           visible: root.category === "notifications"
           ActionButton { width: parent.width; text: root.service.tr("notifications", "Notifications"); subtitle: "Native Omarchy notification service"; checked: root.service.cfg("notifications.enabled", true); onClicked: root.toggle("notifications.enabled") }
-          ActionButton { width: parent.width; text: "Group by app"; checked: root.service.cfg("notifications.groupByApp", true); onClicked: root.toggle("notifications.groupByApp") }
+          ActionButton { width: parent.width; text: "Group by app"; subtitle: "Grouping is owned by Omarchy's native notification service"; checked: root.service.cfg("notifications.groupByApp", true); usable: false }
           ActionButton { width: parent.width; text: root.service.tr("doNotDisturb", "Do not disturb"); subtitle: root.service.systemState.dndAvailable ? "Omarchy notification service" : "Notification backend unavailable"; checked: root.service.systemState.dnd === true; usable: root.service.systemState.dndAvailable === true; onClicked: root.service.setDoNotDisturb(!root.service.systemState.dnd) }
           Text { width: parent.width; text: "The notification center reuses Omarchy's native service; no second notification daemon is started."; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
         }
@@ -168,8 +168,13 @@ Item {
           spacing: Style.space(10)
           visible: root.category === "keyboard"
           ActionButton { width: parent.width; text: root.service.tr("keyboard", "Keyboard"); subtitle: root.service.wtypeAvailable ? root.service.tr("wlroots", "Wayland-native") : "wtype unavailable"; checked: root.service.cfg("keyboard.enabled", true); onClicked: root.toggle("keyboard.enabled") }
-          ActionButton { width: parent.width; text: "Auto-show on editable fields"; subtitle: "Requires a compositor text-input focus provider"; checked: root.service.cfg("keyboard.autoShow", true); onClicked: root.toggle("keyboard.autoShow") }
-          ActionButton { width: parent.width; text: "Suggestions and learning"; subtitle: "Local engine slot; learning is off by default"; checked: root.service.cfg("keyboard.learning", false); onClicked: root.toggle("keyboard.learning") }
+          ActionButton { width: parent.width; text: "Auto-show on editable fields"; subtitle: "Requires a compositor text-input focus provider"; checked: root.service.cfg("keyboard.autoShow", true); usable: false }
+          ActionButton { width: parent.width; text: "Suggestions and learning"; subtitle: "Requires a local input-method engine; no engine is bundled"; checked: root.service.cfg("keyboard.learning", false); usable: false }
+          ActionButton { width: parent.width; text: "Number row"; checked: root.service.cfg("keyboard.showNumberRow", true); onClicked: root.toggle("keyboard.showNumberRow") }
+          ActionButton { width: parent.width; text: "Modifier row"; checked: root.service.cfg("keyboard.showModifierRow", true); onClicked: root.toggle("keyboard.showModifierRow") }
+          ActionButton { width: parent.width; text: "Navigation keys"; checked: root.service.cfg("keyboard.showNavigationRow", true); onClicked: root.toggle("keyboard.showNavigationRow") }
+          ActionButton { width: parent.width; text: "Function layer"; checked: root.service.cfg("keyboard.showFunctionRow", false); onClicked: root.toggle("keyboard.showFunctionRow") }
+          ActionButton { width: parent.width; text: "Caps Lock key"; checked: root.service.cfg("keyboard.capsLock", true); onClicked: root.toggle("keyboard.capsLock") }
           Row { spacing: Style.space(8); Repeater { model: ["standard", "floating", "split", "thumb", "one-handed", "handwriting"]; delegate: ActionButton { required property string modelData; compact: true; text: modelData; checked: root.service.cfg("keyboard.mode", "standard") === modelData; onClicked: root.service.setConfig("keyboard.mode", modelData) } } }
         }
 
@@ -179,7 +184,7 @@ Item {
           visible: root.category === "clipboard" || root.category === "privacy"
           ActionButton { width: parent.width; text: root.service.tr("clipboard", "Clipboard"); subtitle: root.service.clipboardHistory.length + " entries · never logged"; checked: root.service.cfg("clipboard.enabled", true); onClicked: root.toggle("clipboard.enabled") }
           ActionButton { width: parent.width; text: root.service.tr("privateMode", "Private mode"); subtitle: "Stop capture and keep existing history"; checked: root.service.cfg("privacy.clipboardPrivate", false); onClicked: root.toggle("privacy.clipboardPrivate") }
-          ActionButton { width: parent.width; text: "Persist pinned only"; subtitle: "Requires pinning UI in a future history backend"; checked: root.service.cfg("clipboard.persistPinnedOnly", false); onClicked: root.toggle("clipboard.persistPinnedOnly") }
+          ActionButton { width: parent.width; text: "Persist pinned only"; subtitle: "Requires pinning UI in a future history backend"; checked: root.service.cfg("clipboard.persistPinnedOnly", false); usable: false }
           ActionButton { width: parent.width; text: "Clear clipboard history"; onClicked: root.service.clearClipboard() }
         }
 
@@ -187,10 +192,10 @@ Item {
           width: parent.width
           spacing: Style.space(10)
           visible: root.category === "effects" || root.category === "blur"
-          ActionButton { width: parent.width; text: "Blur surfaces"; subtitle: "GPU compositor blur is optional per surface"; checked: root.service.cfg("blur.enabled", true); onClicked: root.toggle("blur.enabled") }
+          ActionButton { width: parent.width; text: "Blur surfaces"; subtitle: "Requires a version-pinned compositor blur companion; solid surfaces remain available"; checked: root.service.cfg("blur.enabled", true); usable: false }
           ActionButton { width: parent.width; text: "Wobbly windows"; subtitle: root.service.tr("effectsUnavailable", "Optional compositor effects are disabled until a compatible companion is installed."); checked: false; usable: false }
           ActionButton { width: parent.width; text: "Desktop cube"; subtitle: root.service.tr("effectsUnavailable", "Optional compositor effects are disabled until a compatible companion is installed."); checked: false; usable: false }
-          ActionButton { width: parent.width; text: "Reduce effects on battery"; checked: root.service.cfg("effects.disableOnBattery", true); onClicked: root.toggle("effects.disableOnBattery") }
+          ActionButton { width: parent.width; text: "Reduce effects on battery"; subtitle: "Requires a compositor effects backend"; checked: root.service.cfg("effects.disableOnBattery", true); usable: false }
         }
 
         Column {

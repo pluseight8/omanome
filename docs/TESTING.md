@@ -11,9 +11,14 @@ make check
 The command performs:
 
 1. manifest/config safety validation;
-2. `bash -n` on the CLI and clipboard helper;
-3. Python unit tests for the bar contract, config version, secret clipboard path, and native Omarchy validation;
+2. `bash -n` on the CLI, clipboard helper, capability probes, scanners, and rotation helper;
+3. Python unit tests for the GitHub install contract, bar coexistence, config version/migrations, real backend capability handling, workspace rules, secret clipboard path, uninstall scope, and native Omarchy validation;
 4. Qt `qmllint` with temporary import links to the installed Omarchy `qs.Commons` and `qs.Ui` modules.
+
+The runtime service coalesces Quick Settings into one state probe and only starts
+Wi-Fi, Bluetooth, and audio enumeration when their pickers are opened. Device
+inventory refreshes are periodic but intentionally slow; all subprocess actions
+are argv-based and missing optional commands produce disabled controls.
 
 The temporary QML import directory is outside the checkout and is removed when the lint target exits, so it cannot make `omarchy plugin validate` reject the repository for containing symlinks.
 
@@ -36,6 +41,7 @@ The QML code is designed for the following manual matrix when hardware is availa
 - `scripts/validate.py` rejects unsafe absolute/parent entry points and symlinks.
 - `Service.qml` uses a single namespaced IPC handler and no second shell process.
 - `input/clipboard-capture.sh` drops sensitive clipboard state and emits no payload logs.
+- `input/system-state.sh`, `input/wifi-scan.sh`, `input/bluetooth-scan.sh`, and `input/audio-devices.sh` return capability-safe JSON; they do not invent state when a backend is absent.
 - `hypr/README.md` records why no unpinned compositor `.so` is loaded.
 
 Hardware-specific pressure, tilt, screen rotation, and focus/text-input tests require the corresponding device/backend; they should not be represented as passed by static CI.
