@@ -39,6 +39,10 @@ Item {
   property bool hasStylus: false
   property bool hyprlandAvailable: false
   property bool wtypeAvailable: false
+  // A persistent virtual-input companion is optional. Keep this explicit so
+  // the OSK never presents cursor/prediction features as available when only
+  // one-shot wtype is installed.
+  property bool inputBackendAvailable: false
   property string lastInput: "keyboard"
   property string detectedMode: "desktop"
   property string lastError: ""
@@ -468,6 +472,7 @@ Item {
       stylusCount: root.stylusDevices.length,
       hyprland: root.hyprlandAvailable,
       wtype: root.wtypeAvailable,
+      inputBackend: root.inputBackendAvailable,
       rotation: {
         available: root.systemState.rotationAvailable === true,
         sensor: root.systemState.rotationSensorAvailable === true,
