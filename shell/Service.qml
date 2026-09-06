@@ -35,8 +35,10 @@ Item {
   property var monitors: []
   property var clients: []
   property var stylusDevices: []
+  property var keyboardDevices: []
   property bool hasTouchscreen: false
   property bool hasStylus: false
+  property bool hasPhysicalKeyboard: false
   property bool hyprlandAvailable: false
   property bool wtypeAvailable: false
   // A persistent virtual-input companion is optional. Keep this explicit so
@@ -428,20 +430,27 @@ Item {
     root.devices = parsed
     var touches = []
     var styluses = []
-    var groups = [parsed.touch, parsed.touchDevices, parsed.touchdevices, parsed.tablets, parsed.tabletTools, parsed.tablettools]
+    var groups = [
+      { items: parsed.touch, role: "touch" },
+      { items: parsed.touchDevices, role: "touch" },
+      { items: parsed.touchdevices, role: "touch" },
+      { items: parsed.tablets, role: "tablet" },
+      { items: parsed.tabletTools, role: "tablet-tool" },
+      { items: parsed.tablettools, role: "tablet-tool" }
+    ]
     for (var g = 0; g < groups.length; g++) {
-      var group = Array.isArray(groups[g]) ? groups[g] : []
+      var group = Array.isArray(groups[g].items) ? groups[g].items : []
       for (var i = 0; i < group.length; i++) {
         var item = group[i] || {}
-        var name = String(item.name || item.device || item.identifier || "")
-        var lowered = name.toLowerCase()
-        if (g < 3 && StylusModel.isTouchscreen(item)) touches.push(item)
-        if (StylusModel.isStylus(item) || (g >= 3 && lowered.indexOf("touchpad") < 0)) styluses.push(item)
+        if (groups[g].role === "touch" && StylusModel.isTouchscreen(item, groups[g].role)) touches.push(item)
+        if (StylusModel.isStylus(item, groups[g].role)) styluses.push(item)
       }
     }
     root.hasTouchscreen = touches.length > 0
     root.stylusDevices = styluses
     root.hasStylus = styluses.length > 0
+    root.keyboardDevices = StylusModel.classifyKeyboards(parsed.keyboards)
+    root.hasPhysicalKeyboard = root.keyboardDevices.length > 0
     root.detectedMode = root.computeMode()
     root.stateRevision++
     root.stateUpdated()
@@ -470,6 +479,8 @@ Item {
       hasTouchscreen: root.hasTouchscreen,
       hasStylus: root.hasStylus,
       stylusCount: root.stylusDevices.length,
+      physicalKeyboard: root.hasPhysicalKeyboard,
+      physicalKeyboardCount: root.keyboardDevices.length,
       hyprland: root.hyprlandAvailable,
       wtype: root.wtypeAvailable,
       inputBackend: root.inputBackendAvailable,

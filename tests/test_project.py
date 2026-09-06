@@ -88,6 +88,28 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertTrue(result["stylus"]["tilt"])
         self.assertTrue(result["stylus"]["barrelButtons"])
 
+    def test_stylus_fixtures_use_types_and_capabilities_not_vendor_names(self) -> None:
+        result = self.run_node(
+            "const S=require('./shell/models/Stylus.js'); const F=require('./tests/fixtures/stylus-devices.json'); "
+            "const list=Object.keys(F).map(k=>F[k]); const classified=S.classify(list,'fixture'); "
+            "console.log(JSON.stringify({count:classified.length, names:classified.map(x=>x.name), "
+            "pressure:classified.filter(x=>x.capabilities.pressure).length, "
+            "eraser:classified.filter(x=>x.capabilities.eraser).length, "
+            "serial:classified.filter(x=>x.capabilities.serial !== '').length, "
+            "touch:S.isTouchscreen(F.touchscreen), pad:S.isTabletPad({type:'tablet-pad'}), "
+            "keyboard:S.classifyKeyboards([{name:'external-keyboard'},{name:'consumer-control',main:true},{name:'tablet-tool',type:'tablet-tool'}]).length}));"
+        )
+        self.assertEqual(result["count"], 6)
+        self.assertEqual(result["pressure"], 5)
+        self.assertEqual(result["eraser"], 1)
+        self.assertEqual(result["serial"], 2)
+        self.assertTrue(result["touch"])
+        self.assertTrue(result["pad"])
+        self.assertEqual(result["keyboard"], 1)
+        stylus_source = (ROOT / "shell/models/Stylus.js").read_text(encoding="utf-8").lower()
+        self.assertNotIn("wacom", stylus_source)
+        self.assertNotIn('name.indexof("pen")', stylus_source)
+
     def test_osk_has_modifiers_and_real_key_layers(self) -> None:
         result = self.run_node(
             "const O=require('./shell/models/Osk.js'); const rows=O.rows('en',true); "

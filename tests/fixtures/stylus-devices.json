@@ -1,0 +1,67 @@
+{
+  "touchscreen": {
+    "id": "touch-display-0",
+    "type": "touchscreen",
+    "capabilities": ["touch"]
+  },
+  "wacomTool": {
+    "id": "tablet-tool-0",
+    "name": "External tablet tool",
+    "type": "tablet-tool",
+    "toolType": "pen",
+    "capabilities": {
+      "pressure": true,
+      "tiltX": true,
+      "tiltY": true,
+      "rotation": true,
+      "distance": true,
+      "proximity": true,
+      "buttons": true
+    },
+    "buttonCount": 2,
+    "serial": "fixture-001",
+    "output": "auto"
+  },
+  "emrTool": {
+    "id": "tablet-tool-1",
+    "name": "EMR tablet tool",
+    "type": "tablet-tool",
+    "toolType": "stylus",
+    "capabilities": {
+      "pressure": true,
+      "tiltX": true,
+      "tiltY": true,
+      "proximity": true
+    },
+    "serial": "fixture-002"
+  },
+  "usiTool": {
+    "id": "tablet-tool-2",
+    "type": "tablet-tool",
+    "toolType": "stylus",
+    "capabilities": ["pressure", "tilt-x", "tilt-y", "proximity"]
+  },
+  "eraserTool": {
+    "id": "tablet-tool-3",
+    "type": "tablet-tool",
+    "toolType": "eraser",
+    "capabilities": {
+      "pressure": true,
+      "eraser": true,
+      "buttons": true
+    },
+    "buttons": 1
+  },
+  "noPressureTool": {
+    "id": "tablet-tool-4",
+    "type": "tablet-tool",
+    "toolType": "stylus",
+    "capabilities": ["tilt-x", "proximity"]
+  },
+  "dualScreenTablet": {
+    "id": "tablet-surface-0",
+    "type": "tablet",
+    "capabilities": ["pressure", "proximity"],
+    "output": "automatic-output"
+  }
+}
