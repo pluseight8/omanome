@@ -11,8 +11,8 @@ make check
 The command performs:
 
 1. manifest/config safety validation;
-2. `bash -n` on the CLI, clipboard helper, capability probes, scanners, and rotation helper;
-3. Python unit tests for the GitHub install contract, bar coexistence, config version/migrations, real backend capability handling, workspace rules, secret clipboard path, uninstall scope, and native Omarchy validation;
+2. `bash -n` on the CLI, clipboard helper, capability probes, scanners, sensor/rotation helpers, and audio helper;
+3. Python unit tests for the GitHub install contract, bar coexistence, config version/migrations, OSK layouts and controls, capability-based stylus fixtures, touch conflict policy, rotation transforms, sensor diagnostics, secret clipboard path, uninstall scope, and native Omarchy validation;
 4. Qt `qmllint` with temporary import links to the installed Omarchy `qs.Commons` and `qs.Ui` modules.
 
 The runtime service coalesces Quick Settings into one state probe and only starts
@@ -42,6 +42,8 @@ The QML code is designed for the following manual matrix when hardware is availa
 - `Service.qml` uses a single namespaced IPC handler and no second shell process.
 - `input/clipboard-capture.sh` drops sensitive clipboard state and emits no payload logs.
 - `input/system-state.sh`, `input/wifi-scan.sh`, `input/bluetooth-scan.sh`, and `input/audio-devices.sh` return capability-safe JSON; they do not invent state when a backend is absent.
+- `tests/fixtures/stylus-devices.json` covers touchscreen, generic tablet tools, eraser, no-pressure, serial, and mapped-output input records without requiring hardware.
+- `input/sensor-info.sh` and `omanome sensor-info` distinguish monitor-sensor, iio D-Bus, and manual fallback.
 - `hypr/README.md` records why no unpinned compositor `.so` is loaded.
 
-Hardware-specific pressure, tilt, screen rotation, and focus/text-input tests require the corresponding device/backend; they should not be represented as passed by static CI.
+Hardware-specific pressure, tilt, eraser, screen rotation, multi-monitor, and focus/text-input tests require the corresponding device/backend; they should not be represented as passed by static CI. The manual hardware workflow is dispatch-only for that reason.

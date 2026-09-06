@@ -35,10 +35,13 @@ marks unavailable backends explicitly.
 The annotation overlay is a lazy `PanelWindow` owned by the same service. Its
 Canvas stores only the current in-memory strokes and closes to release the
 overlay. Rotation uses runtime Hyprland input transforms and monitor names
-returned by `hyprctl monitors -j`; sensor polling is not started unless the
-optional `monitor-sensor` backend exists.
+returned by `hyprctl monitors -j`; mapped outputs are preferred, then focused
+or primary dynamic outputs. Touch, tablet, and monitor transforms are sent in
+one batch and a failed batch triggers a rollback batch. Sensor rotation is a
+persistent event stream: `monitor-sensor` is preferred and
+`net.hadess.SensorProxy` D-Bus signals are the fallback.
 
-The plugin is intentionally capability-aware. Missing `wtype`, `nmcli`, Bluetooth, brightness, screenshot, sensor, or optional compositor support disables only the affected action.
+The plugin is intentionally capability-aware. Missing `wtype`, `nmcli`, Bluetooth, brightness, screenshot, sensor, persistent input, or optional compositor support disables only the affected action.
 
 ## Compatibility rules
 

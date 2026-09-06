@@ -2,7 +2,7 @@
 
 Omanome — открытый набор улучшений рабочего стола для актуального Omarchy Quattro на Hyprland. Он добавляет GNOME-подобный интерфейс для touchscreen и стилуса, но остаётся обычным Omarchy Shell Plugin: стандартная верхняя панель не заменяется, второй Quickshell не запускается, GNOME Shell и Mutter не нужны.
 
-Это запускаемый baseline версии 0.2.0. Реализованы возможности, для которых достаточно публичных API Omarchy/Quickshell/Hyprland. Функции, требующие ABI compositor или отдельного text-input/handwriting backend, оставлены явными безопасными точками расширения, а не подменены фальшивыми скриншотами.
+Это запускаемая фаза версии 0.3.0. Реализованы возможности, для которых достаточно публичных API Omarchy/Quickshell/Hyprland. Функции, требующие ABI compositor, text-input/persistent input или handwriting backend, оставлены явными безопасными точками расширения, а не подменены фальшивыми скриншотами.
 
 ## Возможности
 
@@ -18,9 +18,9 @@ Omanome — открытый набор улучшений рабочего ст
 - Опциональный dock в стиле Dash-to-Dock на нескольких мониторах: избранное, running indicators, контекстные действия, configurable position/mode и intelligent autohide.
 - Определение touchscreen/stylus через Hyprland, режимы Automatic/Desktop/Tablet/Hybrid и применение touch-жестов через IPC.
 - English/Русский, профили, versioned config, import/export/reset и приватная история clipboard для текста/PNG.
-- Wayland-native OSK через `wtype`: English, Russian, numeric, floating, split, one-handed и handwriting-panel режимы.
+- Wayland-native OSK через `wtype`: English/Russian QWERTY, standard/floating/split/thumb/one-handed left/right, numeric/symbols/emoji/editing и handwriting canvas; есть toolbar, long-press alternates, key popup и configurable repeat.
 - Использование нативного Omarchy notification service для DND, истории и dismiss.
-- CLI для диагностики, установки из GitHub, safe mode, обновления, rollback и удаления.
+- CLI для диагностики, включая `stylus-info`, `touch-info`, `sensor-info`, установки из GitHub, safe mode, обновления, rollback и удаления.
 
 ## Установка из GitHub
 
@@ -75,6 +75,8 @@ omanome update --check
 omanome update
 omanome rollback
 omanome stylus-info
+omanome touch-info
+omanome sensor-info
 omanome devices
 omanome uninstall [--purge-settings] [--yes]
 ```
@@ -90,7 +92,7 @@ Hyprland не затрагиваются.
 
 ## Touch и stylus
 
-Omanome не зависит от бренда стилуса и читает inventories `touch`/`tablets` Hyprland. Нативные pressure/tilt/eraser-события приложений не заменяются synthetic mouse events. Политика pressure curve, palm rejection, monitor mapping и кнопок описана в [`stylus/README.md`](stylus/README.md). OSK работает через `wtype`; без него остальные части shell продолжают работать. Автоматическое открытие по focused text field требует отдельного text-input focus provider.
+Omanome не зависит от бренда стилуса: discovery использует типы и capabilities, а не vendor-name substring. Diagnostics показывают pressure, tilt X/Y, rotation, distance, proximity, eraser, buttons, serial, backend и mapped output только когда их сообщает backend. Нативные pressure/tilt/eraser-события приложений не заменяются synthetic mouse events. Политика pressure curve, palm rejection, monitor mapping и кнопок описана в [`stylus/README.md`](stylus/README.md). OSK работает через `wtype`; auto-show focused text field и persistent cursor input требуют optional native companion. Auto-rotation предпочитает `monitor-sensor`, затем iio-sensor-proxy D-Bus; manual rotation работает без sensor.
 
 ## Проверка и разработка
 
@@ -104,7 +106,7 @@ make check
 
 ## Ограничения
 
-Публичные API текущих Omarchy/Hyprland не дают безопасного portable backend для настоящего compositor-level wobbly windows и 3D workspace cube. Omanome оставляет их выключенными и показывает причину, не загружая неприкреплённый Hyprland `.so`. Live thumbnails, автоматическое обнаружение focused text field, sensor rotation, handwriting recognition и полная persistence drag-and-drop app grid также ожидают отдельного backend. Весь основной shell при этом остаётся работоспособным.
+Публичные API текущих Omarchy/Hyprland не дают безопасного portable backend для настоящего compositor-level wobbly windows и 3D workspace cube. Omanome оставляет их выключенными и показывает причину, не загружая неприкреплённый Hyprland `.so`. Live thumbnails, автоматическое обнаружение focused text field, persistent input, handwriting recognition, stylus button-event mapping и полная persistence drag-and-drop app grid также ожидают отдельного backend. Весь основной shell при этом остаётся работоспособным.
 
 ## Лицензия
 

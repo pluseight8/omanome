@@ -33,5 +33,5 @@ jobs:
           import json
           manifest = json.load(open("manifest.json", encoding="utf-8"))
           assert "bar" not in manifest["kinds"]
-          assert manifest["version"] == "0.2.0"
+          assert manifest["version"] == "0.3.0"
           PY

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.0
+
+- Expands the Wayland OSK with standard, floating, split, thumb, left/right
+  one-handed, numeric, symbols, emoji, editing, and handwriting surfaces.
+- Adds a local data model for toolbar actions, emoji categories/recent items,
+  alternate-character long press, key popup, Shift/Caps behavior, backspace
+  repeat settings, floating position, split geometry, and configurable height.
+- Adds capability/type-based stylus discovery with pressure, tilt X/Y, rotation,
+  distance, proximity, eraser, buttons, serial, backend, and mapped-output
+  diagnostics; no vendor-name stylus detection is used.
+- Adds an event-driven iio-sensor-proxy D-Bus fallback when monitor-sensor is
+  absent, sensor-info/touch-info, and atomic synchronized rotation with
+  dynamic output selection and rollback on failure.
+- Adds fullscreen touch-gesture conflict policy and adaptive target-size
+  diagnostics without modifying touchpad gesture settings.
+- Keeps text-field auto-show, persistent input, handwriting recognition, and
+  stylus button-event mapping explicitly gated until an optional native backend
+  is installed; no cloud service, telemetry, X11, or hidden sudo is added.
+
 ## 0.2.0
 
 - Documents direct GitHub installation and the graphical Omarchy Plugin Manager flow.

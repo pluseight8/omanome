@@ -34,6 +34,7 @@ class OmanomeProjectTests(unittest.TestCase):
 
     def test_manifest_preserves_the_standard_bar(self) -> None:
         manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], "0.3.0")
         self.assertNotIn("bar", manifest["kinds"])
         self.assertEqual(set(manifest["entryPoints"]), {"service", "barWidget", "panel"})
         for entry in manifest["entryPoints"].values():

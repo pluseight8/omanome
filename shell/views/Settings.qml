@@ -237,7 +237,7 @@ Item {
           width: parent.width
           spacing: Style.space(10)
           visible: root.category === "about"
-          Text { text: "Omanome 0.2.0"; color: Color.accent; font.pixelSize: Style.font.title; font.bold: true }
+          Text { text: "Omanome 0.3.0"; color: Color.accent; font.pixelSize: Style.font.title; font.bold: true }
           Text { width: parent.width; text: "GNOME-inspired touch and stylus experience inside the existing Omarchy/Hyprland shell. It stays a single Omarchy plugin and never replaces the standard bar."; color: Color.foreground; font.pixelSize: Style.font.body; wrapMode: Text.WordWrap }
           Text { width: parent.width; text: "Detected: Hyprland " + (root.service.hyprlandAvailable ? "yes" : "no") + " · touchscreen " + (root.service.hasTouchscreen ? "yes" : "no") + " · stylus " + (root.service.hasStylus ? "yes" : "no") + " · wtype " + (root.service.wtypeAvailable ? "yes" : "no"); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
           ActionButton { width: parent.width; text: root.service.tr("reset", "Reset"); subtitle: "Reset Omanome config only"; onClicked: root.service.resetConfig() }

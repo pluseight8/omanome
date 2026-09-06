@@ -2,7 +2,7 @@
 
 Omanome is an open-source, GNOME-inspired touch and stylus enhancement suite for the current Omarchy Quattro shell on Hyprland. It is intentionally an Omarchy plugin, not a replacement desktop session: the standard Omarchy bar remains in charge of the top edge, the existing Quickshell process hosts the plugin, and all plugin state is namespaced under `io.omanome.shell`.
 
-This repository is a runnable 0.2.0 baseline. It focuses on the parts that can be implemented safely with the public Omarchy/Quickshell/Hyprland interfaces. Features that require a compositor ABI or a text-input/handwriting engine are explicit optional integration points rather than fake overlays.
+This repository is the runnable 0.3.0 phase. It focuses on the parts that can be implemented safely with the public Omarchy/Quickshell/Hyprland interfaces. Features that require a compositor ABI, text-input companion, persistent virtual input, or handwriting engine are explicit optional integration points rather than fake overlays.
 
 ## What is included
 
@@ -19,9 +19,9 @@ This repository is a runnable 0.2.0 baseline. It focuses on the parts that can b
 - Touch-sized active-window controls in tablet or hybrid mode.
 - Tablet-mode detection from Hyprland device inventory, adaptive desktop/tablet/hybrid modes, stylus capability inventory, and touch gesture keyword integration through Hyprland IPC.
 - English/Russian UI strings, profiles, versioned configuration, import/export/reset, and privacy-aware clipboard history for text and PNG images.
-- A Wayland-native OSK surface driven by `wtype` (`virtual-keyboard-v1`), with English, Russian, numeric, floating, split, one-handed, and handwriting-panel modes.
+- A Wayland-native OSK surface driven by `wtype` (`virtual-keyboard-v1`), with English/Russian QWERTY, standard/floating/split/thumb/left-right one-handed layouts, numeric/symbols/emoji/editing layers, toolbar, key popup, long-press alternates, repeat settings, and a local handwriting canvas.
 - Integration with Omarchy's native notification service for DND, popups, history, and dismissal.
-- Diagnostics and lifecycle commands: status, doctor, logs, enable/disable, safe mode, GitHub install/update checks, rollback, and uninstall.
+- Diagnostics and lifecycle commands: status, doctor, logs, enable/disable, safe mode, devices, stylus-info, touch-info, sensor-info, GitHub install/update checks, rollback, and uninstall.
 
 ## Requirements
 
@@ -32,7 +32,7 @@ Runtime requirements are:
 - a Wayland session with `wl-paste`/`wl-copy`;
 - `wtype` for OSK text insertion.
 
-Optional commands used only when available are `nmcli`, `bluetoothctl`, `wpctl`, `brightnessctl`, `grim`, `wf-recorder`, and `iio-sensor-proxy`. Missing optional commands disable only their action.
+Optional commands used only when available are `nmcli`, `bluetoothctl`, `wpctl`, `brightnessctl`, `grim`, `wf-recorder`, `gdbus`, and `iio-sensor-proxy`. Missing optional commands disable only their action.
 
 ## Install from GitHub
 
@@ -92,6 +92,8 @@ omanome update --check
 omanome update
 omanome rollback
 omanome stylus-info
+omanome touch-info
+omanome sensor-info
 omanome devices
 omanome uninstall [--purge-settings] [--yes]
 ```
@@ -108,9 +110,11 @@ bar, other plugins, themes, or user Hyprland files.
 
 ## Stylus and tablet behavior
 
-Omanome detects Hyprland's `touch` and `tablets` inventories without assuming a vendor, monitor name, serial number, or set of capabilities. Native client tablet events remain native: Omanome does not replace pressure/tilt/eraser events with synthetic mouse motion. Pressure curves, palm-rejection policy, monitor mapping, and button actions are configuration surfaces for the input companion described in `stylus/README.md`.
+Omanome detects Hyprland's `touch` and `tablets` inventories from explicit device types/capabilities and trusted backend groups; it does not classify styluses from vendor-name substrings. Diagnostics expose pressure, tilt X/Y, rotation, distance, proximity, eraser, buttons, serial, backend, and mapped output only when reported. Native client tablet events remain native: Omanome does not replace pressure/tilt/eraser events with synthetic mouse motion. Pressure curves, palm-rejection policy, monitor mapping, and button actions are configuration surfaces for the input companion described in `stylus/README.md`.
 
-The OSK uses `wtype` and is intentionally safe when it is unavailable. Automatic appearance on a focused text field requires a compositor text-input focus provider; the current panel can always be opened explicitly. Handwriting recognition is a local, pluggable slot and is not enabled by a cloud service.
+The OSK uses `wtype` and is intentionally safe when it is unavailable. Automatic appearance on a focused text field and persistent cursor/repeat input require an optional native text-input/virtual-input companion; the current panel can always be opened explicitly. Handwriting recognition is a local, pluggable slot and is not enabled by a cloud service.
+
+Rotation prefers `monitor-sensor`, then the iio-sensor-proxy D-Bus API through a persistent signal monitor. Manual rotation works independently. Dynamic monitor names and device mappings are used; a synchronized batch is rolled back if Hyprland rejects it.
 
 ## Development
 
@@ -118,13 +122,13 @@ The OSK uses `wtype` and is intentionally safe when it is unavailable. Automatic
 make check
 ```
 
-The check runs repository validation, shell syntax checks, Python tests, Omarchy's native manifest validator when available, and Qt `qmllint` against the installed Omarchy QML modules. Warnings from `qmllint` about dynamically injected Omarchy properties are expected; syntax and fatal errors fail the command.
+The check runs repository validation, shell syntax checks, Python tests including hardware-independent input fixtures, Omarchy's native manifest validator when available, and Qt `qmllint` against the installed Omarchy QML modules. Warnings from `qmllint` about dynamically injected Omarchy properties are expected; syntax and fatal errors fail the command. Hardware checks are documented separately in the manual matrix and are never marked as passed by portable CI.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/TESTING.md`](docs/TESTING.md) for the plugin contract, coexistence rules, test matrix, and safe integration boundaries.
 
 ## Deliberate limitations
 
-The current public Omarchy/Hyprland APIs do not provide a portable way for a third-party QML plugin to implement compositor-rendered wobbly windows or a true 3D workspace cube. Omanome leaves both disabled and reports why in Settings/status; it does not animate screenshots and does not load an unpinned Hyprland `.so`. Live window thumbnails, automatic text-field focus detection, sensor-driven rotation without `monitor-sensor`, local handwriting recognition, stylus button-event mapping, and full drag-and-drop app-grid persistence are likewise extension points until their corresponding public backend is selected.
+The current public Omarchy/Hyprland APIs do not provide a portable way for a third-party QML plugin to implement compositor-rendered wobbly windows or a true 3D workspace cube. Omanome leaves both disabled and reports why in Settings/status; it does not animate screenshots and does not load an unpinned Hyprland `.so`. Live window thumbnails, automatic text-field focus detection, persistent virtual input, local handwriting recognition, stylus button-event mapping, and full drag-and-drop app-grid persistence are likewise extension points until their corresponding public backend is selected. Auto-rotation remains manual-only when neither sensor backend is present.
 
 These limitations are isolated: Omanome still loads without them, and `omanome safe-mode`/`omanome disable` returns to the normal Omarchy shell immediately.
 
