@@ -45,7 +45,7 @@ class OmanomeProjectTests(unittest.TestCase):
         schema = json.loads((ROOT / "config/schema.json").read_text(encoding="utf-8"))
         self.assertEqual(defaults["schemaVersion"], 1)
         self.assertEqual(schema["properties"]["schemaVersion"]["const"], 1)
-        for key in ("tabletMode", "touch", "stylus", "keyboard", "clipboard", "updates"):
+        for key in ("tabletMode", "touch", "stylus", "keyboard", "clipboard", "updates", "animations", "performance", "applicationRules", "wobbly", "cube", "forceQuit"):
             self.assertIn(key, defaults)
         self.assertEqual(defaults["dock"]["mode"], "floating")
         self.assertIn("favoritesFirst", defaults["launcher"])
@@ -256,6 +256,25 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertTrue(result["good"]["compatible"])
         self.assertFalse(result["bad"]["compatible"])
         self.assertTrue(result["cube"])
+
+    def test_effects_animation_and_rules_are_adaptive_without_fake_backends(self) -> None:
+        result = self.run_node(
+            "const E=require('./shell/models/Effects.js'); const A=require('./shell/models/Animations.js'); "
+            "const P=require('./shell/models/Performance.js'); const R=require('./shell/models/AppRules.js'); "
+            "const blur=E.effectiveBlur({enabled:true,quality:'quality',highGpuThreshold:0.85,defaults:{},surfaces:{}},'dock',{batterySaver:true,backendAvailable:true}); "
+            "const rule=R.decision([{id:'game',appId:'steam',fullscreen:true,disableBlur:true,disableWobbly:true}],{appId:'steam',fullscreen:1},{inputKind:'touch'}); "
+            "const motion=A.transition({enabled:true,preset:'Smooth'},180,true); "
+            "const performance=P.snapshot({qualityPreset:'balanced',adaptiveQuality:true,highGpuThreshold:0.85},{gpuLoad:0.92}); "
+            "const caps=E.capabilityState({desktopCube:false},{desktopCube:true,desktopCubeBackend:'omarchy-desktop-cube'}); "
+            "console.log(JSON.stringify({blur,rule,motion,performance,caps}));"
+        )
+        self.assertEqual(result["blur"]["quality"], "battery-saver")
+        self.assertEqual(result["blur"]["passes"], 0)
+        self.assertIn("game", result["rule"]["matched"])
+        self.assertTrue(result["rule"]["disableBlur"])
+        self.assertTrue(result["motion"]["duration"] <= 80)
+        self.assertEqual(result["performance"]["quality"], "performance")
+        self.assertEqual(result["caps"]["desktopCubeBackend"], "omarchy-desktop-cube")
 
     def test_touch_policy_separates_fullscreen_conflicts_and_target_sizes(self) -> None:
         result = self.run_node(

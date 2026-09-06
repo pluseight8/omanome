@@ -73,6 +73,7 @@ def validate_config() -> None:
         "general", "appearance", "tabletMode", "touch", "stylus", "windowControls",
         "quickSettings", "dock", "overview", "launcher", "keyboard", "clipboard",
         "notifications", "altTab", "blur", "effects", "rotation", "privacy",
+        "animations", "performance", "applicationRules", "wobbly", "cube", "forceQuit",
         "shortcuts", "updates",
     }
     missing = sorted(expected_sections - defaults.keys())
