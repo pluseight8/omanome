@@ -5,6 +5,7 @@ import qs.Commons
 import "models/Config.js" as Config
 import "models/Clipboard.js" as ClipboardModel
 import "models/I18n.js" as I18n
+import "models/Stylus.js" as StylusModel
 
 // Omanome's one shared service. It is deliberately headless: all visible
 // surfaces are summoned through the existing Omarchy shell host, so Omanome
@@ -196,8 +197,8 @@ Item {
         var item = group[i] || {}
         var name = String(item.name || item.device || item.identifier || "")
         var lowered = name.toLowerCase()
-        if (g < 3 || lowered.indexOf("touch") >= 0) touches.push(item)
-        if (g >= 3 || lowered.indexOf("stylus") >= 0 || lowered.indexOf("tablet") >= 0 || lowered.indexOf("pen") >= 0) styluses.push(item)
+        if (g < 3 && StylusModel.isTouchscreen(item)) touches.push(item)
+        if (StylusModel.isStylus(item) || (g >= 3 && lowered.indexOf("touchpad") < 0)) styluses.push(item)
       }
     }
     root.hasTouchscreen = touches.length > 0
@@ -273,8 +274,50 @@ Item {
   function launchApp(desktopId) {
     var id = String(desktopId || "").replace(/\.desktop$/, "")
     if (!id) return false
+    root.rememberRecentApp(id)
     Util.execArgv(["uwsm-app", "--", "gtk-launch", id + ".desktop"])
     return true
+  }
+
+  function listConfig(path) {
+    var value = root.cfg(path, [])
+    return Array.isArray(value) ? value.slice() : []
+  }
+
+  function setListMembership(path, value, enabled) {
+    var id = String(value || "").replace(/\.desktop$/, "")
+    if (!id) return false
+    var list = listConfig(path)
+    var index = list.indexOf(id)
+    if (enabled && index < 0) list.push(id)
+    if (!enabled && index >= 0) list.splice(index, 1)
+    root.setConfig(path, list)
+    return true
+  }
+
+  function isFavoriteApp(id) {
+    return listConfig("launcher.favorites").indexOf(String(id || "").replace(/\.desktop$/, "")) >= 0
+  }
+
+  function toggleFavoriteApp(id) {
+    var key = String(id || "").replace(/\.desktop$/, "")
+    return setListMembership("launcher.favorites", key, !root.isFavoriteApp(key))
+  }
+
+  function rememberRecentApp(id) {
+    var key = String(id || "").replace(/\.desktop$/, "")
+    if (!key) return
+    var recent = listConfig("launcher.recentApplications").filter(function(item) { return item !== key })
+    recent.unshift(key)
+    root.setConfig("launcher.recentApplications", recent.slice(0, 24))
+  }
+
+  function moveWindowToWorkspace(window, workspaceId) {
+    var id = Math.max(1, Math.floor(Number(workspaceId || 1)))
+    var address = window && window.address ? String(window.address) : ""
+    var request = "movetoworkspace " + id
+    if (address) request += ",address:" + address
+    return root.dispatch(request)
   }
 
   function iconPath(icon) {
