@@ -23,6 +23,8 @@
   arrows/function layer, and compact floating/one-handed layouts.
 - Adds a lazy annotation overlay with pen/highlighter/eraser, undo/redo,
   screenshot/copy, and dynamic Hyprland touch/tablet/output rotation transforms.
+- Adds real PipeWire output/input selection and trims trailing empty dynamic
+  workspaces to one available workspace.
 - Adds an optional multi-monitor dock, touch-sized active-window controls, and a
   notification-center view backed by Omarchy's existing notification service.
 - Adds versioned configuration, migrations, diagnostics, rollback, and safe-mode

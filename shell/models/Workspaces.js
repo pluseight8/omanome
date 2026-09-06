@@ -35,9 +35,19 @@ function ids(values, mode, fixedCount) {
     var id = Number(list[i] && list[i].id !== undefined ? list[i].id : list[i])
     if (isFinite(id)) byId[Math.floor(id)] = list[i]
   }
-  var last = result[result.length - 1]
-  if (occupied(byId[last])) result.push(last + 1)
-  return result
+  var highestOccupied = 0
+  for (var r = 0; r < result.length; r++) {
+    if (occupied(byId[result[r]])) highestOccupied = Math.max(highestOccupied, result[r])
+  }
+  if (highestOccupied === 0) return [1]
+
+  // Keep existing ids through the last occupied workspace and exactly one
+  // empty workspace after it, matching GNOME's dynamic-workspace invariant.
+  var dynamic = []
+  var boundary = highestOccupied + 1
+  for (var d = 0; d < result.length; d++) if (result[d] <= boundary) dynamic.push(result[d])
+  if (dynamic.indexOf(boundary) < 0) dynamic.push(boundary)
+  return dynamic
 }
 
 function focusCommand(id) {

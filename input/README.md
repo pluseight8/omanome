@@ -23,3 +23,8 @@ state. `wifi-scan.sh` and `bluetooth-scan.sh` expose nearby devices as JSON
 without storing network passwords or starting a second daemon. Volume,
 microphone, brightness, power-profile, Wi-Fi, Bluetooth, screenshot, and
 recording actions remain capability-gated in the shared service.
+
+`audio-devices.sh` reads the current PipeWire/WirePlumber sink and source
+nodes for the expandable Quick Settings picker; selecting one calls
+`wpctl set-default` with the reported node id. It does not persist a guessed
+device name or start another audio service.

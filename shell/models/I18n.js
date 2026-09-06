@@ -25,6 +25,9 @@ en.pen = "Pen"
 en.highlighter = "Highlighter"
 en.clear = "Clear"
 en.locked = "Locked"
+en.audioOutput = "Audio output"
+en.audioInput = "Microphone input"
+en.notSelected = "Not selected"
 
 var ru = {
   omanome: "Omanome", overview: "Обзор", launcher: "Приложения", quickSettings: "Быстрые настройки", keyboard: "Клавиатура", clipboard: "Буфер обмена", settings: "Настройки", notifications: "Уведомления", close: "Закрыть", minimize: "Свернуть", maximize: "Развернуть", back: "Назад", search: "Поиск", currentWindows: "Текущие окна", workspaces: "Рабочие столы", noWindows: "Окон нет", noApps: "Приложений нет", open: "Открыть", running: "Запущено", favorite: "Избранное", quickActions: "Быстрые действия", wifi: "Wi-Fi", bluetooth: "Bluetooth", airplane: "Авиарежим", volume: "Громкость", microphone: "Микрофон", brightness: "Яркость", nightLight: "Ночной свет", powerProfile: "Профиль питания", darkMode: "Тёмная тема", doNotDisturb: "Не беспокоить", rotationLock: "Блокировка вращения", screenshot: "Снимок экрана", screenRecording: "Запись экрана", lock: "Заблокировать", logout: "Выйти", reboot: "Перезагрузить", shutdown: "Выключить", touchMode: "Режим касания", stylus: "Стилус", forceQuit: "Завершить принудительно", showKeyboard: "Показать клавиатуру", overviewHint: "Обзор в стиле GNOME, сохраняя Hyprland и Omarchy.", mode: "Режим", automatic: "Автоматический", desktop: "Компьютер", tablet: "Планшет", hybrid: "Гибридный", profile: "Профиль", language: "Язык", appearance: "Внешний вид", touch: "Касание", gestures: "Жесты", windowControls: "Управление окнами", dock: "Док", effects: "Эффекты", privacy: "Приватность", updates: "Обновления", compatibility: "Совместимость плагинов", general: "Общие", tabletMode: "Режим планшета", stylusButtons: "Кнопки стилуса", handwriting: "Рукописный ввод", palmRejection: "Защита от ладони", appGrid: "Сетка приложений", workspacesSettings: "Рабочие столы", altTab: "Alt-Tab", blur: "Размытие", rotation: "Поворот", multiMonitor: "Несколько мониторов", performance: "Производительность", accessibility: "Доступность", shortcuts: "Сочетания", advanced: "Дополнительно", about: "О программе", save: "Сохранить", reset: "Сбросить", enabled: "Включено", disabled: "Выключено", detectedDevices: "Обнаруженные устройства", touchscreen: "Сенсорный экран", pressure: "Нажим", tilt: "Наклон", eraser: "Ластик", buttons: "Кнопки", palm: "Защита от ладони", wlroots: "Нативный Wayland", noClipboard: "История буфера пуста", privateMode: "Приватный режим", copy: "Копировать", paste: "Вставить", delete: "Удалить", add: "Добавить", useTouch: "Режим касания", safeMode: "Безопасный режим", standardBar: "Стандартная панель Omarchy сохранена", effectsUnavailable: "Дополнительные compositor-эффекты отключены до установки совместимого companion.", wtype: "backend virtual-keyboard-v1", serviceReady: "Сервис готов", notificationCenter: "Центр уведомлений", showHistory: "Показать историю", dismissAll: "Скрыть все", noNotifications: "Нет новых уведомлений", standardNotificationService: "Используется нативный сервис уведомлений Omarchy"
@@ -53,6 +56,9 @@ ru.pen = "Перо"
 ru.highlighter = "Маркер"
 ru.clear = "Очистить"
 ru.locked = "Заблокировано"
+ru.audioOutput = "Аудиовыход"
+ru.audioInput = "Вход микрофона"
+ru.notSelected = "Не выбрано"
 
 function text(locale, key, fallback) {
   var table = String(locale || "").toLowerCase().indexOf("ru") === 0 ? ru : en

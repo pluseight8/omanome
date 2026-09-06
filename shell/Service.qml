@@ -52,6 +52,7 @@ Item {
   property var systemState: ({ wifiAvailable: false, wifiEnabled: false, wifiConnected: false, airplane: false, wifiSsid: "", wifiSignal: -1, bluetoothAvailable: false, bluetoothPowered: false, volumeAvailable: false, volume: 0, volumeMuted: false, microphoneAvailable: false, microphoneVolume: 0, microphoneMuted: false, brightnessAvailable: false, brightness: 0, powerProfileAvailable: false, powerProfile: "balanced", batteryAvailable: false, batteryPercent: -1, batteryState: "unknown", nightLightAvailable: false, nightLightEnabled: false, dndAvailable: false, dnd: false, rotationAvailable: false, rotationLock: false, recordingAvailable: false, recording: false })
   property var wifiNetworks: []
   property var bluetoothDevices: []
+  property var audioDevices: []
   property string orientation: "normal"
   property int rotationTransform: 0
 
@@ -237,6 +238,26 @@ Item {
     root.stateUpdated()
   }
 
+  function scanAudio() {
+    if (!audioScanProcess.running) audioScanProcess.running = true
+  }
+
+  function updateAudioDevices(raw) {
+    var parsed = root.parseJson(raw, [])
+    root.audioDevices = Array.isArray(parsed) ? parsed : []
+    root.stateRevision++
+    root.stateUpdated()
+  }
+
+  function setAudioDefault(kind, id) {
+    var type = String(kind || "")
+    var value = Math.floor(Number(id))
+    if ((type !== "sink" && type !== "source") || !isFinite(value) || value <= 0 || !root.systemState.volumeAvailable) return false
+    var started = root.execute(["wpctl", "set-default", String(value)])
+    if (started) systemRefresh.restart()
+    return started
+  }
+
   function connectWifi(ssid, password) {
     var network = String(ssid || "")
     if (!network || !root.systemState.wifiAvailable) return false
@@ -305,6 +326,18 @@ Item {
       return true
     }
     Util.execDetached("mkdir -p \"$HOME/Pictures/Screenshots\" && grim \"$HOME/Pictures/Screenshots/omanome-annotation-$(date +%Y%m%d-%H%M%S).png\"")
+    return true
+  }
+
+  function setDoNotDisturb(value) {
+    var notification = root.notificationService
+    if (!notification || typeof notification.setDoNotDisturb !== "function") {
+      root.lastError = "Do-not-disturb backend unavailable"
+      return false
+    }
+    notification.setDoNotDisturb(Boolean(value))
+    root.setConfig("notifications.doNotDisturb", Boolean(value))
+    root.refreshSystemState()
     return true
   }
 
@@ -706,10 +739,7 @@ Item {
       root.setConfig("rotation.lock", value)
       started = true
     } else if (key === "dnd") {
-      var notification = root.notificationService
-      if (!notification || typeof notification.setDoNotDisturb !== "function") { root.lastError = "Do-not-disturb backend unavailable"; return false }
-      notification.setDoNotDisturb(value)
-      started = true
+      started = root.setDoNotDisturb(value)
     } else if (key === "lock") {
       started = root.execute(["loginctl", "lock-session"])
     } else if (key === "screenshot") {
@@ -821,6 +851,12 @@ Item {
     id: bluetoothScanProcess
     command: ["bash", root.sourcePath("input/bluetooth-scan.sh")]
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateBluetoothScan(text) }
+  }
+
+  Process {
+    id: audioScanProcess
+    command: ["bash", root.sourcePath("input/audio-devices.sh")]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateAudioDevices(text) }
   }
 
   Process {

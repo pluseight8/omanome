@@ -120,7 +120,7 @@ Item {
           visible: root.category === "notifications"
           ActionButton { width: parent.width; text: root.service.tr("notifications", "Notifications"); subtitle: "Native Omarchy notification service"; checked: root.service.cfg("notifications.enabled", true); onClicked: root.toggle("notifications.enabled") }
           ActionButton { width: parent.width; text: "Group by app"; checked: root.service.cfg("notifications.groupByApp", true); onClicked: root.toggle("notifications.groupByApp") }
-          ActionButton { width: parent.width; text: root.service.tr("doNotDisturb", "Do not disturb"); checked: root.service.cfg("notifications.doNotDisturb", false); onClicked: root.toggle("notifications.doNotDisturb") }
+          ActionButton { width: parent.width; text: root.service.tr("doNotDisturb", "Do not disturb"); subtitle: root.service.systemState.dndAvailable ? "Omarchy notification service" : "Notification backend unavailable"; checked: root.service.systemState.dnd === true; usable: root.service.systemState.dndAvailable === true; onClicked: root.service.setDoNotDisturb(!root.service.systemState.dnd) }
           Text { width: parent.width; text: "The notification center reuses Omarchy's native service; no second notification daemon is started."; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
         }
 

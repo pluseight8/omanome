@@ -10,10 +10,17 @@ Item {
   property var panel: null
   property bool wifiExpanded: false
   property bool bluetoothExpanded: false
+  property bool audioExpanded: false
   property string wifiPassword: ""
 
   function system() {
     return root.service ? root.service.systemState : {}
+  }
+
+  function audioName(kind) {
+    var devices = root.service ? root.service.audioDevices : []
+    for (var i = 0; i < devices.length; i++) if (devices[i].kind === kind && devices[i].active) return String(devices[i].name)
+    return root.service.tr(kind === "sink" ? "notSelected" : "notSelected", "Not selected")
   }
 
   function usable(key) {
@@ -140,6 +147,46 @@ Item {
         onClicked: {
           root.bluetoothExpanded = !root.bluetoothExpanded
           if (root.bluetoothExpanded) root.service.scanBluetooth()
+        }
+      }
+    }
+
+    RowLayout {
+      Layout.fillWidth: true
+      spacing: Style.space(8)
+      ActionButton {
+        Layout.fillWidth: true
+        text: root.service.tr("audioOutput", "Audio output")
+        subtitle: root.audioName("sink")
+        icon: "◖"
+        usable: root.system().volumeAvailable === true
+        checked: root.audioExpanded
+        onClicked: { root.audioExpanded = !root.audioExpanded; if (root.audioExpanded) root.service.scanAudio() }
+      }
+      ActionButton {
+        Layout.fillWidth: true
+        text: root.service.tr("audioInput", "Microphone input")
+        subtitle: root.audioName("source")
+        icon: "◉"
+        usable: root.system().microphoneAvailable === true
+        checked: root.audioExpanded
+        onClicked: { root.audioExpanded = !root.audioExpanded; if (root.audioExpanded) root.service.scanAudio() }
+      }
+    }
+
+    Flow {
+      Layout.fillWidth: true
+      visible: root.audioExpanded
+      spacing: Style.space(6)
+      Repeater {
+        model: root.service.audioDevices
+        delegate: ActionButton {
+          required property var modelData
+          compact: true
+          text: String(modelData.name || modelData.id)
+          subtitle: modelData.kind === "sink" ? root.service.tr("audioOutput", "Audio output") : root.service.tr("audioInput", "Microphone input")
+          checked: modelData.active === true
+          onClicked: root.service.setAudioDefault(modelData.kind, modelData.id)
         }
       }
     }

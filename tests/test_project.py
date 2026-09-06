@@ -63,7 +63,7 @@ class OmanomeProjectTests(unittest.TestCase):
     def test_workspace_movement_helper_uses_real_dispatch_commands(self) -> None:
         result = self.run_node(
             "const W=require('./shell/models/Workspaces.js'); "
-            "console.log(JSON.stringify({dynamic:W.ids([{id:1,windows:[1]},{id:2,windows:[1]}],'dynamic',5), "
+            "console.log(JSON.stringify({dynamic:W.ids([{id:1,windows:[1]},{id:2,windows:[1]},{id:3,windows:[]},{id:4,windows:[]}],'dynamic',5), "
             "fixed:W.ids([{id:1}],'fixed',3), focus:W.focusCommand(4), move:W.moveCommand(4), adjacent:W.adjacent(2,'right',[1,2,3])}));"
         )
         self.assertEqual(result["dynamic"], [1, 2, 3])
@@ -138,6 +138,7 @@ class OmanomeProjectTests(unittest.TestCase):
             ROOT / "input/wifi-scan.sh",
             ROOT / "input/bluetooth-scan.sh",
             ROOT / "input/rotation-monitor.sh",
+            ROOT / "input/audio-devices.sh",
         ):
             result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
