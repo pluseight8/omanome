@@ -34,6 +34,7 @@ jobs:
           manifest = json.load(open("manifest.json", encoding="utf-8"))
           assert "bar" not in manifest["kinds"]
           assert manifest["version"] == "0.4.0"
+          PY
 
   companion-contract:
     name: Optional companion contract
@@ -53,4 +54,3 @@ jobs:
           else
             echo 'Hyprland development headers are not installed on this runner; build remains an explicit local/manual gate.'
           fi
-          PY
