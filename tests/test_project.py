@@ -100,6 +100,37 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertTrue(result["alt"])
         self.assertTrue(result["space"])
 
+    def test_osk_0_3_layouts_and_touch_features_are_data_driven(self) -> None:
+        result = self.run_node(
+            "const O=require('./shell/models/Osk.js'); "
+            "console.log(JSON.stringify({modes:O.modes, profile:O.modeProfile('one_handed_left'), "
+            "symbols:O.rows('symbols',false)[1], split:O.splitRows('en',false)[0], "
+            "editing:O.editingRows()[1], emoji:O.emojiItems('smileys','smileys').length, "
+            "alternates:O.alternateKeys('e','en'), repeat:O.isRepeatable('Backspace'), "
+            "action:O.keyAction('SelectAll'), toolbar:O.toolbarItems()}));"
+        )
+        self.assertIn("one-handed-left", result["modes"])
+        self.assertEqual(result["profile"]["anchor"], "left")
+        self.assertIn("€", result["symbols"])
+        self.assertEqual(result["split"]["left"][0], "q")
+        self.assertIn("Copy", result["editing"])
+        self.assertGreater(result["emoji"], 0)
+        self.assertIn("é", result["alternates"])
+        self.assertTrue(result["repeat"])
+        self.assertEqual(result["action"], "select-all")
+        self.assertIn("clipboard", result["toolbar"])
+
+    def test_keyboard_config_contains_real_0_3_controls(self) -> None:
+        result = self.run_node(
+            "const C=require('./shell/models/Config.js'); const K=C.defaults().keyboard; "
+            "console.log(JSON.stringify(K));"
+        )
+        self.assertTrue(result["toolbar"])
+        self.assertTrue(result["keyPopup"])
+        self.assertTrue(result["spaceCursor"])
+        self.assertEqual(result["floating"]["width"], 0.82)
+        self.assertEqual(result["split"]["gap"], 24)
+
     def test_stylus_button_map_is_generic_and_validated(self) -> None:
         result = self.run_node(
             "const S=require('./shell/models/Stylus.js'); "

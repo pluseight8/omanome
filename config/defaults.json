@@ -151,7 +151,39 @@
     "haptic": true,
     "sound": false,
     "autoShow": true,
-    "height": 300
+    "height": 300,
+    "toolbar": true,
+    "toolbarOverflow": true,
+    "keyPopup": true,
+    "keyPopupScale": 1.25,
+    "keyPopupDuration": 180,
+    "longPress": true,
+    "longPressDelay": 360,
+    "repeatDelay": 420,
+    "repeatRate": 55,
+    "spaceCursor": true,
+    "swipeLayerSwitch": true,
+    "floating": {
+      "x": 0.5,
+      "y": 0.72,
+      "width": 0.82,
+      "snap": true
+    },
+    "split": {
+      "gap": 24,
+      "blockWidth": 0.43,
+      "vertical": 0.72,
+      "thumbReach": 0.62,
+      "symmetric": true
+    },
+    "oneHanded": {
+      "width": 0.72,
+      "offset": 0.04,
+      "scale": 0.92
+    },
+    "emojiCategory": "recent",
+    "emojiRecent": [],
+    "suggestionLocale": "auto"
   },
   "clipboard": {
     "enabled": true,
