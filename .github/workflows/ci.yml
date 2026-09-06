@@ -33,5 +33,24 @@ jobs:
           import json
           manifest = json.load(open("manifest.json", encoding="utf-8"))
           assert "bar" not in manifest["kinds"]
-          assert manifest["version"] == "0.3.0"
+          assert manifest["version"] == "0.4.0"
+
+  companion-contract:
+    name: Optional companion contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate companion without a desktop session
+        run: |
+          python3 -m json.tool hypr/omanome-hypr/compatibility.json >/dev/null
+          test -f hypr/omanome-hypr/omanome-hypr.cpp
+          grep -Fq '__hyprland_api_get_hash' hypr/omanome-hypr/omanome-hypr.cpp
+          grep -Fq '__hyprland_api_get_client_hash' hypr/omanome-hypr/omanome-hypr.cpp
+          if pkg-config --exists hyprland; then
+            make -C hypr/omanome-hypr all
+          else
+            echo 'Hyprland development headers are not installed on this runner; build remains an explicit local/manual gate.'
+          fi
           PY

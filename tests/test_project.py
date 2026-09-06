@@ -34,7 +34,7 @@ class OmanomeProjectTests(unittest.TestCase):
 
     def test_manifest_preserves_the_standard_bar(self) -> None:
         manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "0.3.0")
+        self.assertEqual(manifest["version"], "0.4.0")
         self.assertNotIn("bar", manifest["kinds"])
         self.assertEqual(set(manifest["entryPoints"]), {"service", "barWidget", "panel"})
         for entry in manifest["entryPoints"].values():
@@ -229,6 +229,33 @@ class OmanomeProjectTests(unittest.TestCase):
         cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")
         self.assertIn("touch-info", cli)
         self.assertIn("sensor-info", cli)
+
+    def test_companion_contract_is_optional_and_version_aware(self) -> None:
+        companion = ROOT / "hypr/omanome-hypr"
+        source = (companion / "omanome-hypr.cpp").read_text(encoding="utf-8")
+        metadata = json.loads((companion / "compatibility.json").read_text(encoding="utf-8"))
+        cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")
+        self.assertEqual(metadata["protocolVersion"], 1)
+        self.assertEqual(metadata["pluginVersion"], "0.4.0")
+        self.assertIn("__hyprland_api_get_hash", source)
+        self.assertIn("__hyprland_api_get_client_hash", source)
+        self.assertIn("HyprlandAPI::getHyprlandVersion", source)
+        self.assertIn("companion_doctor_cmd", cli)
+        self.assertIn("companion_enable_cmd", cli)
+        self.assertNotIn("sudo pacman", cli)
+        self.assertNotIn("LD_PRELOAD", source)
+
+        result = self.run_node(
+            "const C=require('./shell/models/Companion.js'); "
+            "const good={installed:true,built:true,loaded:true,protocolVersion:1,pluginVersion:'0.4.0'," \
+            "runtime:{abi:'same'},build:{abi:'same'},compatibility:{pluginVersion:'0.4.0'}," \
+            "capabilities:{desktopCube:true}}; " \
+            "const bad={...good,runtime:{abi:'new'},build:{abi:'old'}}; " \
+            "console.log(JSON.stringify({good:C.normalize(good),bad:C.normalize(bad),cube:C.effectAvailable(good,'desktopCube')}));"
+        )
+        self.assertTrue(result["good"]["compatible"])
+        self.assertFalse(result["bad"]["compatible"])
+        self.assertTrue(result["cube"])
 
     def test_touch_policy_separates_fullscreen_conflicts_and_target_sizes(self) -> None:
         result = self.run_node(

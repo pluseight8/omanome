@@ -1,0 +1,12 @@
+{
+  "protocolVersion": 1,
+  "pluginVersion": "0.4.0",
+  "pluginName": "omanome-hypr",
+  "requiredApiCheck": "exact-hyprland-api-hash",
+  "capabilities": {
+    "blur": false,
+    "livePreview": false,
+    "wobblyWindows": false,
+    "desktopCube": false
+  }
+}

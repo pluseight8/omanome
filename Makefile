@@ -1,12 +1,12 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: check validate test qmllint integration
+.PHONY: check validate test qmllint integration companion-check
 
 check: validate test qmllint
 
 validate:
 	python3 scripts/validate.py
-	bash -n cli/omanome input/clipboard-capture.sh input/system-state.sh input/wifi-scan.sh input/bluetooth-scan.sh input/rotation-monitor.sh input/sensor-info.sh input/audio-devices.sh
+	bash -n cli/omanome input/clipboard-capture.sh input/system-state.sh input/wifi-scan.sh input/bluetooth-scan.sh input/rotation-monitor.sh input/sensor-info.sh input/companion-info.sh input/audio-devices.sh
 
 test:
 	python3 -m unittest discover -s tests -p 'test_*.py' -v
@@ -29,3 +29,6 @@ integration:
 	omarchy plugin validate .
 	$(MAKE) qmllint
 	./cli/omanome doctor
+
+companion-check:
+	$(MAKE) -C hypr/omanome-hypr all

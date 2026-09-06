@@ -16,6 +16,10 @@ repository_manifest_url="https://raw.githubusercontent.com/pluseight8/omanome/ma
 installed_plugin_dir="$config_home/omarchy/plugins/$plugin_id"
 rollback_dir="$omanome_state_dir/rollback"
 manifest_path="$repo_dir/manifest.json"
+companion_root="$repo_dir/hypr/omanome-hypr"
+companion_manifest="$companion_root/compatibility.json"
+companion_data_dir="$data_home/omanome/companion"
+companion_artifact="$companion_data_dir/omanome-hypr.so"
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'omanome: %s\n' "$*" >&2; exit 1; }
@@ -45,6 +49,15 @@ Commands:
   stylus-info            Print capability inventory without changing input
   touch-info             Print touchscreen inventory without changing input
   sensor-info            Print rotation sensor backend diagnostics
+  companion status       Print optional Hyprland companion state
+  companion doctor       Check companion headers, ABI and safe loading
+  companion build        Build the companion in the user checkout
+  companion install      Build and copy the companion to user data
+  companion rebuild      Rebuild and reinstall the companion
+  companion enable       Load a compatible user-owned companion
+  companion disable      Unload the optional companion
+  effects                Print effect and preview backend capabilities
+  benchmark              Print lightweight runtime/render diagnostics
   devices                Print Hyprland's device inventory
 EOF
 }
@@ -148,25 +161,140 @@ safe_mode_cmd() {
   ensure_dirs
   : >"$omanome_config_dir/safe-mode"
   disable_cmd || true
+  companion_disable_cmd || true
   say "Omanome safe mode enabled; the standard Omarchy shell remains available."
+}
+
+companion_info_cmd() {
+  [[ -x "$repo_dir/input/companion-info.sh" ]] || die "companion diagnostics are unavailable"
+  "$repo_dir/input/companion-info.sh" | jq .
+}
+
+companion_runtime_abi() {
+  if has hyprctl; then
+    hyprctl version 2>/dev/null | sed -n 's/^Version ABI string:[[:space:]]*//p' | head -n 1
+  fi
+}
+
+companion_runtime_version() {
+  if has hyprctl; then
+    hyprctl version 2>/dev/null | sed -n '1s/^Hyprland[[:space:]]\+//p' | awk '{print $1}'
+  fi
+}
+
+companion_doctor_cmd() {
+  local failed=0
+  say "Omanome companion doctor"
+  if [[ ! -d "$companion_root" || ! -f "$companion_root/Makefile" ]]; then
+    say "FAIL: companion source is missing from $companion_root"
+    return 1
+  fi
+  say "OK: companion source is present"
+  if has pkg-config && pkg-config --exists hyprland; then
+    say "OK: matching Hyprland development package: $(pkg-config --modversion hyprland)"
+  else
+    say "WARN: matching Hyprland headers are unavailable; install them manually or let hyprpm prepare them"
+  fi
+  if has hyprctl; then
+    say "OK: runtime Hyprland $(companion_runtime_version)"
+    say "ABI: $(companion_runtime_abi || printf 'unavailable')"
+  else
+    say "WARN: hyprctl is unavailable; companion cannot be loaded in this session"
+  fi
+  if [[ -f "$companion_artifact" ]]; then
+    say "OK: user-owned artifact $companion_artifact"
+    if [[ -f "$companion_data_dir/compatibility.json" && -n "$(companion_runtime_abi)" ]]; then
+      local built_abi
+      built_abi="$(jq -r '.hyprland.abi // empty' "$companion_data_dir/compatibility.json" 2>/dev/null || true)"
+      if [[ -n "$built_abi" && "$built_abi" == "$(companion_runtime_abi)" ]]; then
+        say "OK: artifact ABI matches the running Hyprland"
+      else
+        say "FAIL: artifact ABI does not match the running Hyprland; rebuild before enabling"
+        failed=1
+      fi
+    else
+      say "WARN: artifact build metadata is missing; reinstall it with 'omanome companion install'"
+    fi
+  else
+    say "INFO: companion is not installed; core Omanome remains fully available"
+  fi
+  if [[ -f "$omanome_config_dir/safe-mode" ]]; then
+    say "WARN: Omanome safe mode marker disables companion loading"
+  fi
+  return "$failed"
+}
+
+companion_build_cmd() {
+  [[ -d "$companion_root" ]] || die "companion source is missing"
+  if ! make -C "$companion_root" all; then
+    say "Companion build failed without changing the running compositor."
+    say "Install the printed development dependencies with your normal package manager; Omanome never invokes sudo."
+    return 2
+  fi
+  say "Built $companion_root/build/omanome-hypr.so"
+}
+
+companion_install_cmd() {
+  companion_build_cmd
+  mkdir -p -- "$companion_data_dir"
+  install -Dm755 -- "$companion_root/build/omanome-hypr.so" "$companion_artifact"
+  install -Dm644 -- "$companion_manifest" "$companion_data_dir/compatibility.json"
+  local runtime_version runtime_abi
+  runtime_version="$(companion_runtime_version || true)"
+  runtime_abi="$(companion_runtime_abi || true)"
+  local metadata="$companion_data_dir/compatibility.json.tmp"
+  jq --arg version "${runtime_version:-unknown}" --arg abi "${runtime_abi:-unknown}" \
+    '. + {hyprland:{version:$version,abi:$abi}}' \
+    "$companion_data_dir/compatibility.json" >"$metadata"
+  mv -f -- "$metadata" "$companion_data_dir/compatibility.json"
+  say "Installed user-owned companion at $companion_artifact"
+  say "No compositor module was loaded; run 'omanome companion enable' explicitly after reviewing the artifact."
+}
+
+companion_rebuild_cmd() {
+  companion_install_cmd
+}
+
+companion_enable_cmd() {
+  [[ ! -f "$omanome_config_dir/safe-mode" ]] || die "Omanome safe mode is active; run 'omanome enable' first"
+  [[ -f "$companion_artifact" ]] || die "companion is not installed; run 'omanome companion install'"
+  companion_doctor_cmd || die "companion is not compatible with the running Hyprland"
+  has hyprctl || die "hyprctl is unavailable"
+  hyprctl plugin load "$companion_artifact"
+  say "Requested load of the version-matched Omanome companion."
+}
+
+companion_disable_cmd() {
+  if ! has hyprctl; then return 0; fi
+  if [[ -f "$companion_artifact" ]]; then
+    hyprctl plugin unload "$companion_artifact" >/dev/null 2>&1 || true
+  fi
+  say "Omanome companion disabled (if it was loaded)."
 }
 
 setup_cmd() {
   ensure_dirs
-  chmod +x -- "$repo_dir/cli/omanome" "$repo_dir/input/clipboard-capture.sh" "$repo_dir/input/sensor-info.sh" 2>/dev/null || true
+  chmod +x -- "$repo_dir/cli/omanome" "$repo_dir/input/clipboard-capture.sh" "$repo_dir/input/sensor-info.sh" "$repo_dir/input/companion-info.sh" 2>/dev/null || true
   cat <<'EOF'
 Omanome setup is user-only and never invokes sudo.
 
 Required runtime:
   omarchy (Quattro), quickshell, Hyprland, wl-paste/wl-copy, wtype
 
-Optional integrations:
+  Optional integrations:
   nmcli          Wi-Fi/airplane actions
   bluetoothctl   Bluetooth actions
   brightnessctl  brightness slider
   grim           screenshots
   wf-recorder    screen recording hook
   iio-sensor-proxy / a compositor sensor bridge for auto-rotation
+  Hyprland development headers/pkg-config for the optional omanome-hypr companion
+
+The companion is never built or loaded by the core install. Use explicit commands:
+  omanome companion doctor
+  omanome companion build
+  omanome companion install
+  omanome companion enable
 
 Install missing packages with your normal package manager, then run:
   omarchy plugin add https://github.com/pluseight8/omanome.git --enable --yes
@@ -413,6 +541,20 @@ case "$command_name" in
   stylus-info) stylus_info_cmd "$@" ;;
   touch-info) touch_info_cmd "$@" ;;
   sensor-info) sensor_info_cmd "$@" ;;
+  companion)
+    companion_command="${1:-status}"
+    shift || true
+    case "$companion_command" in
+      status) companion_info_cmd "$@" ;;
+      doctor) companion_doctor_cmd "$@" ;;
+      build) companion_build_cmd "$@" ;;
+      install) companion_install_cmd "$@" ;;
+      rebuild) companion_rebuild_cmd "$@" ;;
+      enable) companion_enable_cmd "$@" ;;
+      disable) companion_disable_cmd "$@" ;;
+      *) usage >&2; die "unknown companion command: $companion_command" ;;
+    esac
+    ;;
   version) version_cmd "$@" ;;
   help|-h|--help|"") usage ;;
   *) usage >&2; die "unknown command: $command_name" ;;
