@@ -1,0 +1,330 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+repo_dir="$(cd -- "$script_dir/.." && pwd -P)"
+user_home="${HOME:-}"
+config_home="${XDG_CONFIG_HOME:-$user_home/.config}"
+state_home="${XDG_STATE_HOME:-$user_home/.local/state}"
+data_home="${XDG_DATA_HOME:-$user_home/.local/share}"
+omanome_config_dir="$config_home/omanome"
+omanome_state_dir="$state_home/omanome"
+omanome_cache_dir="${XDG_CACHE_HOME:-$user_home/.cache}/omanome"
+plugin_id="io.omanome.shell"
+installed_plugin_dir="$config_home/omarchy/plugins/$plugin_id"
+rollback_dir="$omanome_state_dir/rollback"
+manifest_path="$repo_dir/manifest.json"
+
+say() { printf '%s\n' "$*"; }
+die() { printf 'omanome: %s\n' "$*" >&2; exit 1; }
+has() { command -v "$1" >/dev/null 2>&1; }
+
+usage() {
+  cat <<'EOF'
+Usage: omanome <command> [options]
+
+Commands:
+  status                 Show shell/service status without clipboard contents
+  doctor                 Check Omarchy, Hyprland, Wayland and plugin safety
+  logs                  Show recent user-session logs (payloads are not added)
+  reload                Ask the existing Omarchy shell to rescan plugins
+  enable | disable       Enable or disable only the Omanome plugin
+  safe-mode              Disable Omanome and create a safe-mode marker
+  setup                  Print optional dependencies and prepare user dirs
+  export-config [file]   Print or export the versioned config
+  import-config <file>   Validate and import a config, keeping a backup
+  reset [--yes]          Reset Omanome's config only
+  update --check         Check the installed checkout and compatibility
+  update                 Create rollback point, then use Omarchy plugin update
+  rollback               Restore the newest Omanome rollback point
+  uninstall [--purge-settings] [--yes]
+  version                Print Omanome version
+  stylus-info            Print capability inventory without changing input
+  devices                Print Hyprland's device inventory
+EOF
+}
+
+manifest_value() {
+  jq -r --arg key "$1" '.[$key] // empty' "$manifest_path"
+}
+
+config_file() { printf '%s/config.json\n' "$omanome_config_dir"; }
+
+ensure_dirs() {
+  mkdir -p -- "$omanome_config_dir" "$omanome_state_dir" "$omanome_cache_dir" "$rollback_dir"
+}
+
+backup_config() {
+  local current
+  current="$(config_file)"
+  if [[ -f "$current" ]]; then
+    cp -p -- "$current" "$current.bak.$(date +%s)"
+  fi
+}
+
+status_cmd() {
+  if has omarchy-shell; then
+    local result
+    if result="$(omarchy-shell "$plugin_id" status 2>/dev/null)" && [[ -n "$result" ]]; then
+      printf '%s\n' "$result" | jq . 2>/dev/null || printf '%s\n' "$result"
+      return 0
+    fi
+  fi
+  local config_path
+  config_path="$(config_file)"
+  jq -n \
+    --arg version "$(manifest_value version)" \
+    --arg config "$config_path" \
+    --arg plugin "$installed_plugin_dir" \
+    --arg shell "not running" \
+    --argjson installed "$(if [[ -d "$installed_plugin_dir" ]]; then printf true; else printf false; fi)" \
+    '{version:$version, service:$shell, configPath:$config, pluginPath:$plugin, installed:$installed}'
+}
+
+doctor_cmd() {
+  local failed=0
+  say "Omanome $(manifest_value version)"
+  say "Repository: $repo_dir"
+  if jq -e '(.kinds // []) | index("bar") != null' "$manifest_path" >/dev/null; then
+    say "FAIL: manifest declares replacement bar"
+    failed=1
+  else
+    say "OK: manifest does not declare replacement bar"
+  fi
+
+  for command_name in omarchy quickshell hyprctl wl-paste wl-copy wtype; do
+    if has "$command_name"; then say "OK: $command_name -> $(command -v "$command_name")"; else say "WARN: optional/missing $command_name"; fi
+  done
+
+  if [[ -n "${OMARCHY_PATH:-}" && -f "${OMARCHY_PATH}/shell/services/PluginRegistry.qml" ]]; then
+    say "OK: OMARCHY_PATH points to a Quattro shell"
+  else
+    say "WARN: OMARCHY_PATH is not set to an Omarchy shell in this process"
+  fi
+
+  if [[ -x /usr/lib/qt6/bin/qmllint ]]; then
+    if make -C "$repo_dir" qmllint >/dev/null 2>&1; then say "OK: QML lint"; else say "WARN: QML lint reported errors; run make qmllint"; failed=1; fi
+  else
+    say "WARN: qmllint is not installed"
+  fi
+
+  if has omarchy && omarchy plugin validate "$repo_dir" >/dev/null 2>&1; then say "OK: Omarchy manifest validation"; else say "WARN: Omarchy plugin validation unavailable or failed"; failed=1; fi
+  say "Safety: no sudo, no X11 backend, no second Quickshell, no bar replacement"
+  return "$failed"
+}
+
+logs_cmd() {
+  if has journalctl; then
+    journalctl --user -n 120 --no-pager 2>/dev/null | rg -i 'omanome|quickshell|omarchy-shell' || true
+  else
+    say "journalctl is unavailable; use quickshell log from the graphical session"
+  fi
+}
+
+reload_cmd() {
+  has omarchy-shell || die "omarchy-shell is not installed"
+  omarchy-shell shell rescanPlugins
+}
+
+enable_cmd() {
+  has omarchy || die "omarchy is not installed"
+  rm -f -- "$omanome_config_dir/safe-mode"
+  omarchy plugin enable "$plugin_id"
+  reload_cmd || true
+}
+
+disable_cmd() {
+  has omarchy || die "omarchy is not installed"
+  omarchy plugin disable "$plugin_id"
+  reload_cmd || true
+}
+
+safe_mode_cmd() {
+  ensure_dirs
+  : >"$omanome_config_dir/safe-mode"
+  disable_cmd || true
+  say "Omanome safe mode enabled; the standard Omarchy shell remains available."
+}
+
+setup_cmd() {
+  ensure_dirs
+  chmod +x -- "$repo_dir/cli/omanome" "$repo_dir/input/clipboard-capture.sh" 2>/dev/null || true
+  cat <<'EOF'
+Omanome setup is user-only and never invokes sudo.
+
+Required runtime:
+  omarchy (Quattro), quickshell, Hyprland, wl-paste/wl-copy, wtype
+
+Optional integrations:
+  nmcli          Wi-Fi/airplane actions
+  bluetoothctl   Bluetooth actions
+  brightnessctl  brightness slider
+  grim           screenshots
+  wf-recorder    screen recording hook
+  iio-sensor-proxy / a compositor sensor bridge for auto-rotation
+
+Install missing packages with your normal package manager, then run:
+  omarchy plugin add <repo-url> --enable --yes
+  omanome doctor
+EOF
+}
+
+export_cmd() {
+  ensure_dirs
+  local output="${1:-}"
+  local current
+  current="$(config_file)"
+  if [[ ! -f "$current" ]]; then cp -- "$repo_dir/config/defaults.json" "$current"; fi
+  if [[ -n "$output" ]]; then
+    install -Dm600 -- "$current" "$output"
+  else
+    cat -- "$current"
+  fi
+}
+
+import_cmd() {
+  [[ $# -eq 1 ]] || die "import-config requires a JSON file"
+  local input="$1"
+  [[ -f "$input" ]] || die "config file not found: $input"
+  jq -e '.schemaVersion == 1' "$input" >/dev/null || die "config must contain schemaVersion: 1"
+  ensure_dirs
+  backup_config
+  install -Dm600 -- "$input" "$(config_file)"
+  if has omarchy-shell; then omarchy-shell -q "$plugin_id" reload || true; fi
+}
+
+reset_cmd() {
+  local accept=0
+  [[ "${1:-}" == "--yes" ]] && accept=1
+  if [[ "$accept" -ne 1 ]]; then
+    read -r -p "Reset only Omanome settings? [y/N] " answer
+    [[ "$answer" == "y" || "$answer" == "Y" ]] || exit 0
+  fi
+  ensure_dirs
+  backup_config
+  install -Dm600 -- "$repo_dir/config/defaults.json" "$(config_file)"
+  if has omarchy-shell; then omarchy-shell -q "$plugin_id" reload || true; fi
+}
+
+installed_version() {
+  if [[ -f "$installed_plugin_dir/manifest.json" ]]; then jq -r '.version // "unknown"' "$installed_plugin_dir/manifest.json"; else printf 'not-installed\n'; fi
+}
+
+check_update_cmd() {
+  say "Installed version: $(installed_version)"
+  say "Repository version: $(manifest_value version)"
+  if [[ -d "$installed_plugin_dir/.git" ]]; then
+    say "Git remote: $(git -C "$installed_plugin_dir" remote get-url origin 2>/dev/null || printf 'none')"
+    if git -C "$installed_plugin_dir" remote get-url origin >/dev/null 2>&1; then
+      say "Checking remote refs (read-only)…"
+      git -C "$installed_plugin_dir" fetch --dry-run --quiet origin 2>&1 || say "WARN: remote check failed; no changes made"
+      say "Local revision: $(git -C "$installed_plugin_dir" rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
+    fi
+  else
+    say "No installed git checkout found"
+  fi
+  say "Hyprland: $(hyprctl version 2>/dev/null | head -n 1 || printf 'unavailable')"
+  say "Quickshell: $(quickshell --version 2>/dev/null | head -n 1 || printf 'unavailable')"
+  say "Automatic installation is disabled by default."
+}
+
+create_rollback_cmd() {
+  [[ -d "$installed_plugin_dir" ]] || die "installed Omanome checkout not found"
+  ensure_dirs
+  local stamp="$rollback_dir/$(date +%Y%m%d-%H%M%S)"
+  mkdir -p -- "$stamp"
+  cp -a -- "$installed_plugin_dir" "$stamp/plugin"
+  if [[ -f "$(config_file)" ]]; then cp -p -- "$(config_file)" "$stamp/config.json"; fi
+  printf '%s\n' "$stamp"
+}
+
+restore_latest_cmd() {
+  local snapshot
+  snapshot="$(find "$rollback_dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort | tail -n 1)"
+  [[ -n "$snapshot" && -d "$rollback_dir/$snapshot/plugin" ]] || die "no rollback point available"
+  local failed_dir="${installed_plugin_dir}.failed.$(date +%s)"
+  if [[ -e "$failed_dir" ]]; then failed_dir="${installed_plugin_dir}.failed.$(date +%s%N)"; fi
+  if [[ -d "$installed_plugin_dir" ]]; then mv -- "$installed_plugin_dir" "$failed_dir"; fi
+  cp -a -- "$rollback_dir/$snapshot/plugin" "$installed_plugin_dir"
+  if [[ -f "$rollback_dir/$snapshot/config.json" ]]; then cp -p -- "$rollback_dir/$snapshot/config.json" "$(config_file)"; fi
+  say "Restored rollback point $snapshot"
+}
+
+update_cmd() {
+  if [[ "${1:-}" == "--check" ]]; then check_update_cmd; return; fi
+  has omarchy || die "omarchy is not installed"
+  create_rollback_cmd >/dev/null
+  if ! omarchy plugin update "$plugin_id" --yes; then
+    say "Update failed; restoring the previous checkout."
+    restore_latest_cmd
+    return 1
+  fi
+  if ! omarchy plugin validate "$installed_plugin_dir" >/dev/null 2>&1; then
+    say "Updated checkout failed validation; restoring the previous checkout."
+    restore_latest_cmd
+    return 1
+  fi
+  reload_cmd || true
+  say "Omanome updated; rollback point kept under $rollback_dir"
+}
+
+rollback_cmd() {
+  restore_latest_cmd
+  reload_cmd || true
+}
+
+uninstall_cmd() {
+  local purge=0
+  local accept=0
+  for arg in "$@"; do
+    [[ "$arg" == "--purge-settings" ]] && purge=1
+    [[ "$arg" == "--yes" ]] && accept=1
+  done
+  if [[ "$accept" -ne 1 ]]; then
+    read -r -p "Remove the Omanome plugin and its optional companion data? [y/N] " answer
+    [[ "$answer" == "y" || "$answer" == "Y" ]] || exit 0
+    read -r -p "Keep Omanome settings? [Y/n] " keep
+    [[ "$keep" == "n" || "$keep" == "N" ]] && purge=1
+  fi
+  if has omarchy; then omarchy plugin remove "$plugin_id" --yes || true; fi
+  if [[ -d "$installed_plugin_dir" ]]; then rm -rf -- "$installed_plugin_dir"; fi
+  rm -rf -- "$omanome_state_dir" "$omanome_cache_dir"
+  if [[ "$purge" -eq 1 ]]; then rm -rf -- "$omanome_config_dir"; else rm -f -- "$omanome_config_dir/safe-mode"; fi
+  say "Omanome removed. Omarchy, its standard bar, other plugins, themes, and user Hyprland configuration were not touched."
+}
+
+devices_cmd() {
+  has hyprctl || die "hyprctl is not installed"
+  hyprctl devices -j | jq .
+}
+
+stylus_info_cmd() {
+  has hyprctl || die "hyprctl is not installed"
+  hyprctl devices -j | jq '{tablets: (.tablets // .tabletTools // []), touchDevices: (.touch // .touchDevices // [])}'
+}
+
+version_cmd() { manifest_value version; }
+
+command_name="${1:-}"
+shift || true
+case "$command_name" in
+  status) status_cmd "$@" ;;
+  doctor) doctor_cmd "$@" ;;
+  logs) logs_cmd "$@" ;;
+  reload) reload_cmd "$@" ;;
+  enable) enable_cmd "$@" ;;
+  disable) disable_cmd "$@" ;;
+  safe-mode) safe_mode_cmd "$@" ;;
+  setup) setup_cmd "$@" ;;
+  export-config) export_cmd "$@" ;;
+  import-config) import_cmd "$@" ;;
+  reset) reset_cmd "$@" ;;
+  update) update_cmd "$@" ;;
+  rollback) rollback_cmd "$@" ;;
+  uninstall) uninstall_cmd "$@" ;;
+  devices) devices_cmd "$@" ;;
+  stylus-info) stylus_info_cmd "$@" ;;
+  version) version_cmd "$@" ;;
+  help|-h|--help|"") usage ;;
+  *) usage >&2; die "unknown command: $command_name" ;;
+esac

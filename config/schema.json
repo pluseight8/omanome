@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omanome.dev/schema/config-v1.json",
+  "title": "Omanome configuration",
+  "type": "object",
+  "required": ["schemaVersion"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "general": { "type": "object" },
+    "appearance": { "type": "object" },
+    "tabletMode": { "type": "object" },
+    "touch": { "type": "object" },
+    "stylus": { "type": "object" },
+    "windowControls": { "type": "object" },
+    "quickSettings": { "type": "object" },
+    "dock": { "type": "object" },
+    "overview": { "type": "object" },
+    "launcher": { "type": "object" },
+    "keyboard": { "type": "object" },
+    "clipboard": { "type": "object" },
+    "notifications": { "type": "object" },
+    "altTab": { "type": "object" },
+    "blur": { "type": "object" },
+    "effects": { "type": "object" },
+    "rotation": { "type": "object" },
+    "privacy": { "type": "object" },
+    "shortcuts": { "type": "object" },
+    "updates": { "type": "object" }
+  },
+  "additionalProperties": true
+}
