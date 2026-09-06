@@ -229,6 +229,24 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertIn("touch-info", cli)
         self.assertIn("sensor-info", cli)
 
+    def test_touch_policy_separates_fullscreen_conflicts_and_target_sizes(self) -> None:
+        result = self.run_node(
+            "const T=require('./shell/models/Touch.js'); const config={enabled:true,disableOnFullscreen:true,conflictPolicy:'disable-fullscreen',fullscreenAllowList:[]}; "
+            "const full=[{class:'demo-game',fullscreen:1}]; const allowed=[{class:'demo-game',fullscreen:1}]; "
+            "allowed[0].class='allowed-app'; config.fullscreenAllowList=['allowed-*']; "
+            "console.log(JSON.stringify({disabled:T.shouldDisableWorkspaceSwipe(full,{disableOnFullscreen:true,fullscreenAllowList:[]}), "
+            "allowed:T.shouldDisableWorkspaceSwipe(allowed,config),mouse:T.targetSize({touchTarget:52},'mouse'), "
+            "touch:T.targetSize({touchTarget:52},'touch'),large:T.targetSize({touchTarget:52,largeUi:true},'touch'), "
+            "stylus:T.targetSize({touchTarget:52},'stylus'),enabled:T.workspaceSwipeEnabled(config,[])}));"
+        )
+        self.assertTrue(result["disabled"])
+        self.assertFalse(result["allowed"])
+        self.assertEqual(result["mouse"], 40)
+        self.assertEqual(result["touch"], 52)
+        self.assertEqual(result["large"], 64)
+        self.assertEqual(result["stylus"], 52)
+        self.assertTrue(result["enabled"])
+
     def test_rotation_is_dynamic_and_uses_atomic_batch(self) -> None:
         service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
         self.assertIn('"hyprctl", "--batch"', service)

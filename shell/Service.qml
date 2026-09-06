@@ -7,6 +7,7 @@ import "models/Clipboard.js" as ClipboardModel
 import "models/I18n.js" as I18n
 import "models/QuickSettings.js" as QuickSettingsModel
 import "models/Stylus.js" as StylusModel
+import "models/Touch.js" as TouchModel
 
 // Omanome's one shared service. It is deliberately headless: all visible
 // surfaces are summoned through the existing Omarchy shell host, so Omanome
@@ -576,6 +577,7 @@ Item {
 
   function updateClients(raw) {
     root.clients = parseJson(raw, [])
+    if (root.hyprlandAvailable) root.applyTouchIntegration()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -593,6 +595,13 @@ Item {
       stylusCount: root.stylusDevices.length,
       physicalKeyboard: root.hasPhysicalKeyboard,
       physicalKeyboardCount: root.keyboardDevices.length,
+      touch: {
+        workspaceSwipe: TouchModel.workspaceSwipeEnabled(root.cfg("touch", {}), root.clients),
+        fullscreenConflict: TouchModel.shouldDisableWorkspaceSwipe(root.clients, root.cfg("touch", {})),
+        mouseTarget: TouchModel.targetSize(root.cfg("tabletMode", {}), "mouse"),
+        touchTarget: TouchModel.targetSize({ touchTarget: root.cfg("tabletMode.touchTarget", 48), largeUi: root.cfg("general.largeUi", false) }, "touch"),
+        stylusTarget: TouchModel.targetSize({ touchTarget: root.cfg("tabletMode.touchTarget", 48) }, "stylus")
+      },
       hyprland: root.hyprlandAvailable,
       wtype: root.wtypeAvailable,
       inputBackend: root.inputBackendAvailable,
@@ -907,7 +916,8 @@ Item {
   }
 
   function applyTouchIntegration() {
-    var enabled = root.cfg("touch.enabled", true)
+    var touchConfig = root.cfg("touch", {})
+    var enabled = TouchModel.workspaceSwipeEnabled(touchConfig, root.clients)
     root.applyHyprSetting("gestures:workspace_swipe_touch", enabled)
     if (!enabled) return
     root.applyHyprSetting("gestures:workspace_swipe_distance", Math.max(1, Number(root.cfg("touch.threshold", 96))))

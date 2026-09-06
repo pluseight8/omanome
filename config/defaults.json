@@ -28,7 +28,12 @@
     "inertia": true,
     "invert": false,
     "threeFingerAction": "workspace",
-    "fourFingerAction": "overview"
+    "fourFingerAction": "overview",
+    "conflictPolicy": "disable-fullscreen",
+    "disableOnFullscreen": true,
+    "fullscreenAllowList": [],
+    "fullscreenDenyList": [],
+    "adaptiveTargetMode": "automatic"
   },
   "stylus": {
     "enabled": true,
