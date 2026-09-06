@@ -10,6 +10,7 @@ import "models/Performance.js" as PerformanceModel
 import "models/AppRules.js" as AppRulesModel
 import "models/Cube.js" as CubeModel
 import "models/Wobbly.js" as WobblyModel
+import "models/ForceQuit.js" as ForceQuitModel
 import "models/I18n.js" as I18n
 import "models/QuickSettings.js" as QuickSettingsModel
 import "models/Stylus.js" as StylusModel
@@ -56,6 +57,7 @@ Item {
   property var effectBackend: ({ hyprlandAvailable: false, backend: "hyprland-layer-rule", layerRulesAvailable: false, livePreviewAvailable: false, livePreviewReason: "not probed", external: { desktopCube: false, desktopCubeBackend: "none" } })
   property var effectCapabilities: EffectsModel.capabilityState({}, {})
   property var performanceState: PerformanceModel.snapshot({}, {})
+  property var forceQuitState: ({ active: false, phase: "idle", target: null, message: "" })
   property string blurRuleSignature: ""
   property string lastInput: "keyboard"
   property string detectedMode: "desktop"
@@ -104,6 +106,8 @@ Item {
   function reloadPaths() {
     root.pluginRoot = root.manifest && root.manifest.__sourceDir ? String(root.manifest.__sourceDir) : root.pluginRoot
     root.captureScript = root.sourcePath("input/clipboard-capture.sh")
+    forceQuitTermProcess.command = ["bash", root.sourcePath("input/force-quit.sh")]
+    forceQuitKillProcess.command = ["bash", root.sourcePath("input/force-quit.sh")]
   }
 
   function refreshIntegrations() {
@@ -190,6 +194,97 @@ Item {
   function cubePitch(value) { return root.cubeEval("pitch", value) }
   function cubeWorkspace(direction) { return root.cubeEval("workspace", direction) }
   function cubeSelect(index) { return root.cubeEval("select", index) }
+
+  function forceQuitBegin() {
+    if (root.cfg("forceQuit.enabled", true) !== true) {
+      root.lastError = "Force Quit is disabled in settings"
+      return false
+    }
+    root.forceQuitState = { active: true, phase: "selecting", target: null, message: "Select a window to close" }
+    root.stateRevision++
+    root.stateUpdated()
+    return true
+  }
+
+  function forceQuitCancel() {
+    if (forceQuitTermProcess.running) forceQuitTermProcess.running = false
+    if (forceQuitKillProcess.running) forceQuitKillProcess.running = false
+    root.forceQuitState = { active: false, phase: "cancelled", target: null, message: "Force Quit cancelled" }
+    root.stateRevision++
+    root.stateUpdated()
+  }
+
+  function forceQuitSelect(window) {
+    if (!root.forceQuitState.active) root.forceQuitBegin()
+    var target = ForceQuitModel.target(window)
+    var settings = ForceQuitModel.normalize(root.cfg("forceQuit", {}))
+    if (!target.selectable || target.protectedByApp) {
+      root.forceQuitState = { active: true, phase: "error", target: target, message: target.protectedReason || "Window process could not be identified safely" }
+    } else {
+      root.forceQuitState = { active: true, phase: "confirm", target: target, message: "Confirm closing " + target.title + " (" + settings.policy + ")" }
+    }
+    root.stateRevision++
+    root.stateUpdated()
+    return target.selectable && !target.protectedByApp
+  }
+
+  function forceQuitComplete(message) {
+    root.forceQuitState = { active: true, phase: "done", target: root.forceQuitState.target, message: String(message || "Force Quit completed") }
+    root.stateRevision++
+    root.stateUpdated()
+  }
+
+  function updateForceQuitTerm(raw, exitCode) {
+    var result = root.parseJson(raw, null)
+    if (exitCode !== 0 || !result || result.ok !== true) {
+      root.forceQuitState = { active: true, phase: "error", target: root.forceQuitState.target, message: "SIGTERM was not permitted for the selected process" }
+    } else if (result.alive === true && ForceQuitModel.requiresKill(root.forceQuitState.effectivePolicy || "")) {
+      root.forceQuitState = { active: true, phase: "kill", target: root.forceQuitState.target, effectivePolicy: root.forceQuitState.effectivePolicy, message: "The app did not exit; sending SIGKILL" }
+      forceQuitKillProcess.command = ["bash", root.sourcePath("input/force-quit.sh"), "kill", String(root.forceQuitState.target.pid)]
+      forceQuitKillProcess.running = true
+    } else if (result.alive === true) {
+      root.forceQuitComplete("SIGTERM sent; the process is still running")
+    } else {
+      root.forceQuitComplete("The selected process exited after SIGTERM")
+    }
+    root.stateRevision++
+    root.stateUpdated()
+  }
+
+  function updateForceQuitKill(raw, exitCode) {
+    var result = root.parseJson(raw, null)
+    if (exitCode !== 0 || !result || result.ok !== true) {
+      root.forceQuitState = { active: true, phase: "error", target: root.forceQuitState.target, message: "SIGKILL was not permitted for the selected process" }
+    } else {
+      root.forceQuitComplete(result.alive === false ? "The selected process was terminated" : "The process is still running")
+    }
+    root.stateRevision++
+    root.stateUpdated()
+  }
+
+  function forceQuitConfirm() {
+    var state = root.forceQuitState
+    var target = state.target
+    if (!state.active || !target || !target.window) return false
+    if (target.protectedByApp && !root.cfg("forceQuit.allowProtectedOverride", false)) {
+      root.forceQuitState = { active: true, phase: "error", target: target, message: "Protected session process" }
+      return false
+    }
+    var settings = ForceQuitModel.normalize(root.cfg("forceQuit", {}))
+    var effectivePolicy = settings.policy === "ask" ? "graceful-term-kill" : settings.policy
+    var item = ForceQuitModel.foreign(target.window)
+    if (item && typeof item.close === "function") item.close()
+    if (effectivePolicy === "graceful-only" || target.pid <= 0 || !ForceQuitModel.requiresTerm(effectivePolicy)) {
+      root.forceQuitComplete(target.pid > 0 ? "Close request sent to the selected window" : "Close request sent; process PID is unavailable")
+      return true
+    }
+    root.forceQuitState = { active: true, phase: "term", target: target, effectivePolicy: effectivePolicy, message: "Waiting for the graceful close request" }
+    forceQuitTermProcess.command = ["bash", root.sourcePath("input/force-quit.sh"), "term", String(target.pid), String(settings.termTimeoutMs)]
+    forceQuitTermProcess.running = true
+    root.stateRevision++
+    root.stateUpdated()
+    return true
+  }
 
   function applyBlurRules() {
     if (!root.hyprlandAvailable || root.effectBackend.layerRulesAvailable !== true) return false
@@ -765,6 +860,7 @@ Item {
       },
       wobbly: root.wobblyState(),
       cube: root.cubeState(),
+      forceQuit: root.forceQuitState,
       performance: root.performanceState,
       preview: {
         available: root.effectBackend.livePreviewAvailable === true,
@@ -1048,7 +1144,8 @@ Item {
     } else if (key === "desktopCube" || key === "cube") {
       started = root.cubeToggle()
     } else if (key === "forceQuit") {
-      started = root.execute(["hyprctl", "kill"])
+      started = root.forceQuitBegin()
+      if (started) root.open("forcequit")
     } else {
       return false
     }
@@ -1150,6 +1247,22 @@ Item {
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateEffectBackend(text) }
     onExited: function(exitCode) {
       if (exitCode !== 0) root.lastError = "Effect backend probe failed"
+    }
+  }
+
+  Process {
+    id: forceQuitTermProcess
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateForceQuitTerm(text, 0) }
+    onExited: function(exitCode) {
+      if (exitCode !== 0) root.updateForceQuitTerm("", exitCode)
+    }
+  }
+
+  Process {
+    id: forceQuitKillProcess
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateForceQuitKill(text, 0) }
+    onExited: function(exitCode) {
+      if (exitCode !== 0) root.updateForceQuitKill("", exitCode)
     }
   }
 
@@ -1336,6 +1449,7 @@ Item {
     function reload(): string { root.refreshDevices(); return "ok" }
     function recordInput(kind: string): string { root.recordInput(kind); return root.detectedMode }
     function quickAction(action: string): string { return root.quickAction(action) ? "on" : "off" }
+    function forceQuit(): string { return root.forceQuitBegin() ? "select" : "unavailable" }
     function cube(action: string): string {
       var value = String(action || "toggle")
       if (value === "toggle") return root.cubeToggle() ? "ok" : "unavailable"

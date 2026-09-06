@@ -193,6 +193,7 @@ class OmanomeProjectTests(unittest.TestCase):
             ROOT / "input/bluetooth-scan.sh",
             ROOT / "input/rotation-monitor.sh",
             ROOT / "input/sensor-info.sh",
+            ROOT / "input/force-quit.sh",
             ROOT / "input/audio-devices.sh",
         ):
             result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
@@ -325,6 +326,37 @@ class OmanomeProjectTests(unittest.TestCase):
         cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")
         self.assertIn("effects_cmd", cli)
         self.assertIn("benchmark_cmd", cli)
+
+    def test_force_quit_is_pid_scoped_and_protects_the_session(self) -> None:
+        result = self.run_node(
+            "const F=require('./shell/models/ForceQuit.js'); "
+            "const app=F.target({appId:'firefox',title:'Test window',pid:123,workspace:{id:4}}); "
+            "const shell=F.target({appId:'omarchy-shell',title:'Omarchy',pid:456}); "
+            "console.log(JSON.stringify({policy:F.normalize({policy:'graceful-term-kill'}),app:{pid:app.pid,selectable:app.selectable,protected:app.protectedByApp},shell:{selectable:shell.selectable,protected:shell.protectedByApp,reason:shell.protectedReason},term:F.requiresTerm('graceful-term'),kill:F.requiresKill('graceful-term-kill'),foreign:typeof F.foreign(app.window)}));"
+        )
+        self.assertEqual(result["policy"]["policy"], "graceful-term-kill")
+        self.assertEqual(result["app"]["pid"], 123)
+        self.assertTrue(result["app"]["selectable"])
+        self.assertFalse(result["app"]["protected"])
+        self.assertFalse(result["shell"]["selectable"])
+        self.assertTrue(result["shell"]["protected"])
+        self.assertEqual(result["shell"]["reason"], "Omarchy shell")
+        self.assertTrue(result["term"])
+        self.assertTrue(result["kill"])
+        self.assertEqual(result["foreign"], "object")
+
+        helper = ROOT / "input/force-quit.sh"
+        protected = subprocess.run([str(helper), "term", "1", "0"], capture_output=True, text=True)
+        self.assertEqual(protected.returncode, 3)
+        self.assertTrue(json.loads(protected.stdout)["protected"])
+
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")
+        self.assertIn("forceQuitTermProcess", service)
+        self.assertIn("forceQuitKillProcess", service)
+        self.assertIn("function forceQuit(): string", service)
+        self.assertNotIn('"hyprctl", "kill"', service)
+        self.assertNotIn("hyprctl kill", cli)
 
     def test_touch_policy_separates_fullscreen_conflicts_and_target_sizes(self) -> None:
         result = self.run_node(

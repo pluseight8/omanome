@@ -20,9 +20,9 @@ Item {
 
   function sourceFor(view) {
     var name = String(view || "overview")
-    var known = ["overview", "launcher", "quicksettings", "keyboard", "clipboard", "notifications", "switcher", "settings"]
+    var known = ["overview", "launcher", "quicksettings", "keyboard", "clipboard", "notifications", "switcher", "settings", "forcequit"]
     if (known.indexOf(name) < 0) name = "overview"
-    return Qt.resolvedUrl("views/" + ({ overview: "Overview.qml", launcher: "Launcher.qml", quicksettings: "QuickSettings.qml", keyboard: "Osk.qml", clipboard: "Clipboard.qml", notifications: "Notifications.qml", switcher: "Switcher.qml", settings: "Settings.qml" }[name]))
+    return Qt.resolvedUrl("views/" + ({ overview: "Overview.qml", launcher: "Launcher.qml", quicksettings: "QuickSettings.qml", keyboard: "Osk.qml", clipboard: "Clipboard.qml", notifications: "Notifications.qml", switcher: "Switcher.qml", settings: "Settings.qml", forcequit: "ForceQuit.qml" }[name]))
   }
 
   function open(payloadJson) {

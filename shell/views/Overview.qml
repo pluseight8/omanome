@@ -127,7 +127,7 @@ Item {
       Item { Layout.fillWidth: true }
       ActionButton { compact: true; text: root.service.tr("launcher", "Apps"); icon: "⌘"; onClicked: if (root.panel) root.panel.activeView = "launcher" }
       ActionButton { visible: root.service.cubeState().available; compact: true; text: root.service.tr("cube", "Cube"); icon: "◇"; onClicked: root.service.cubeToggle() }
-      ActionButton { compact: true; text: root.service.tr("forceQuit", "Force quit"); icon: "×"; onClicked: root.service.quickAction("forceQuit") }
+      ActionButton { compact: true; text: root.service.tr("forceQuit", "Force quit"); icon: "×"; onClicked: { root.service.forceQuitBegin(); if (root.panel) root.panel.activeView = "forcequit" } }
     }
 
     RowLayout {
