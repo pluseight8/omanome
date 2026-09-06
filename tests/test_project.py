@@ -409,6 +409,39 @@ class OmanomeProjectTests(unittest.TestCase):
             self.assertEqual(sensitive.returncode, 0, sensitive.stderr)
             self.assertEqual(sensitive.stdout, "")
 
+            mime_sensitive = subprocess.run(
+                [str(capture), "application/x-password-manager"], input="secret", text=True, capture_output=True, env=env
+            )
+            self.assertEqual(mime_sensitive.returncode, 0, mime_sensitive.stderr)
+            self.assertEqual(mime_sensitive.stdout, "")
+
+        result = self.run_node(
+            "const C=require('./shell/models/Clipboard.js'); const N=require('./shell/models/Notifications.js'); "
+            "const history=[{type:'text',text:'keep',pinned:true,tags:['work']},{type:'text',text:'drop',capturedAt:'2020-01-01T00:00:00Z'}]; "
+            "const fake={count:3,get:i=>[{app:'Mail',summary:'one',body:'a',timestamp:100},{app:'Mail',summary:'two',body:'b',timestamp:200},{app:'Chat',summary:'three',body:'c',timestamp:150}][i]}; "
+            "console.log(JSON.stringify({mime:C.sensitiveMime('text/password'),secret:C.normalize({type:'text',text:'x',mime:'application/x-secret'}),tags:C.normalizeTags('a,b,a'),clear:C.clearUnpinned(history),prune:C.prune(history,{historyLimit:10,retentionDays:30,maxStorageMb:1},Date.parse('2026-09-06T00:00:00Z')).length,excluded:C.excludedApp('org.example.App',['org.example.*']),rows:N.rows({popupModel:fake},{groupByApp:true,timestamps:true,maxHistory:10},300)}));"
+        )
+        self.assertTrue(result["mime"])
+        self.assertIsNone(result["secret"])
+        self.assertEqual(result["tags"], ["a", "b"])
+        self.assertEqual(len(result["clear"]), 1)
+        self.assertEqual(result["prune"], 1)
+        self.assertTrue(result["excluded"])
+        self.assertEqual(len(result["rows"]), 2)
+        self.assertEqual(result["rows"][0]["count"], 2)
+        self.assertEqual(result["rows"][0]["indices"], [0, 1])
+
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        clipboard_view = (ROOT / "shell/views/Clipboard.qml").read_text(encoding="utf-8")
+        notifications_view = (ROOT / "shell/views/Notifications.qml").read_text(encoding="utf-8")
+        self.assertIn("copyProcess.secret", service)
+        self.assertIn("ClipboardModel.persistable", service)
+        self.assertNotIn('["wl-copy", entry.text', service)
+        self.assertIn("clearClipboardUnpinned", clipboard_view)
+        self.assertIn("editClipboardText", clipboard_view)
+        self.assertIn("DragHandler", notifications_view)
+        self.assertIn("toggleNotificationMute", notifications_view)
+
     def test_native_omarchy_validator_when_available(self) -> None:
         omarchy = shutil.which("omarchy")
         if not omarchy:

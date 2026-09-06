@@ -356,6 +356,7 @@ Item {
     if (String(path).indexOf("clipboard.") === 0 || String(path).indexOf("privacy.clipboard") === 0) {
       if (root.cfg("clipboard.privateMode", false) || root.cfg("privacy.clipboardPrivate", false)) root.stopClipboardWatchers()
       else root.startClipboardWatchers()
+      root.pruneClipboard()
     }
     if (String(path).indexOf("general.mode") === 0 || String(path).indexOf("tabletMode.") === 0) root.detectedMode = root.computeMode()
     if (String(path).indexOf("touch.") === 0) root.applyTouchIntegration()
@@ -582,6 +583,18 @@ Item {
     notification.setDoNotDisturb(Boolean(value))
     root.setConfig("notifications.doNotDisturb", Boolean(value))
     root.refreshSystemState()
+    return true
+  }
+
+  function toggleNotificationMute(app) {
+    var name = String(app || "")
+    if (!name) return false
+    var list = root.cfg("notifications.perAppMute", [])
+    list = Array.isArray(list) ? list.slice() : []
+    var index = list.indexOf(name)
+    if (index >= 0) list.splice(index, 1)
+    else list.push(name)
+    root.setConfig("notifications.perAppMute", list)
     return true
   }
 
@@ -1008,7 +1021,27 @@ Item {
 
   function saveClipboard() {
     if (!root.configReady || root.cfg("clipboard.persist", true) === false) return
-    clipboardFile.setText(JSON.stringify(root.clipboardHistory, null, 2) + "\n")
+    var settings = root.cfg("clipboard", {})
+    clipboardFile.setText(JSON.stringify(ClipboardModel.persistable(root.clipboardHistory, settings), null, 2) + "\n")
+  }
+
+  function clipboardSettings() {
+    return root.cfg("clipboard", {})
+  }
+
+  function clipboardSourceApp() {
+    var client = root.activeClient() || {}
+    return String(client.appId || client.class || client.initialClass || client.initial_class || "")
+  }
+
+  function pruneClipboard() {
+    var next = ClipboardModel.prune(root.clipboardHistory, root.clipboardSettings())
+    if (JSON.stringify(next) === JSON.stringify(root.clipboardHistory)) return false
+    root.clipboardHistory = next
+    root.saveClipboard()
+    root.stateRevision++
+    root.stateUpdated()
+    return true
   }
 
   function loadClipboard(raw) {
@@ -1024,7 +1057,7 @@ Item {
     } catch (error) {
       result = []
     }
-    root.clipboardHistory = result.slice(0, Number(root.cfg("clipboard.historyLimit", 100)))
+    root.clipboardHistory = ClipboardModel.prune(result, root.clipboardSettings())
     root.stateRevision++
     root.stateUpdated()
   }
@@ -1033,7 +1066,12 @@ Item {
     if (root.cfg("clipboard.privateMode", false) || root.cfg("privacy.clipboardPrivate", false)) return
     var entry = ClipboardModel.parse(line)
     if (!entry) return
+    var sourceApp = root.clipboardSourceApp()
+    if (ClipboardModel.excludedApp(sourceApp, root.cfg("clipboard.excludedApps", []))) return
+    entry.sourceApp = sourceApp
+    if (!entry.capturedAt) entry.capturedAt = new Date().toISOString()
     root.clipboardHistory = ClipboardModel.add(root.clipboardHistory, entry, root.cfg("clipboard.historyLimit", 100))
+    root.clipboardHistory = ClipboardModel.prune(root.clipboardHistory, root.clipboardSettings())
     root.saveClipboard()
     root.stateRevision++
     root.stateUpdated()
@@ -1065,6 +1103,44 @@ Item {
     root.saveClipboard()
     root.stateRevision++
     root.stateUpdated()
+  }
+
+  function clearClipboardUnpinned() {
+    var next = ClipboardModel.clearUnpinned(root.clipboardHistory)
+    if (JSON.stringify(next) === JSON.stringify(root.clipboardHistory)) return false
+    root.clipboardHistory = next
+    root.saveClipboard()
+    root.stateRevision++
+    root.stateUpdated()
+    return true
+  }
+
+  function toggleClipboardPin(index) {
+    root.clipboardHistory = ClipboardModel.togglePin(root.clipboardHistory, index)
+    root.saveClipboard()
+    root.stateRevision++
+    root.stateUpdated()
+    return true
+  }
+
+  function editClipboardText(index, text) {
+    var next = ClipboardModel.editText(root.clipboardHistory, index, text)
+    if (JSON.stringify(next) === JSON.stringify(root.clipboardHistory)) return false
+    root.clipboardHistory = next
+    root.saveClipboard()
+    root.stateRevision++
+    root.stateUpdated()
+    return true
+  }
+
+  function setClipboardTags(index, tags) {
+    var next = ClipboardModel.setTags(root.clipboardHistory, index, tags)
+    if (JSON.stringify(next) === JSON.stringify(root.clipboardHistory)) return false
+    root.clipboardHistory = next
+    root.saveClipboard()
+    root.stateRevision++
+    root.stateUpdated()
+    return true
   }
 
   function removeClipboard(index) {
@@ -1369,6 +1445,14 @@ Item {
     id: clipboardRestart
     interval: 1000
     onTriggered: root.startClipboardWatchers()
+  }
+
+  Timer {
+    id: clipboardMaintenance
+    interval: 300000
+    repeat: true
+    running: root.configReady && root.cfg("clipboard.enabled", true)
+    onTriggered: root.pruneClipboard()
   }
 
   Timer {

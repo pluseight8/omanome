@@ -4,7 +4,8 @@
 set -o pipefail
 
 mime="${1:-text}"
-if [[ "${CLIPBOARD_STATE:-}" == "sensitive" ]]; then
+mime="${mime,,}"
+if [[ "${CLIPBOARD_STATE:-}" == "sensitive" || "${CLIPBOARD_STATE:-}" == "private" ]]; then
   exit 0
 fi
 
@@ -29,7 +30,7 @@ fi
 
 # Password-manager MIME hints are deliberately not persisted. wl-paste passes
 # the selected type as argv; callers may also set CLIPBOARD_STATE=sensitive.
-if [[ "$mime" == *password* || "$mime" == *secret* ]]; then
+if [[ "$mime" == *password* || "$mime" == *secret* || "$mime" == *credential* || "$mime" == *token* || "$mime" == *private-key* || "$mime" == *private_key* ]]; then
   exit 0
 fi
 
