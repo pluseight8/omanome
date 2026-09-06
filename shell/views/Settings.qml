@@ -107,8 +107,8 @@ Item {
           width: parent.width
           spacing: Style.space(10)
           visible: root.category === "overview" || root.category === "launcher" || root.category === "altTab"
-          ActionButton { width: parent.width; text: "Module"; subtitle: root.category; checked: root.service.cfg(root.category + ".enabled", true); onClicked: root.toggle(root.category + ".enabled") }
-          ActionButton { width: parent.width; text: "Visual style"; subtitle: root.service.cfg(root.category + ".style", root.category === "altTab" ? "coverflow" : "gnome"); onClicked: root.service.setConfig(root.category + ".style", root.service.cfg(root.category + ".style", root.category === "altTab" ? "coverflow" : "gnome") === "gnome" ? "grid" : "gnome") }
+          ActionButton { width: parent.width; text: "Module"; subtitle: "View lifecycle is owned by the single Omanome panel"; checked: root.service.cfg(root.category + ".enabled", true); usable: false }
+          ActionButton { width: parent.width; text: "Visual style"; subtitle: "The current native layout has no alternate style backend"; checked: false; usable: false }
           ActionButton { width: parent.width; text: "Show all workspaces"; visible: root.category === "overview"; checked: root.service.cfg("overview.showAllWorkspaces", true); onClicked: root.toggle("overview.showAllWorkspaces") }
           Text { visible: root.category === "launcher"; text: "Grid columns: " + root.service.cfg("launcher.gridColumns", 6); color: Color.foreground; font.pixelSize: Style.font.body }
           Slider { visible: root.category === "launcher"; width: parent.width; from: 3; to: 10; value: root.service.cfg("launcher.gridColumns", 6); onMoved: root.service.setConfig("launcher.gridColumns", Math.round(value)) }
@@ -118,7 +118,7 @@ Item {
           width: parent.width
           spacing: Style.space(10)
           visible: root.category === "notifications"
-          ActionButton { width: parent.width; text: root.service.tr("notifications", "Notifications"); subtitle: "Native Omarchy notification service"; checked: root.service.cfg("notifications.enabled", true); onClicked: root.toggle("notifications.enabled") }
+          ActionButton { width: parent.width; text: root.service.tr("notifications", "Notifications"); subtitle: root.service.cfg("notifications.enabled", true) ? "Native Omarchy notification service" : "Disabled"; checked: root.service.cfg("notifications.enabled", true); onClicked: root.toggle("notifications.enabled") }
           ActionButton { width: parent.width; text: "Group by app"; subtitle: "Grouping is owned by Omarchy's native notification service"; checked: root.service.cfg("notifications.groupByApp", true); usable: false }
           ActionButton { width: parent.width; text: root.service.tr("doNotDisturb", "Do not disturb"); subtitle: root.service.systemState.dndAvailable ? "Omarchy notification service" : "Notification backend unavailable"; checked: root.service.systemState.dnd === true; usable: root.service.systemState.dndAvailable === true; onClicked: root.service.setDoNotDisturb(!root.service.systemState.dnd) }
           Text { width: parent.width; text: "The notification center reuses Omarchy's native service; no second notification daemon is started."; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
@@ -128,11 +128,11 @@ Item {
           width: parent.width
           spacing: Style.space(10)
           visible: root.category === "rotation" || root.category === "updates" || root.category === "shortcuts"
-          ActionButton { width: parent.width; text: root.service.tr(root.category, root.category); subtitle: root.category === "rotation" ? (root.service.systemState.rotationAvailable ? root.service.cfg("rotation.orientation", "auto") : "Hyprland transform backend unavailable") : (root.category === "updates" ? root.service.cfg("updates.channel", "stable") : "user-owned Hyprland bindings"); checked: root.service.cfg(root.category + ".enabled", true); usable: root.category !== "shortcuts" && (root.category !== "rotation" || root.service.systemState.rotationAvailable); onClicked: { if (root.category === "rotation") root.toggle("rotation.enabled"); else if (root.category === "updates") root.service.setConfig("updates.channel", root.service.cfg("updates.channel", "stable") === "stable" ? "beta" : "stable") } }
+          ActionButton { width: parent.width; text: root.service.tr(root.category, root.category); subtitle: root.category === "rotation" ? (root.service.systemState.rotationAvailable ? root.service.cfg("rotation.orientation", "auto") : "Hyprland transform backend unavailable") : (root.category === "updates" ? "Updates are managed by the Omarchy plugin manager" : "user-owned Hyprland bindings"); checked: root.service.cfg(root.category + ".enabled", true); usable: root.category === "rotation" ? root.service.systemState.rotationAvailable : false; onClicked: if (root.category === "rotation") root.toggle("rotation.enabled") }
           ActionButton { width: parent.width; text: "Rotation lock"; visible: root.category === "rotation"; checked: root.service.cfg("rotation.lock", false); usable: root.service.systemState.rotationAvailable; onClicked: root.toggle("rotation.lock") }
           Row { visible: root.category === "rotation"; spacing: Style.space(8); Repeater { model: ["auto", "landscape", "portrait", "landscape-flipped", "portrait-flipped"]; delegate: ActionButton { required property string modelData; compact: true; text: modelData; checked: root.service.cfg("rotation.orientation", "auto") === modelData; usable: root.service.systemState.rotationAvailable && (modelData !== "auto" || root.service.systemState.rotationSensorAvailable); onClicked: root.service.setRotationOrientation(modelData) } } }
           Text { width: parent.width; visible: root.category === "rotation"; text: root.service.systemState.rotationSensorAvailable ? "Auto rotation uses monitor-sensor (iio-sensor-proxy)." : "Auto rotation unavailable: install iio-sensor-proxy/monitor-sensor; manual Hyprland transforms remain available."; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
-          ActionButton { width: parent.width; text: "Automatic install"; visible: root.category === "updates"; checked: root.service.cfg("updates.automaticInstall", false); onClicked: root.toggle("updates.automaticInstall") }
+          ActionButton { width: parent.width; text: "Automatic install"; visible: root.category === "updates"; subtitle: "The official Omarchy updater requires an explicit user command"; checked: root.service.cfg("updates.automaticInstall", false); usable: false }
           Text { width: parent.width; visible: root.category === "shortcuts"; text: "Omanome exposes namespaced shell commands and never overwrites existing keybindings. Assign the commands shown in README to your own Hyprland config."; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
         }
 
@@ -140,12 +140,12 @@ Item {
           width: parent.width
           spacing: Style.space(10)
           visible: root.category === "tabletMode" || root.category === "touch" || root.category === "gestures"
-          ActionButton { width: parent.width; text: root.service.tr("touchscreen", "Touchscreen"); subtitle: root.service.hasTouchscreen ? root.service.tr("detectedDevices", "Detected") : root.service.tr("disabled", "Not detected"); checked: root.service.hasTouchscreen; usable: root.service.hasTouchscreen; onClicked: root.service.setConfig("tabletMode.enabled", !root.service.cfg("tabletMode.enabled", true)) }
-          ActionButton { width: parent.width; text: "Automatic adaptation"; subtitle: "Touch and stylus input changes target sizing"; checked: root.service.cfg("tabletMode.autoFromTouch", true); onClicked: root.toggle("tabletMode.autoFromTouch") }
-          Text { text: "Touch target: " + root.service.cfg("tabletMode.touchTarget", 48) + " logical px"; color: Color.foreground; font.pixelSize: Style.font.body }
-          Slider { width: parent.width; from: 40; to: 72; value: root.service.cfg("tabletMode.touchTarget", 48); onMoved: root.service.setConfig("tabletMode.touchTarget", Math.round(value)) }
-          ActionButton { width: parent.width; text: "Three-finger action"; subtitle: root.service.cfg("touch.threeFingerAction", "workspace"); onClicked: root.service.setConfig("touch.threeFingerAction", root.service.cfg("touch.threeFingerAction", "workspace") === "workspace" ? "overview" : "workspace") }
-          ActionButton { width: parent.width; text: "Four-finger action"; subtitle: root.service.cfg("touch.fourFingerAction", "overview"); onClicked: root.service.setConfig("touch.fourFingerAction", root.service.cfg("touch.fourFingerAction", "overview") === "overview" ? "launcher" : "overview") }
+          ActionButton { width: parent.width; text: root.service.tr("touchscreen", "Touchscreen"); subtitle: root.service.hasTouchscreen ? root.service.tr("detectedDevices", "Detected") : root.service.tr("disabled", "Not detected"); checked: root.service.hasTouchscreen && root.service.cfg("tabletMode.enabled", true); usable: root.service.hasTouchscreen; onClicked: root.service.setConfig("tabletMode.enabled", !root.service.cfg("tabletMode.enabled", true)) }
+          ActionButton { width: parent.width; text: "Automatic adaptation"; subtitle: "Touch/stylus mode switching follows real device input"; checked: root.service.cfg("tabletMode.autoFromTouch", true); onClicked: root.toggle("tabletMode.autoFromTouch") }
+          Text { text: "Touch target: " + root.service.cfg("tabletMode.touchTarget", 48) + " logical px · host Style token unavailable"; color: Color.muted; font.pixelSize: Style.font.caption }
+          Slider { width: parent.width; from: 40; to: 72; value: root.service.cfg("tabletMode.touchTarget", 48); enabled: false }
+          ActionButton { width: parent.width; text: "Three-finger action"; subtitle: "Requires a gesture-event API; Hyprland swipe settings are supported below"; checked: false; usable: false }
+          ActionButton { width: parent.width; text: "Four-finger action"; subtitle: "Requires a gesture-event API; Hyprland swipe settings are supported below"; checked: false; usable: false }
           ActionButton { width: parent.width; text: "Invert workspace swipe"; checked: root.service.cfg("touch.invert", false); onClicked: root.toggle("touch.invert") }
         }
 
@@ -153,7 +153,7 @@ Item {
           width: parent.width
           spacing: Style.space(10)
           visible: root.category === "stylus"
-          ActionButton { width: parent.width; text: root.service.tr("stylus", "Stylus"); subtitle: root.service.hasStylus ? root.service.stylusDevices.length + " device(s)" : root.service.tr("disabled", "Not detected"); checked: root.service.cfg("stylus.enabled", true); onClicked: root.toggle("stylus.enabled") }
+          ActionButton { width: parent.width; text: root.service.tr("stylus", "Stylus"); subtitle: root.service.hasStylus ? root.service.stylusDevices.length + " device(s) · automatic mode " + (root.service.cfg("stylus.enabled", true) ? "enabled" : "disabled") : root.service.tr("disabled", "Not detected"); checked: root.service.cfg("stylus.enabled", true); usable: root.service.hasStylus; onClicked: root.toggle("stylus.enabled") }
           ActionButton { width: parent.width; text: root.service.tr("palmRejection", "Palm rejection"); subtitle: "Native libinput policy · custom filter unavailable"; checked: root.service.cfg("stylus.palmRejection", "automatic") !== "off"; usable: false }
           ActionButton { width: parent.width; text: root.service.tr("annotation", "Annotation"); subtitle: root.service.cfg("stylus.annotation", true) ? "Overlay available from Quick Settings" : "Disabled"; checked: root.service.cfg("stylus.annotation", true); onClicked: root.toggle("stylus.annotation") }
           Text { text: root.service.tr("pressure", "Pressure") + ": " + root.service.cfg("stylus.pressureMin", 0) + " – " + root.service.cfg("stylus.pressureMax", 1) + " · " + root.service.cfg("stylus.pressureCurve", "linear"); color: Color.foreground; font.pixelSize: Style.font.body }

@@ -86,7 +86,7 @@ Item {
 
   function refreshIntegrations() {
     if (root.shell && typeof root.shell.firstPartyServiceFor === "function")
-      root.notificationService = root.shell.firstPartyServiceFor("omarchy.notifications")
+      root.notificationService = root.cfg("notifications.enabled", true) ? root.shell.firstPartyServiceFor("omarchy.notifications") : null
   }
 
   function ensureDirectories() {
@@ -128,6 +128,7 @@ Item {
     if (String(path).indexOf("general.mode") === 0 || String(path).indexOf("tabletMode.") === 0) root.detectedMode = root.computeMode()
     if (String(path).indexOf("touch.") === 0) root.applyTouchIntegration()
     if (String(path).indexOf("rotation.") === 0) root.refreshRotationBackend()
+    if (String(path).indexOf("notifications.enabled") === 0) root.refreshIntegrations()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -172,9 +173,11 @@ Item {
   }
 
   function computeMode() {
+    if (root.cfg("tabletMode.enabled", true) !== true) return "desktop"
     var requested = String(root.cfg("general.mode", "automatic"))
     if (requested !== "automatic") return requested
-    if (root.lastInput === "touch" || root.lastInput === "stylus") return "tablet"
+    if (root.lastInput === "touch" && root.cfg("tabletMode.autoFromTouch", true) === true) return "tablet"
+    if (root.lastInput === "stylus" && root.cfg("tabletMode.autoFromStylus", true) === true && root.cfg("stylus.enabled", true) === true) return "tablet"
     return root.hasTouchscreen ? "hybrid" : "desktop"
   }
 
@@ -584,7 +587,7 @@ Item {
   }
 
   function sendKey(key, shifted) {
-    if (!root.wtypeAvailable) return false
+    if (!root.wtypeAvailable || root.cfg("keyboard.enabled", true) !== true) return false
     var value = String(key || "")
     var named = keyName(value)
     if (value.length === 1 && !shifted) return root.execute(["wtype", "--", value])
@@ -593,7 +596,7 @@ Item {
   }
 
   function sendModifiedKey(key, modifiers) {
-    if (!root.wtypeAvailable) return false
+    if (!root.wtypeAvailable || root.cfg("keyboard.enabled", true) !== true) return false
     var value = String(key || "")
     if (!value) return false
     var args = ["wtype"]
@@ -612,7 +615,7 @@ Item {
   }
 
   function typeText(text) {
-    if (!root.wtypeAvailable) return false
+    if (!root.wtypeAvailable || root.cfg("keyboard.enabled", true) !== true) return false
     var value = String(text || "")
     if (!value) return false
     return root.execute(["wtype", "--", value])
