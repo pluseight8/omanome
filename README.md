@@ -2,20 +2,20 @@
 
 Omanome is an open-source, GNOME-inspired touch and stylus enhancement suite for the current Omarchy Quattro shell on Hyprland. It is intentionally an Omarchy plugin, not a replacement desktop session: the standard Omarchy bar remains in charge of the top edge, the existing Quickshell process hosts the plugin, and all plugin state is namespaced under `io.omanome.shell`.
 
-This repository is a runnable 0.1.0 baseline. It focuses on the parts that can be implemented safely with the public Omarchy/Quickshell/Hyprland interfaces. Features that require a compositor ABI or a text-input/handwriting engine are explicit optional integration points rather than fake overlays.
+This repository is a runnable 0.2.0 baseline. It focuses on the parts that can be implemented safely with the public Omarchy/Quickshell/Hyprland interfaces. Features that require a compositor ABI or a text-input/handwriting engine are explicit optional integration points rather than fake overlays.
 
 ## What is included
 
 - An Omarchy Quattro manifest with `service`, `bar-widget`, and `panel` entry points. It never declares the replacement `bar` kind.
 - A compact Omanome bar widget that is added to the existing Omarchy layout like any other widget.
 - One lazy-loaded panel with Overview, workspaces, launcher, quick settings, OSK, clipboard, notifications, and settings views.
-- An optional multi-monitor dock using layer-shell and native `DesktopEntries`/foreign-toplevel objects.
+- An optional multi-monitor Dash-to-Dock style surface using layer-shell and native `DesktopEntries`/foreign-toplevel objects, persisted favorites, running indicators, context actions, configurable position/mode, and intelligent autohide guardrails.
 - Touch-sized active-window controls in tablet or hybrid mode.
 - Tablet-mode detection from Hyprland device inventory, adaptive desktop/tablet/hybrid modes, stylus capability inventory, and touch gesture keyword integration through Hyprland IPC.
 - English/Russian UI strings, profiles, versioned configuration, import/export/reset, and privacy-aware clipboard history for text and PNG images.
 - A Wayland-native OSK surface driven by `wtype` (`virtual-keyboard-v1`), with English, Russian, numeric, floating, split, one-handed, and handwriting-panel modes.
 - Integration with Omarchy's native notification service for DND, popups, history, and dismissal.
-- Diagnostics and lifecycle commands: status, doctor, logs, enable/disable, safe mode, update checks, rollback, and uninstall.
+- Diagnostics and lifecycle commands: status, doctor, logs, enable/disable, safe mode, GitHub install/update checks, rollback, and uninstall.
 
 ## Requirements
 
@@ -28,14 +28,26 @@ Runtime requirements are:
 
 Optional commands used only when available are `nmcli`, `bluetoothctl`, `wpctl`, `brightnessctl`, `grim`, `wf-recorder`, and `iio-sensor-proxy`. Missing optional commands disable only their action.
 
-## Install
+## Install from GitHub
 
-Use the standard Omarchy plugin flow from the repository URL:
+Install the public repository directly with the official Omarchy plugin manager:
 
 ```sh
-omarchy plugin add <repo-url> --enable --yes
+omarchy plugin add https://github.com/pluseight8/omanome.git --enable --yes
 omanome doctor
 ```
+
+The convenience command is equivalent and uses the same official manager:
+
+```sh
+omanome install
+```
+
+In the graphical Omarchy Plugin Manager, open `Setup → Plugins → Add`, enter
+`https://github.com/pluseight8/omanome.git`, review the manifest, and enable
+`io.omanome.shell`. Omanome is a service/panel/bar-widget plugin, so the
+standard Omarchy top bar remains the active bar; add the Omanome widget through
+the normal bar layout if it is not already present.
 
 If this checkout is being developed locally, run `./cli/omanome setup` and add the checkout through the local plugin mechanism supported by the installed Omarchy version. Omanome never invokes `sudo` and never edits files under `$OMARCHY_PATH`.
 
@@ -66,6 +78,7 @@ omanome reload
 omanome enable | disable
 omanome safe-mode
 omanome setup
+omanome install
 omanome export-config [file]
 omanome import-config <file>
 omanome reset [--yes]
@@ -77,7 +90,15 @@ omanome devices
 omanome uninstall [--purge-settings] [--yes]
 ```
 
-`update` creates a user-owned rollback copy before calling Omarchy's plugin updater and validates the installed checkout before reloading the shell. `rollback` restores the newest snapshot. `uninstall` removes only Omanome's plugin, cache, state, and optional settings; it does not remove Omarchy, the standard bar, other plugins, themes, or user Hyprland files.
+`update --check` reports the installed and latest repository versions, current
+and remote commits, update channel, and whether an update is available.
+`update` verifies that the installed checkout points at the official GitHub
+origin, creates a user-owned rollback copy, then calls Omarchy's standard
+plugin updater. It validates the installed checkout before reloading the shell
+and restores the rollback point automatically if validation fails. `rollback`
+restores the newest snapshot. `uninstall --yes` removes only Omanome's plugin,
+cache, state, and optional settings; it does not remove Omarchy, the standard
+bar, other plugins, themes, or user Hyprland files.
 
 ## Stylus and tablet behavior
 

@@ -13,6 +13,25 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class OmanomeProjectTests(unittest.TestCase):
+    def run_node(self, expression: str) -> object:
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        result = subprocess.run([node, "-e", expression], capture_output=True, text=True, cwd=ROOT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_github_install_contract_is_explicit(self) -> None:
+        url = "https://github.com/pluseight8/omanome.git"
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        readme_ru = (ROOT / "README.ru.md").read_text(encoding="utf-8")
+        cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")
+        self.assertIn(url, readme)
+        self.assertIn(url, readme_ru)
+        self.assertIn(url, cli)
+        self.assertNotIn("<repo-url>", readme + readme_ru + cli)
+        self.assertIn("install) install_cmd", cli)
+
     def test_manifest_preserves_the_standard_bar(self) -> None:
         manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
         self.assertNotIn("bar", manifest["kinds"])
@@ -27,6 +46,56 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["schemaVersion"]["const"], 1)
         for key in ("tabletMode", "touch", "stylus", "keyboard", "clipboard", "updates"):
             self.assertIn(key, defaults)
+        self.assertEqual(defaults["dock"]["mode"], "floating")
+        self.assertIn("favoritesFirst", defaults["launcher"])
+        self.assertEqual(defaults["overview"]["workspaceMode"], "dynamic")
+
+    def test_favorites_persistence_and_dock_config_helpers(self) -> None:
+        result = self.run_node(
+            "const C=require('./shell/models/Config.js'); const D=require('./shell/models/Dock.js'); "
+            "const base=C.defaults(); const next=C.set(base,'launcher.favorites',['org.gnome.Nautilus','firefox']); "
+            "console.log(JSON.stringify({favorites:C.get(next,'launcher.favorites',[]),dock:D.config(next),order:D.reorder(['a','b','c'],'c',0)}));"
+        )
+        self.assertEqual(result["favorites"], ["org.gnome.Nautilus", "firefox"])
+        self.assertEqual(result["dock"]["mode"], "floating")
+        self.assertEqual(result["order"], ["c", "a", "b"])
+
+    def test_workspace_movement_helper_uses_real_dispatch_commands(self) -> None:
+        result = self.run_node(
+            "const W=require('./shell/models/Workspaces.js'); "
+            "console.log(JSON.stringify({dynamic:W.ids([{id:1,windows:[1]},{id:2,windows:[1]}],'dynamic',5), "
+            "fixed:W.ids([{id:1}],'fixed',3), focus:W.focusCommand(4), move:W.moveCommand(4), adjacent:W.adjacent(2,'right',[1,2,3])}));"
+        )
+        self.assertEqual(result["dynamic"], [1, 2, 3])
+        self.assertEqual(result["fixed"], [1, 2, 3])
+        self.assertEqual(result["focus"], "workspace 4")
+        self.assertEqual(result["move"], "movetoworkspace 4")
+        self.assertEqual(result["adjacent"], 3)
+
+    def test_quick_settings_and_stylus_are_capability_aware(self) -> None:
+        result = self.run_node(
+            "const Q=require('./shell/models/QuickSettings.js'); const S=require('./shell/models/Stylus.js'); "
+            "console.log(JSON.stringify({state:Q.stateFromSystem({wifiEnabled:true,bluetoothPowered:false,volumeMuted:true,powerProfile:'balanced'}), "
+            "cycle:Q.cyclePowerProfile('balanced'), touch:S.isTouchscreen({type:'touchpad',name:'Touchpad'}), "
+            "stylus:S.classify([{name:'Generic Linux Tablet Pen',type:'tablet',pressure:true,tiltX:true,buttons:2}])[0].capabilities}));"
+        )
+        self.assertTrue(result["state"]["wifi"])
+        self.assertFalse(result["state"]["volume"])
+        self.assertEqual(result["cycle"], "performance")
+        self.assertFalse(result["touch"])
+        self.assertTrue(result["stylus"]["pressure"])
+        self.assertTrue(result["stylus"]["tilt"])
+        self.assertTrue(result["stylus"]["barrelButtons"])
+
+    def test_config_migrations_keep_old_user_intent(self) -> None:
+        result = self.run_node(
+            "const C=require('./shell/models/Config.js'); "
+            "console.log(JSON.stringify(C.load(JSON.stringify({tablet:{touchTarget:60},osk:{mode:'split'},launcher:{favorites:['demo']}}))));"
+        )
+        self.assertEqual(result["schemaVersion"], 1)
+        self.assertEqual(result["tabletMode"]["touchTarget"], 60)
+        self.assertEqual(result["keyboard"]["mode"], "split")
+        self.assertEqual(result["launcher"]["favorites"], ["demo"])
 
     def test_repository_does_not_use_x11_or_second_shell(self) -> None:
         code_suffixes = {".qml", ".js", ".sh", ".py", ".json"}
@@ -43,6 +112,13 @@ class OmanomeProjectTests(unittest.TestCase):
         for script in (ROOT / "cli/omanome", ROOT / "input/clipboard-capture.sh"):
             result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_uninstall_is_scoped_to_omanome_paths(self) -> None:
+        cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")
+        self.assertIn('omarchy plugin remove "$plugin_id"', cli)
+        self.assertIn('rm -rf -- "$omanome_state_dir" "$omanome_cache_dir"', cli)
+        self.assertNotIn('rm -rf -- "$config_home/omarchy"', cli)
+        self.assertNotIn('rm -rf -- "$OMARCHY_PATH"', cli)
 
     def test_clipboard_capture_redacts_sensitive_state(self) -> None:
         capture = ROOT / "input/clipboard-capture.sh"

@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: check validate test qmllint
+.PHONY: check validate test qmllint integration
 
 check: validate test qmllint
 
@@ -23,3 +23,9 @@ qmllint:
 	else \
 		echo 'qmllint not installed; skipped'; \
 	fi
+
+integration:
+	@command -v omarchy >/dev/null 2>&1 || { echo 'Omarchy integration requires a running Omarchy installation'; exit 2; }
+	omarchy plugin validate .
+	$(MAKE) qmllint
+	./cli/omanome doctor

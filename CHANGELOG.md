@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0
+
+- Documents direct GitHub installation and the graphical Omarchy Plugin Manager flow.
+- Adds `omanome install` and official-origin-aware `update --check` output with
+  installed/latest versions, commits, channel, and rollback-safe updates.
+- Expands the dock/launcher/overview configuration contract for favorites,
+  running indicators, dynamic workspaces, autohide, and touch-friendly actions.
+- Adds portable CI and regression-test coverage for installation, configuration,
+  and plugin coexistence invariants.
+
 ## 0.1.0
 
 - Initial Omarchy Quattro plugin baseline.

@@ -1,0 +1,37 @@
+name: Omanome CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  portable:
+    name: Portable validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate JSON documents
+        run: |
+          python3 -m json.tool manifest.json >/dev/null
+          python3 -m json.tool config/defaults.json >/dev/null
+          python3 -m json.tool config/schema.json >/dev/null
+
+      - name: Run project checks
+        run: make check
+
+      - name: Verify safety invariants
+        run: |
+          ! grep -RIn --exclude-dir=.git --exclude='*.md' 'xdotool\|gnome-shell[[:space:]]*--replace' .
+          python3 - <<'PY'
+          import json
+          manifest = json.load(open("manifest.json", encoding="utf-8"))
+          assert "bar" not in manifest["kinds"]
+          assert manifest["version"] == "0.2.0"
+          PY

@@ -36,8 +36,15 @@
     "pressureMin": 0.0,
     "pressureMax": 1.0,
     "palmRejection": "automatic",
+    "palmBackend": "native-first",
     "hoverCursor": true,
-    "showOskOnTextField": "ask"
+    "showOskOnTextField": "ask",
+    "annotation": true,
+    "buttonMap": {
+      "primary": "right-click",
+      "secondary": "middle-click",
+      "eraser": "eraser"
+    }
   },
   "windowControls": {
     "enabled": true,
@@ -71,13 +78,37 @@
   "dock": {
     "enabled": true,
     "position": "bottom",
+    "mode": "floating",
     "iconSize": 48,
+    "minIconSize": 40,
+    "maxIconSize": 64,
     "dynamicSizing": true,
     "autohide": true,
+    "autohideMode": "intelligent",
+    "revealByPointer": true,
+    "revealByTouch": true,
+    "edgePressure": 12,
+    "revealDelay": 120,
+    "hideDelay": 650,
+    "dodgeMode": "active-window",
+    "fullscreenHide": true,
+    "margin": 18,
+    "padding": 10,
+    "spacing": 8,
+    "radius": 22,
     "monitor": "active",
     "workspaceIsolation": false,
+    "monitorIsolation": false,
     "backgroundOpacity": 0.82,
-    "blur": true
+    "blur": true,
+    "shadow": true,
+    "border": true,
+    "borderOpacity": 0.34,
+    "indicatorStyle": "dot",
+    "animation": "slide",
+    "clickAction": "activate-or-launch",
+    "middleClickAction": "new-window",
+    "scrollAction": "workspace"
   },
   "overview": {
     "enabled": true,
@@ -85,14 +116,22 @@
     "animationDuration": 180,
     "blur": true,
     "showAllWorkspaces": true,
-    "showDock": true
+    "showDock": true,
+    "workspaceMode": "dynamic",
+    "fixedWorkspaceCount": 5,
+    "workspaceOrientation": "horizontal",
+    "search": true
   },
   "launcher": {
     "enabled": true,
     "categories": true,
     "favorites": [],
+    "favoritesFirst": true,
     "folders": [],
     "showRecent": true,
+    "recentApplications": [],
+    "dragReorder": true,
+    "contextMenu": true,
     "gridColumns": 6
   },
   "keyboard": {
@@ -100,6 +139,9 @@
     "layout": "auto",
     "mode": "standard",
     "showNumberRow": true,
+    "showModifierRow": true,
+    "capsLock": true,
+    "symbols": true,
     "suggestions": true,
     "autocorrect": false,
     "learning": false,
@@ -157,7 +199,9 @@
     "enabled": true,
     "lock": false,
     "orientation": "auto",
-    "sensor": "auto"
+    "sensor": "auto",
+    "transformTouch": true,
+    "transformStylus": true
   },
   "privacy": {
     "clipboardPrivate": false,

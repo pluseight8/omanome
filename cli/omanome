@@ -11,6 +11,8 @@ omanome_config_dir="$config_home/omanome"
 omanome_state_dir="$state_home/omanome"
 omanome_cache_dir="${XDG_CACHE_HOME:-$user_home/.cache}/omanome"
 plugin_id="io.omanome.shell"
+repository_url="https://github.com/pluseight8/omanome.git"
+repository_manifest_url="https://raw.githubusercontent.com/pluseight8/omanome/main/manifest.json"
 installed_plugin_dir="$config_home/omarchy/plugins/$plugin_id"
 rollback_dir="$omanome_state_dir/rollback"
 manifest_path="$repo_dir/manifest.json"
@@ -31,6 +33,7 @@ Commands:
   enable | disable       Enable or disable only the Omanome plugin
   safe-mode              Disable Omanome and create a safe-mode marker
   setup                  Print optional dependencies and prepare user dirs
+  install                Install this plugin from the official GitHub repo
   export-config [file]   Print or export the versioned config
   import-config <file>   Validate and import a config, keeping a backup
   reset [--yes]          Reset Omanome's config only
@@ -164,9 +167,23 @@ Optional integrations:
   iio-sensor-proxy / a compositor sensor bridge for auto-rotation
 
 Install missing packages with your normal package manager, then run:
-  omarchy plugin add <repo-url> --enable --yes
+  omarchy plugin add https://github.com/pluseight8/omanome.git --enable --yes
   omanome doctor
 EOF
+}
+
+install_cmd() {
+  has omarchy || die "omarchy is not installed"
+  if [[ -d "$installed_plugin_dir" ]]; then
+    say "Omanome is already installed at $installed_plugin_dir"
+    omarchy plugin enable "$plugin_id"
+    reload_cmd || true
+    return 0
+  fi
+  # Delegate cloning, manifest validation, enablement, and shell registration
+  # to Omarchy's official plugin manager. This never edits OMARCHY_PATH and
+  # never needs sudo.
+  omarchy plugin add "$repository_url" --enable --yes
 }
 
 export_cmd() {
@@ -210,22 +227,78 @@ installed_version() {
   if [[ -f "$installed_plugin_dir/manifest.json" ]]; then jq -r '.version // "unknown"' "$installed_plugin_dir/manifest.json"; else printf 'not-installed\n'; fi
 }
 
+normalize_repository_url() {
+  local value="${1:-}"
+  value="${value%/}"
+  value="${value%.git}"
+  printf '%s\n' "$value"
+}
+
+repository_version() {
+  local raw version
+  if ! has curl || ! raw="$(curl -fsSL --max-time 8 "$repository_manifest_url" 2>/dev/null)"; then
+    printf 'unavailable\n'
+    return 0
+  fi
+  version="$(printf '%s' "$raw" | jq -r '.version // empty' 2>/dev/null || true)"
+  [[ -n "$version" ]] && printf '%s\n' "$version" || printf 'unavailable\n'
+}
+
+current_update_channel() {
+  local current
+  current="$(config_file)"
+  if [[ -f "$current" ]]; then
+    jq -r '.updates.channel // "stable"' "$current" 2>/dev/null || printf 'stable\n'
+  else
+    printf 'stable\n'
+  fi
+}
+
+installed_commit() {
+  if [[ -d "$installed_plugin_dir/.git" ]]; then
+    git -C "$installed_plugin_dir" rev-parse HEAD 2>/dev/null || printf 'unavailable\n'
+  else
+    printf 'unavailable\n'
+  fi
+}
+
+remote_commit() {
+  local commit
+  commit="$(git ls-remote "$repository_url" refs/heads/main 2>/dev/null | awk 'NR == 1 { print $1 }')"
+  [[ -n "$commit" ]] && printf '%s\n' "$commit" || printf 'unavailable\n'
+}
+
 check_update_cmd() {
   say "Installed version: $(installed_version)"
-  say "Repository version: $(manifest_value version)"
+  say "Latest repository version: $(repository_version)"
+  say "Current update channel: $(current_update_channel)"
+  local current="unavailable"
+  local remote="unavailable"
+  local available="unknown"
   if [[ -d "$installed_plugin_dir/.git" ]]; then
     say "Git remote: $(git -C "$installed_plugin_dir" remote get-url origin 2>/dev/null || printf 'none')"
-    if git -C "$installed_plugin_dir" remote get-url origin >/dev/null 2>&1; then
-      say "Checking remote refs (read-only)…"
-      git -C "$installed_plugin_dir" fetch --dry-run --quiet origin 2>&1 || say "WARN: remote check failed; no changes made"
-      say "Local revision: $(git -C "$installed_plugin_dir" rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
+    current="$(installed_commit)"
+    remote="$(remote_commit)"
+    if [[ "$current" != "unavailable" && "$remote" != "unavailable" ]]; then
+      [[ "$current" == "$remote" ]] && available="no" || available="yes"
     fi
   else
     say "No installed git checkout found"
   fi
+  say "Current commit: $current"
+  say "Remote commit: $remote"
+  say "Update available: $available"
   say "Hyprland: $(hyprctl version 2>/dev/null | head -n 1 || printf 'unavailable')"
   say "Quickshell: $(quickshell --version 2>/dev/null | head -n 1 || printf 'unavailable')"
-  say "Automatic installation is disabled by default."
+}
+
+ensure_repository_remote() {
+  [[ -d "$installed_plugin_dir/.git" ]] || die "installed Omanome checkout not found"
+  local configured normalized expected
+  configured="$(git -C "$installed_plugin_dir" remote get-url origin 2>/dev/null || true)"
+  normalized="$(normalize_repository_url "$configured")"
+  expected="$(normalize_repository_url "$repository_url")"
+  [[ "$normalized" == "$expected" ]] || die "installed checkout origin is '$configured'; expected '$repository_url'"
 }
 
 create_rollback_cmd() {
@@ -253,6 +326,7 @@ restore_latest_cmd() {
 update_cmd() {
   if [[ "${1:-}" == "--check" ]]; then check_update_cmd; return; fi
   has omarchy || die "omarchy is not installed"
+  ensure_repository_remote
   create_rollback_cmd >/dev/null
   if ! omarchy plugin update "$plugin_id" --yes; then
     say "Update failed; restoring the previous checkout."
@@ -316,6 +390,7 @@ case "$command_name" in
   disable) disable_cmd "$@" ;;
   safe-mode) safe_mode_cmd "$@" ;;
   setup) setup_cmd "$@" ;;
+  install) install_cmd "$@" ;;
   export-config) export_cmd "$@" ;;
   import-config) import_cmd "$@" ;;
   reset) reset_cmd "$@" ;;

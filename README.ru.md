@@ -2,26 +2,37 @@
 
 Omanome — открытый набор улучшений рабочего стола для актуального Omarchy Quattro на Hyprland. Он добавляет GNOME-подобный интерфейс для touchscreen и стилуса, но остаётся обычным Omarchy Shell Plugin: стандартная верхняя панель не заменяется, второй Quickshell не запускается, GNOME Shell и Mutter не нужны.
 
-Это запускаемый baseline версии 0.1.0. Реализованы возможности, для которых достаточно публичных API Omarchy/Quickshell/Hyprland. Функции, требующие ABI compositor или отдельного text-input/handwriting backend, оставлены явными безопасными точками расширения, а не подменены фальшивыми скриншотами.
+Это запускаемый baseline версии 0.2.0. Реализованы возможности, для которых достаточно публичных API Omarchy/Quickshell/Hyprland. Функции, требующие ABI compositor или отдельного text-input/handwriting backend, оставлены явными безопасными точками расширения, а не подменены фальшивыми скриншотами.
 
 ## Возможности
 
 - Manifest с `service`, `bar-widget` и `panel`; replacement-тип `bar` отсутствует.
 - Компактный Omanome widget в существующей панели Omarchy.
 - Единая ленивая панель: Overview, workspaces, launcher, Quick Settings, OSK, clipboard, notifications и Settings.
-- Опциональный dock на нескольких мониторах и touch-кнопки активного окна.
+- Опциональный dock в стиле Dash-to-Dock на нескольких мониторах: избранное, running indicators, контекстные действия, configurable position/mode и intelligent autohide.
 - Определение touchscreen/stylus через Hyprland, режимы Automatic/Desktop/Tablet/Hybrid и применение touch-жестов через IPC.
 - English/Русский, профили, versioned config, import/export/reset и приватная история clipboard для текста/PNG.
 - Wayland-native OSK через `wtype`: English, Russian, numeric, floating, split, one-handed и handwriting-panel режимы.
 - Использование нативного Omarchy notification service для DND, истории и dismiss.
-- CLI для диагностики, safe mode, обновления, rollback и удаления.
+- CLI для диагностики, установки из GitHub, safe mode, обновления, rollback и удаления.
 
-## Установка
+## Установка из GitHub
 
 ```sh
-omarchy plugin add <repo-url> --enable --yes
+omarchy plugin add https://github.com/pluseight8/omanome.git --enable --yes
 omanome doctor
 ```
+
+Или используй удобную команду Omanome:
+
+```sh
+omanome install
+```
+
+В графическом Omarchy Plugin Manager открой `Setup → Plugins → Add`, вставь
+`https://github.com/pluseight8/omanome.git`, проверь manifest и включи
+`io.omanome.shell`. Omanome не заменяет стандартную верхнюю панель: при
+необходимости добавь его widget через обычные настройки bar.
 
 Для локальной разработки используйте `./cli/omanome setup` и штатный локальный механизм установки плагинов вашей версии Omarchy. Omanome не вызывает `sudo` и не изменяет `$OMARCHY_PATH`.
 
@@ -50,6 +61,7 @@ omanome reload
 omanome enable | disable
 omanome safe-mode
 omanome setup
+omanome install
 omanome export-config [file]
 omanome import-config <file>
 omanome reset [--yes]
@@ -61,7 +73,14 @@ omanome devices
 omanome uninstall [--purge-settings] [--yes]
 ```
 
-`update` создаёт пользовательскую rollback-копию, вызывает штатный updater Omarchy и проверяет установленный checkout перед reload. `rollback` восстанавливает последнюю копию. `uninstall` удаляет только Omanome, его cache/state и, по выбору, settings; Omarchy, стандартная панель, другие плагины, темы и пользовательский Hyprland не затрагиваются.
+`update --check` показывает установленную и последнюю версии репозитория,
+текущий и удалённый commit, канал обновлений и наличие обновления. `update`
+проверяет официальный GitHub origin, создаёт rollback-копию, вызывает штатный
+Omarchy updater и автоматически восстанавливает предыдущую версию, если новая
+не проходит validation. `rollback` восстанавливает последнюю копию.
+`uninstall --yes` удаляет только Omanome, его cache/state и, по выбору,
+settings; Omarchy, стандартная панель, другие плагины, темы и пользовательский
+Hyprland не затрагиваются.
 
 ## Touch и stylus
 
