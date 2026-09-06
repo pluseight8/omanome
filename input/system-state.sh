@@ -107,9 +107,15 @@ rotation_sensor_available=false
 rotation_dbus_available=false
 rotation_accelerometer_available=false
 rotation_sensor_backend="manual"
+touch_transform=0
+tablet_transform=0
 if command -v hyprctl >/dev/null 2>&1 && hyprctl getoption input:touchdevice:transform -j >/dev/null 2>&1; then
   rotation_available=true
+  touch_transform="$(hyprctl getoption input:touchdevice:transform -j 2>/dev/null | jq -r '.int // 0' 2>/dev/null || printf '0')"
+  tablet_transform="$(hyprctl getoption input:tablet:transform -j 2>/dev/null | jq -r '.int // 0' 2>/dev/null || printf '0')"
 fi
+[[ "$touch_transform" =~ ^[0-3]$ ]] || touch_transform=0
+[[ "$tablet_transform" =~ ^[0-3]$ ]] || tablet_transform=0
 if command -v monitor-sensor >/dev/null 2>&1; then
   rotation_sensor_available=true
   rotation_accelerometer_available=true
@@ -159,4 +165,6 @@ jq -cn \
   --argjson rotationDbusAvailable "$(bool_value "$rotation_dbus_available")" \
   --argjson rotationAccelerometerAvailable "$(bool_value "$rotation_accelerometer_available")" \
   --arg rotationSensorBackend "$rotation_sensor_backend" \
-  '{wifiAvailable:$wifiAvailable,wifiEnabled:$wifiEnabled,wifiConnected:$wifiConnected,airplane:$airplane,wifiSsid:$wifiSsid,wifiSignal:$wifiSignal,bluetoothAvailable:$bluetoothAvailable,bluetoothPowered:$bluetoothPowered,volumeAvailable:$volumeAvailable,volume:$volume,volumeMuted:$volumeMuted,microphoneAvailable:$microphoneAvailable,microphoneVolume:$microphoneVolume,microphoneMuted:$microphoneMuted,brightnessAvailable:$brightnessAvailable,brightness:$brightness,powerProfileAvailable:$powerProfileAvailable,powerProfile:$powerProfile,batteryAvailable:$batteryAvailable,batteryPercent:$batteryPercent,batteryState:$batteryState,nightLightAvailable:$nightLightAvailable,nightLightEnabled:$nightLightEnabled,dndAvailable:false,rotationAvailable:$rotationAvailable,rotationSensorAvailable:$rotationSensorAvailable,rotationDbusAvailable:$rotationDbusAvailable,rotationAccelerometerAvailable:$rotationAccelerometerAvailable,rotationSensorBackend:$rotationSensorBackend,rotationLock:false,recordingAvailable:$recordingAvailable,recording:false}'
+  --argjson touchTransform "$touch_transform" \
+  --argjson tabletTransform "$tablet_transform" \
+  '{wifiAvailable:$wifiAvailable,wifiEnabled:$wifiEnabled,wifiConnected:$wifiConnected,airplane:$airplane,wifiSsid:$wifiSsid,wifiSignal:$wifiSignal,bluetoothAvailable:$bluetoothAvailable,bluetoothPowered:$bluetoothPowered,volumeAvailable:$volumeAvailable,volume:$volume,volumeMuted:$volumeMuted,microphoneAvailable:$microphoneAvailable,microphoneVolume:$microphoneVolume,microphoneMuted:$microphoneMuted,brightnessAvailable:$brightnessAvailable,brightness:$brightness,powerProfileAvailable:$powerProfileAvailable,powerProfile:$powerProfile,batteryAvailable:$batteryAvailable,batteryPercent:$batteryPercent,batteryState:$batteryState,nightLightAvailable:$nightLightAvailable,nightLightEnabled:$nightLightEnabled,dndAvailable:false,rotationAvailable:$rotationAvailable,rotationSensorAvailable:$rotationSensorAvailable,rotationDbusAvailable:$rotationDbusAvailable,rotationAccelerometerAvailable:$rotationAccelerometerAvailable,rotationSensorBackend:$rotationSensorBackend,touchTransform:$touchTransform,tabletTransform:$tabletTransform,rotationLock:false,recordingAvailable:$recordingAvailable,recording:false}'

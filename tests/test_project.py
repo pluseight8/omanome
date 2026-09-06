@@ -213,6 +213,9 @@ class OmanomeProjectTests(unittest.TestCase):
             self.assertIn(key, state)
             self.assertIsInstance(state[key], bool)
         self.assertIn(state["rotationSensorBackend"], ("manual", "monitor-sensor", "dbus-iio"))
+        for key in ("touchTransform", "tabletTransform"):
+            self.assertIn(key, state)
+            self.assertIsInstance(state[key], int)
 
     def test_sensor_and_touch_diagnostics_contracts(self) -> None:
         sensor = subprocess.run([str(ROOT / "input/sensor-info.sh")], capture_output=True, text=True)
@@ -225,6 +228,14 @@ class OmanomeProjectTests(unittest.TestCase):
         cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")
         self.assertIn("touch-info", cli)
         self.assertIn("sensor-info", cli)
+
+    def test_rotation_is_dynamic_and_uses_atomic_batch(self) -> None:
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        self.assertIn('"hyprctl", "--batch"', service)
+        self.assertIn("rotationTargetMonitors", service)
+        self.assertIn("rotationRollbackBatch", service)
+        for output in ("eDP-1", "DP-1", "HDMI-A-1"):
+            self.assertNotIn(output, service)
 
     def test_uninstall_is_scoped_to_omanome_paths(self) -> None:
         cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")

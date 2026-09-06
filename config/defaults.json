@@ -235,6 +235,7 @@
     "lock": false,
     "orientation": "auto",
     "sensor": "auto",
+    "outputPolicy": "mapped",
     "transformTouch": true,
     "transformStylus": true
   },

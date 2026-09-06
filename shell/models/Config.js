@@ -17,7 +17,7 @@ function defaults() {
     altTab: { style: "coverflow", groupByApp: true, scope: "current-workspace", perspective: 0.8, animationDuration: 160 },
     blur: { enabled: true, dock: true, overview: true, launcher: true, quickSettings: true, notificationCenter: true, clipboard: true, osk: true, settings: true, radius: 18, brightness: 0.85, saturation: 1.1, noise: 0.02 },
     effects: { wobblyWindows: false, desktopCube: false, disableOnBattery: true, disableOnFullscreen: true, performanceMode: "balanced" },
-    rotation: { enabled: true, lock: false, orientation: "auto", sensor: "auto", transformTouch: true, transformStylus: true },
+    rotation: { enabled: true, lock: false, orientation: "auto", sensor: "auto", outputPolicy: "mapped", transformTouch: true, transformStylus: true },
     privacy: { clipboardPrivate: false, neverLogClipboard: true, telemetry: false, updateChecks: true },
     shortcuts: { overview: "SUPER", launcher: "SUPER+SPACE", quickSettings: "SUPER+Q", clipboard: "SUPER+V", keyboard: "SUPER+K", forceQuit: "SUPER+ESC" },
     updates: { channel: "stable", automaticInstall: false, notify: true, rollbackRetention: 2 }

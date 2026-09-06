@@ -61,6 +61,10 @@ Item {
   property var audioDevices: []
   property string orientation: "normal"
   property int rotationTransform: 0
+  property int pendingRotationTransform: -1
+  property int queuedRotationTransform: -1
+  property var rotationRollback: ({ touch: 0, tablet: 0, monitors: [] })
+  property var rotationTargets: []
 
   signal stateUpdated()
   signal configUpdated(string path)
@@ -359,19 +363,127 @@ Item {
     return 0
   }
 
+  function rotationDeviceOutput(device) {
+    var item = device || {}
+    var value = item.output || item.mappedOutput || item.mapped_output || item.belongsTo || item.belongs_to || ""
+    if (value && typeof value === "object") value = value.name || value.id || ""
+    return String(value || "")
+  }
+
+  function rotationTargetMonitors() {
+    var outputs = Array.isArray(root.monitors) ? root.monitors : []
+    if (outputs.length === 0) return []
+    var source = root.devices || {}
+    var groups = [source.touch, source.touchDevices, source.touchdevices, source.tablets, source.tabletTools, source.tablettools]
+    var mappedNames = []
+    for (var g = 0; g < groups.length; g++) {
+      var group = Array.isArray(groups[g]) ? groups[g] : []
+      for (var i = 0; i < group.length; i++) {
+        var mapped = rotationDeviceOutput(group[i])
+        if (mapped && mappedNames.indexOf(mapped) < 0) mappedNames.push(mapped)
+      }
+    }
+    var mappedTargets = []
+    for (var m = 0; m < outputs.length; m++) {
+      var outputName = String(outputs[m] && outputs[m].name || "")
+      if (outputName && mappedNames.indexOf(outputName) >= 0) mappedTargets.push(outputs[m])
+    }
+    if (mappedTargets.length > 0) return mappedTargets
+    var focused = outputs.filter(function(item) { return item && (item.focused === true || item.active === true) })
+    if (focused.length > 0) return focused
+    var primary = outputs.filter(function(item) { return item && item.primary === true })
+    if (primary.length > 0) return primary.slice(0, 1)
+    return outputs.slice(0, 1)
+  }
+
+  function rotationMonitorState(monitors) {
+    var result = []
+    var list = Array.isArray(monitors) ? monitors : []
+    for (var i = 0; i < list.length; i++) {
+      var item = list[i] || {}
+      var name = String(item.name || "")
+      if (!name) continue
+      var transform = Number(item.transform)
+      if (!isFinite(transform) || transform < 0 || transform > 3) transform = root.rotationTransform
+      result.push({ name: name.replace(/[;,]/g, ""), transform: Math.floor(transform) })
+    }
+    return result
+  }
+
+  function rotationBatch(value, monitorStates) {
+    var commands = []
+    if (root.cfg("rotation.transformTouch", true))
+      commands.push("keyword input:touchdevice:transform " + String(value))
+    if (root.cfg("rotation.transformStylus", true))
+      commands.push("keyword input:tablet:transform " + String(value))
+    var list = Array.isArray(monitorStates) ? monitorStates : []
+    for (var i = 0; i < list.length; i++) {
+      var name = String(list[i] && list[i].name || "").replace(/[;,]/g, "")
+      if (name) commands.push("keyword monitor " + name + ",transform," + String(value))
+    }
+    return commands.join(";")
+  }
+
+  function rotationRollbackBatch() {
+    var previous = root.rotationRollback || {}
+    var commands = []
+    if (root.cfg("rotation.transformTouch", true))
+      commands.push("keyword input:touchdevice:transform " + String(Number(previous.touch) || 0))
+    if (root.cfg("rotation.transformStylus", true))
+      commands.push("keyword input:tablet:transform " + String(Number(previous.tablet) || 0))
+    var monitors = Array.isArray(previous.monitors) ? previous.monitors : []
+    for (var i = 0; i < monitors.length; i++) {
+      var item = monitors[i] || {}
+      var name = String(item.name || "").replace(/[;,]/g, "")
+      if (name) commands.push("keyword monitor " + name + ",transform," + String(Number(item.transform) || 0))
+    }
+    return commands.join(";")
+  }
+
+  function finishRotation(success) {
+    if (success) {
+      root.rotationTransform = root.pendingRotationTransform
+      root.lastError = ""
+    } else {
+      root.rotationTransform = Number(root.rotationRollback.previous) || root.rotationTransform
+      root.lastError = "Rotation transform failed; previous monitor and input transforms were restored"
+    }
+    root.pendingRotationTransform = -1
+    root.rotationTargets = []
+    root.stateRevision++
+    root.stateUpdated()
+    if (root.queuedRotationTransform >= 0) {
+      var queued = root.queuedRotationTransform
+      root.queuedRotationTransform = -1
+      Qt.callLater(function() { root.applyRotation(queued) })
+    }
+  }
+
   function applyRotation(transform) {
     if (!root.hyprlandAvailable || !root.systemState.rotationAvailable) return false
     var value = Math.max(0, Math.min(3, Math.floor(Number(transform))))
-    root.rotationTransform = value
-    if (root.cfg("rotation.transformTouch", true)) root.execute(["hyprctl", "keyword", "input:touchdevice:transform", String(value)])
-    if (root.cfg("rotation.transformStylus", true)) root.execute(["hyprctl", "keyword", "input:tablet:transform", String(value)])
-    var outputs = Array.isArray(root.monitors) ? root.monitors : []
-    for (var i = 0; i < outputs.length; i++) {
-      var name = String(outputs[i] && outputs[i].name || "")
-      if (name) root.execute(["hyprctl", "keyword", "monitor", name + ",transform," + value])
+    if (rotationApplyProcess.running || rotationRollbackProcess.running) {
+      root.queuedRotationTransform = value
+      return false
     }
-    root.stateRevision++
-    root.stateUpdated()
+    var targets = root.rotationTargetMonitors()
+    var states = root.rotationMonitorState(targets)
+    if (states.length === 0) {
+      root.lastError = "Rotation requires a dynamic monitor target"
+      return false
+    }
+    var command = root.rotationBatch(value, states)
+    if (!command) return false
+    root.rotationRollback = {
+      previous: root.rotationTransform,
+      touch: Number(root.systemState.touchTransform) || 0,
+      tablet: Number(root.systemState.tabletTransform) || 0,
+      monitors: states
+    }
+    root.rotationTargets = states.map(function(item) { return item.name })
+    root.pendingRotationTransform = value
+    rotationApplyProcess.command = ["hyprctl", "--batch", command]
+    rotationApplyProcess.running = true
     return true
   }
 
@@ -490,6 +602,7 @@ Item {
         sensorBackend: String(root.systemState.rotationSensorBackend || "manual"),
         dbus: root.systemState.rotationDbusAvailable === true,
         accelerometer: root.systemState.rotationAccelerometerAvailable === true,
+        targets: root.rotationTargets.slice(),
         orientation: root.orientation,
         locked: root.cfg("rotation.lock", false) === true
       },
@@ -887,6 +1000,28 @@ Item {
     id: audioScanProcess
     command: ["bash", root.sourcePath("input/audio-devices.sh")]
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateAudioDevices(text) }
+  }
+
+  Process {
+    id: rotationApplyProcess
+    onExited: function(exitCode) {
+      if (exitCode === 0) {
+        root.finishRotation(true)
+        return
+      }
+      var rollback = root.rotationRollbackBatch()
+      if (rollback) {
+        rotationRollbackProcess.command = ["hyprctl", "--batch", rollback]
+        rotationRollbackProcess.running = true
+      } else {
+        root.finishRotation(false)
+      }
+    }
+  }
+
+  Process {
+    id: rotationRollbackProcess
+    onExited: function() { root.finishRotation(false) }
   }
 
   Process {
