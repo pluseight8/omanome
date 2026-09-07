@@ -1,6 +1,8 @@
+var CURRENT_SCHEMA_VERSION = 2
+
 function defaults() {
   return {
-    schemaVersion: 1,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     general: { mode: "automatic", profile: "Desktop", language: "system", reduceMotion: false, largeUi: false, inputDebounceMs: 320 },
     appearance: { theme: "follow-omarchy", accent: "follow-omarchy", radius: 18, opacity: 0.96, density: "comfortable" },
     tabletMode: { enabled: true, touchTarget: 48, autoFromTouch: true, autoFromStylus: true, physicalKeyboardExit: true, transitionDuration: 180, dockPreference: "adaptive", windowControls: "touch", gestures: true },
@@ -28,7 +30,9 @@ function defaults() {
     rotation: { enabled: true, lock: false, orientation: "auto", sensor: "auto", outputPolicy: "mapped", transformTouch: true, transformStylus: true },
     privacy: { clipboardPrivate: false, neverLogClipboard: true, telemetry: false, updateChecks: true },
     shortcuts: { overview: "SUPER", launcher: "SUPER+SPACE", quickSettings: "SUPER+Q", clipboard: "SUPER+V", keyboard: "SUPER+K", forceQuit: "SUPER+ESC" },
-    updates: { channel: "stable", automaticInstall: false, notify: true, rollbackRetention: 2 }
+    updates: { channel: "stable", automaticInstall: false, notify: true, rollbackRetention: 3, checkTimeoutSeconds: 8, healthTimeoutSeconds: 5 },
+    recovery: { autoRollback: true, safeModeOnCrash: true, maxCrashAttempts: 2, preserveFailedUpdates: true },
+    diagnostics: { logLevel: "info", supportBundleRetention: 3, redactPaths: true, includeSystemCommands: true }
   }
 }
 
@@ -50,12 +54,7 @@ function merge(base, overlay) {
   return result
 }
 
-function migrate(raw) {
-  if (!isObject(raw)) return defaults()
-  var source = clone(raw)
-  var version = Number(source.schemaVersion || 1)
-  if (version > 1) return defaults()
-
+function migrationStepZeroToOne(source, report) {
   // Version 0 used the early prototype names. Keep this migration explicit so
   // a future schema can be added without silently changing user intent.
   if (source.tablet && !source.tabletMode) source.tabletMode = source.tablet
@@ -64,18 +63,65 @@ function migrate(raw) {
   // interrupt upgrades with first-run onboarding; only a genuinely new config
   // created from defaults should see the setup flow.
   if (source.onboarding === undefined) source.onboarding = { completed: true, skipped: true, version: 1, privacyAcknowledged: false }
-  if (source.schemaVersion === undefined) source.schemaVersion = 1
   source.schemaVersion = 1
-  return merge(defaults(), source)
+  report.applied.push("0->1")
+}
+
+function migrationStepOneToTwo(source, report) {
+  if (source.onboarding === undefined) source.onboarding = { completed: true, skipped: true, version: 1, privacyAcknowledged: false }
+  if (!isObject(source.updates)) source.updates = {}
+  if (source.updates.channel === undefined) source.updates.channel = "stable"
+  if (source.updates.automaticInstall === undefined) source.updates.automaticInstall = false
+  if (source.updates.notify === undefined) source.updates.notify = true
+  if (source.updates.rollbackRetention === undefined) source.updates.rollbackRetention = 3
+  if (source.updates.checkTimeoutSeconds === undefined) source.updates.checkTimeoutSeconds = 8
+  if (source.updates.healthTimeoutSeconds === undefined) source.updates.healthTimeoutSeconds = 5
+  if (!isObject(source.recovery)) source.recovery = {}
+  if (source.recovery.autoRollback === undefined) source.recovery.autoRollback = true
+  if (source.recovery.safeModeOnCrash === undefined) source.recovery.safeModeOnCrash = true
+  if (source.recovery.maxCrashAttempts === undefined) source.recovery.maxCrashAttempts = 2
+  if (source.recovery.preserveFailedUpdates === undefined) source.recovery.preserveFailedUpdates = true
+  if (!isObject(source.diagnostics)) source.diagnostics = {}
+  if (source.diagnostics.logLevel === undefined) source.diagnostics.logLevel = "info"
+  if (source.diagnostics.supportBundleRetention === undefined) source.diagnostics.supportBundleRetention = 3
+  if (source.diagnostics.redactPaths === undefined) source.diagnostics.redactPaths = true
+  if (source.diagnostics.includeSystemCommands === undefined) source.diagnostics.includeSystemCommands = true
+  source.schemaVersion = 2
+  report.applied.push("1->2")
+}
+
+function migrateDetailed(raw) {
+  if (!isObject(raw)) return { ok: false, reason: "invalid-root", config: null, applied: [] }
+  var source = clone(raw)
+  var version = source.schemaVersion === undefined ? 0 : Number(source.schemaVersion)
+  if (!isFinite(version) || Math.floor(version) !== version || version < 0)
+    return { ok: false, reason: "invalid-schema-version", config: null, applied: [] }
+  if (version > CURRENT_SCHEMA_VERSION)
+    return { ok: false, reason: "future-schema", schemaVersion: version, config: null, applied: [] }
+  var report = { ok: true, from: version, to: CURRENT_SCHEMA_VERSION, applied: [] }
+  if (version < 1) migrationStepZeroToOne(source, report)
+  if (source.schemaVersion < 2) migrationStepOneToTwo(source, report)
+  return { ok: true, config: merge(defaults(), source), from: version, to: CURRENT_SCHEMA_VERSION, applied: report.applied, migrated: report.applied.length > 0 }
+}
+
+function loadDetailed(raw) {
+  if (String(raw || "").trim() === "") return { ok: true, config: defaults(), from: CURRENT_SCHEMA_VERSION, to: CURRENT_SCHEMA_VERSION, applied: [], migrated: false, fresh: true }
+  try {
+    var parsed = JSON.parse(String(raw || ""))
+    return migrateDetailed(parsed)
+  } catch (error) {
+    return { ok: false, reason: "invalid-json", config: null, applied: [], error: String(error) }
+  }
+}
+
+function migrate(raw) {
+  var result = migrateDetailed(raw)
+  return result.ok ? result.config : defaults()
 }
 
 function load(raw) {
-  try {
-    var parsed = JSON.parse(String(raw || ""))
-    return migrate(parsed)
-  } catch (error) {
-    return defaults()
-  }
+  var result = loadDetailed(raw)
+  return result.ok ? result.config : defaults()
 }
 
 function get(config, path, fallback) {
@@ -97,13 +143,13 @@ function set(config, path, value) {
     current = current[parts[i]]
   }
   current[parts[parts.length - 1]] = value
-  result.schemaVersion = 1
+  result.schemaVersion = CURRENT_SCHEMA_VERSION
   return result
 }
 
 function isValid(config) {
-  return isObject(config) && Number(config.schemaVersion) === 1
+  return isObject(config) && Number(config.schemaVersion) === CURRENT_SCHEMA_VERSION
 }
 
-var api = { defaults: defaults, migrate: migrate, load: load, get: get, set: set, isValid: isValid }
+var api = { CURRENT_SCHEMA_VERSION: CURRENT_SCHEMA_VERSION, defaults: defaults, migrate: migrate, migrateDetailed: migrateDetailed, load: load, loadDetailed: loadDetailed, get: get, set: set, isValid: isValid }
 if (typeof module !== "undefined") module.exports = api

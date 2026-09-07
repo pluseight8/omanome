@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://omanome.dev/schema/config-v1.json",
+  "$id": "https://omanome.dev/schema/config-v2.json",
   "title": "Omanome configuration",
   "type": "object",
   "required": ["schemaVersion"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "general": { "type": "object" },
     "appearance": { "type": "object" },
     "tabletMode": { "type": "object" },
@@ -33,7 +33,9 @@
     "rotation": { "type": "object" },
     "privacy": { "type": "object" },
     "shortcuts": { "type": "object" },
-    "updates": { "type": "object" }
+    "updates": { "type": "object" },
+    "recovery": { "type": "object" },
+    "diagnostics": { "type": "object" }
   },
   "additionalProperties": true
 }

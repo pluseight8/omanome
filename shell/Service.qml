@@ -39,6 +39,9 @@ Item {
   property var config: Config.defaults()
   property bool configReady: false
   property bool _loadingConfig: false
+  property string configLoadStatus: "not-loaded"
+  property string configLoadError: ""
+  property var configMigration: ({ applied: [], from: Config.CURRENT_SCHEMA_VERSION, to: Config.CURRENT_SCHEMA_VERSION })
   property bool safeMode: false
   property bool annotationVisible: false
 
@@ -530,8 +533,24 @@ Item {
 
   function loadConfig(raw) {
     root._loadingConfig = true
-    root.config = Config.load(raw)
-    root.safeMode = false
+    var loaded = Config.loadDetailed(raw)
+    if (loaded.ok !== true) {
+      // Never turn an unreadable or future config into a silently persisted
+      // default. Keep the shell usable in memory, but require an explicit
+      // repair/export/import action before writing the file again.
+      root.config = Config.defaults()
+      root.configLoadStatus = String(loaded.reason || "invalid-config")
+      root.configLoadError = String(loaded.error || loaded.reason || "configuration requires recovery")
+      root.configMigration = { applied: [], from: loaded.schemaVersion || null, to: Config.CURRENT_SCHEMA_VERSION }
+      root.safeMode = true
+      root.lastError = "Configuration requires recovery: " + root.configLoadError
+    } else {
+      root.config = loaded.config
+      root.configLoadStatus = loaded.fresh === true ? "fresh" : (loaded.migrated === true ? "migrated" : "ok")
+      root.configLoadError = ""
+      root.configMigration = { applied: loaded.applied || [], from: loaded.from, to: loaded.to }
+      root.safeMode = false
+    }
     root._loadingConfig = false
     root.configReady = true
     if (root.cfg("clipboard.privateMode", false) || root.cfg("privacy.clipboardPrivate", false))
@@ -548,8 +567,8 @@ Item {
   }
 
   function saveConfig() {
-    if (!root.configReady || root._loadingConfig) return
-    root.config.schemaVersion = 1
+    if (!root.configReady || root._loadingConfig || ["ok", "fresh", "migrated"].indexOf(root.configLoadStatus) < 0) return
+    root.config.schemaVersion = Config.CURRENT_SCHEMA_VERSION
     configWriteDebounce.restart()
   }
 
@@ -1126,7 +1145,7 @@ Item {
 
   function statusObject() {
     return {
-      version: root.manifest ? String(root.manifest.version || "0.6.0") : "0.6.0",
+      version: root.manifest ? String(root.manifest.version || "0.7.0") : "0.7.0",
       quickshell: String(Quickshell.env("QUICKSHELL_VERSION") || "host-provided"),
       service: "ready",
       safeMode: root.safeMode,
@@ -1162,6 +1181,7 @@ Item {
         locked: root.cfg("rotation.lock", false) === true
       },
       configPath: root.configPath,
+      config: { schemaVersion: Number(root.config.schemaVersion || Config.CURRENT_SCHEMA_VERSION), loadStatus: root.configLoadStatus, loadError: root.configLoadError, migration: root.configMigration },
       clipboardEntries: root.clipboardHistory.length,
       effects: {
         blur: root.effectBackend.layerRulesAvailable === true,
@@ -1211,7 +1231,7 @@ Item {
       companion: { installed: companion.installed === true, built: companion.built === true, loaded: companion.loaded === true, compatible: companion.compatible === true, crashMarker: companion.crashMarker === true, abiMatch: companion.abiMatch === true },
       effects: { blur: root.effectBackend.layerRulesAvailable === true, livePreview: root.livePreviewState.available === true, wobbly: root.effectCapabilities.wobblyWindows === true, cube: root.effectCapabilities.desktopCube === true },
       osk: { enabled: root.cfg("keyboard.enabled", true) === true, wtype: root.wtypeAvailable, inputBackend: root.inputBackendAvailable },
-      config: { schemaVersion: Number(root.config.schemaVersion || 1), path: root.configPath },
+      config: { schemaVersion: Number(root.config.schemaVersion || Config.CURRENT_SCHEMA_VERSION), path: root.configPath, loadStatus: root.configLoadStatus, loadError: root.configLoadError, migration: root.configMigration },
       responsive: root.responsiveState,
       error: String(root.lastError || "")
     }

@@ -26,9 +26,16 @@ companion_disabled_marker="$companion_state_dir/disabled"
 companion_lifecycle_file="$companion_state_dir/lifecycle.json"
 companion_lifecycle_log="$companion_state_dir/lifecycle.log"
 companion_backup_dir="$companion_state_dir/artifacts"
+config_tool="$repo_dir/scripts/config_tool.py"
+
+EX_USAGE=2
+EX_CONFIG=78
+EX_NETWORK=69
+EX_UPDATE=70
+EX_RECOVERY=71
 
 say() { printf '%s\n' "$*"; }
-die() { printf 'omanome: %s\n' "$*" >&2; exit 1; }
+die() { printf 'omanome: %s\n' "$*" >&2; exit "$EX_USAGE"; }
 has() { command -v "$1" >/dev/null 2>&1; }
 
 usage() {
@@ -46,6 +53,7 @@ Commands:
   install                Install this plugin from the official GitHub repo
   export-config [file]   Print or export the versioned config
   import-config <file>   Validate and import a config, keeping a backup
+  config <operation>      Validate, migrate, diff, export, or import config
   reset [--yes]          Reset Omanome's config only
   update --check         Check the installed checkout and compatibility
   update                 Create rollback point, then use Omarchy plugin update
@@ -541,23 +549,46 @@ export_cmd() {
   local output="${1:-}"
   local current
   current="$(config_file)"
-  if [[ ! -f "$current" ]]; then cp -- "$repo_dir/config/defaults.json" "$current"; fi
-  if [[ -n "$output" ]]; then
-    install -Dm600 -- "$current" "$output"
-  else
-    cat -- "$current"
-  fi
+  [[ -f "$current" ]] || python3 "$config_tool" export --output "$current"
+  if [[ -n "$output" ]]; then python3 "$config_tool" export "$current" --output "$output"; else python3 "$config_tool" export "$current"; fi
 }
 
 import_cmd() {
   [[ $# -eq 1 ]] || die "import-config requires a JSON file"
   local input="$1"
   [[ -f "$input" ]] || die "config file not found: $input"
-  jq -e '.schemaVersion == 1' "$input" >/dev/null || die "config must contain schemaVersion: 1"
   ensure_dirs
-  backup_config
-  install -Dm600 -- "$input" "$(config_file)"
+  python3 "$config_tool" import "$input" "$(config_file)" || exit "$EX_CONFIG"
   if has omarchy-shell; then omarchy-shell -q "$plugin_id" reload || true; fi
+}
+
+config_cmd() {
+  local operation="${1:-}"; shift || true
+  local current="$(config_file)"
+  case "$operation" in
+    validate)
+      local target="$current"
+      if [[ $# -gt 0 && "${1:-}" != --* ]]; then target="$1"; shift; fi
+      [[ -f "$target" ]] || target="$repo_dir/config/defaults.json"
+      python3 "$config_tool" validate "$target" "$@" ;;
+    diff)
+      local target="${1:-$current}"; [[ -f "$target" ]] || die "config file not found: $target"
+      shift || true
+      python3 "$config_tool" diff "$target" "$@" ;;
+    export)
+      ensure_dirs
+      if [[ -f "$current" ]]; then python3 "$config_tool" export "$current" "$@"; else python3 "$config_tool" export "$@"; fi ;;
+    import)
+      [[ $# -ge 1 ]] || die "config import requires a JSON file"
+      ensure_dirs
+      python3 "$config_tool" import "$1" "$current" "${@:2}" || exit "$EX_CONFIG"
+      if has omarchy-shell; then omarchy-shell -q "$plugin_id" reload || true; fi ;;
+    migrate)
+      [[ $# -ge 1 ]] || die "config migrate requires an input JSON file"
+      [[ "${2:-}" == "--output" && -n "${3:-}" ]] || die "config migrate requires --output <file>"
+      python3 "$config_tool" migrate "$1" --output "$3" "${@:4}" ;;
+    *) usage >&2; die "unknown config operation: $operation" ;;
+  esac
 }
 
 reset_cmd() {
@@ -784,6 +815,7 @@ case "$command_name" in
   install) install_cmd "$@" ;;
   export-config) export_cmd "$@" ;;
   import-config) import_cmd "$@" ;;
+  config) config_cmd "$@" ;;
   reset) reset_cmd "$@" ;;
   update) update_cmd "$@" ;;
   rollback) rollback_cmd "$@" ;;

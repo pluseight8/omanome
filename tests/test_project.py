@@ -43,9 +43,9 @@ class OmanomeProjectTests(unittest.TestCase):
     def test_config_is_versioned_and_has_core_sections(self) -> None:
         defaults = json.loads((ROOT / "config/defaults.json").read_text(encoding="utf-8"))
         schema = json.loads((ROOT / "config/schema.json").read_text(encoding="utf-8"))
-        self.assertEqual(defaults["schemaVersion"], 1)
-        self.assertEqual(schema["properties"]["schemaVersion"]["const"], 1)
-        for key in ("tabletMode", "onboarding", "accessibility", "touch", "stylus", "keyboard", "clipboard", "updates", "animations", "performance", "applicationRules", "wobbly", "cube", "forceQuit"):
+        self.assertEqual(defaults["schemaVersion"], 2)
+        self.assertEqual(schema["properties"]["schemaVersion"]["const"], 2)
+        for key in ("tabletMode", "onboarding", "accessibility", "touch", "stylus", "keyboard", "clipboard", "updates", "recovery", "diagnostics", "animations", "performance", "applicationRules", "wobbly", "cube", "forceQuit"):
             self.assertIn(key, defaults)
         self.assertTrue(defaults["effects"]["enabled"])
         self.assertEqual(defaults["wobbly"]["maxVertices"], 1024)
@@ -301,7 +301,7 @@ class OmanomeProjectTests(unittest.TestCase):
             "const C=require('./shell/models/Config.js'); "
             "console.log(JSON.stringify(C.load(JSON.stringify({tablet:{touchTarget:60},osk:{mode:'split'},launcher:{favorites:['demo']}}))));"
         )
-        self.assertEqual(result["schemaVersion"], 1)
+        self.assertEqual(result["schemaVersion"], 2)
         self.assertEqual(result["tabletMode"]["touchTarget"], 60)
         self.assertEqual(result["keyboard"]["mode"], "split")
         self.assertEqual(result["launcher"]["favorites"], ["demo"])

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "general": {
     "mode": "automatic",
     "profile": "Desktop",
@@ -431,6 +431,20 @@
     "channel": "stable",
     "automaticInstall": false,
     "notify": true,
-    "rollbackRetention": 2
+    "rollbackRetention": 3,
+    "checkTimeoutSeconds": 8,
+    "healthTimeoutSeconds": 5
+  },
+  "recovery": {
+    "autoRollback": true,
+    "safeModeOnCrash": true,
+    "maxCrashAttempts": 2,
+    "preserveFailedUpdates": true
+  },
+  "diagnostics": {
+    "logLevel": "info",
+    "supportBundleRetention": 3,
+    "redactPaths": true,
+    "includeSystemCommands": true
   }
 }

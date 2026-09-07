@@ -65,16 +65,16 @@ def validate_manifest() -> None:
 def validate_config() -> None:
     defaults = read_json(ROOT / "config" / "defaults.json")
     schema = read_json(ROOT / "config" / "schema.json")
-    if defaults.get("schemaVersion") != 1:
-        fail("config/defaults.json must have schemaVersion 1")
-    if schema.get("properties", {}).get("schemaVersion", {}).get("const") != 1:
-        fail("config/schema.json must require schemaVersion 1")
+    if defaults.get("schemaVersion") != 2:
+        fail("config/defaults.json must have schemaVersion 2")
+    if schema.get("properties", {}).get("schemaVersion", {}).get("const") != 2:
+        fail("config/schema.json must require schemaVersion 2")
     expected_sections = {
         "general", "appearance", "tabletMode", "touch", "stylus", "windowControls",
         "quickSettings", "dock", "overview", "launcher", "keyboard", "clipboard",
         "notifications", "altTab", "blur", "effects", "rotation", "privacy",
         "animations", "performance", "applicationRules", "wobbly", "cube", "forceQuit",
-        "shortcuts", "updates",
+        "shortcuts", "updates", "recovery", "diagnostics",
     }
     missing = sorted(expected_sections - defaults.keys())
     if missing:
@@ -88,7 +88,7 @@ def main() -> int:
     validate_manifest()
     validate_config()
     print("manifest: ok (no replacement bar declared)")
-    print("config: ok (schemaVersion 1)")
+    print("config: ok (schemaVersion 2; migrations 0->1->2)")
     return 0
 
 

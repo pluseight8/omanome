@@ -6,6 +6,7 @@ check: validate test qmllint
 
 validate:
 	python3 scripts/validate.py
+	python3 scripts/config_tool.py validate config/defaults.json
 	bash -n cli/omanome input/clipboard-capture.sh input/system-state.sh input/wifi-scan.sh input/bluetooth-scan.sh input/rotation-monitor.sh input/sensor-info.sh input/companion-info.sh input/effects-info.sh input/force-quit.sh input/audio-devices.sh
 
 test:
