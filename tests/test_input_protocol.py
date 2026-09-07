@@ -18,6 +18,7 @@ class InputProtocolContractTests(unittest.TestCase):
             (ROOT / "input/omanome-input/protocol.json").read_text(encoding="utf-8")
         )
         cls.source = (ROOT / "input/omanome-input/src/main.rs").read_text(encoding="utf-8")
+        cls.service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
 
     def test_protocol_is_versioned_and_bounded(self) -> None:
         self.assertEqual(self.contract["protocol"], "omanome-input")
@@ -49,6 +50,20 @@ class InputProtocolContractTests(unittest.TestCase):
         self.assertEqual(self.contract["fallback"]["unknown"], "unavailable")
         self.assertIn('"native-wayland"', self.source)
         self.assertIn('"unavailable"', self.source)
+
+    def test_shell_uses_one_persistent_native_process(self) -> None:
+        self.assertIn("id: inputBackendProcess", self.service)
+        self.assertIn("stdinEnabled: true", self.service)
+        self.assertIn("root.nativeInputSend", self.service)
+        self.assertIn('"omanome-input"', self.service)
+        self.assertIn("ProcessPolicy.nextRestart", self.service)
+        self.assertIn("root.wtypeAvailable", self.service)
+
+    def test_auto_show_requires_real_focus_and_non_physical_input(self) -> None:
+        self.assertIn("inputTextBackendAvailable", self.service)
+        self.assertIn("inputTextFocusActive", self.service)
+        self.assertIn("root.hasPhysicalKeyboard", self.service)
+        self.assertIn('root.lastInput !== "touch" && root.lastInput !== "stylus"', self.service)
 
 
 if __name__ == "__main__":

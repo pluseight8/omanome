@@ -424,12 +424,12 @@ Item {
         font.pixelSize: Style.font.title
         font.bold: true
       }
-      ActionButton { compact: true; text: "EN"; checked: root.language === "en"; onClicked: { root.language = "en"; root.setCfg("keyboard.layout", "en") } }
-      ActionButton { compact: true; text: "RU"; checked: root.language === "ru"; onClicked: { root.language = "ru"; root.setCfg("keyboard.layout", "ru") } }
+      ActionButton { compact: true; text: "EN"; checked: root.language === "en"; onClicked: { root.language = "en"; root.setCfg("keyboard.layout", "en"); if (root.service) root.service.setInputLanguage("en") } }
+      ActionButton { compact: true; text: "RU"; checked: root.language === "ru"; onClicked: { root.language = "ru"; root.setCfg("keyboard.layout", "ru"); if (root.service) root.service.setInputLanguage("ru") } }
       Item { Layout.fillWidth: true }
       Text {
-        text: root.service && root.service.wtypeAvailable ? "virtual-keyboard-v1" : "backend unavailable"
-        color: root.service && root.service.wtypeAvailable ? Color.accent : Color.urgent
+        text: root.service && root.service.inputBackendAvailable ? "native virtual-keyboard-v1" : (root.service && root.service.wtypeAvailable ? "wtype fallback" : "backend unavailable")
+        color: root.service && (root.service.inputBackendAvailable || root.service.wtypeAvailable) ? Color.accent : Color.urgent
         font.pixelSize: Style.font.caption
       }
     }

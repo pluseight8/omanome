@@ -25,6 +25,7 @@
     "input.status",
     "input.capabilities",
     "input.error",
+    "input.ack",
     "text.enter",
     "text.leave",
     "text.state",

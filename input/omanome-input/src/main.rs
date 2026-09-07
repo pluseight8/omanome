@@ -50,6 +50,7 @@ const MAX_PENDING_COMMANDS: usize = 256;
 const XKB_KEYMAP_FORMAT_TEXT_V1: u32 = 1;
 const KEY_STATE_RELEASED: u32 = 0;
 const KEY_STATE_PRESSED: u32 = 1;
+const XKB_MOD_INVALID: u32 = u32::MAX;
 const CONTENT_HINT_HIDDEN_TEXT: u32 = 0x40;
 const CONTENT_HINT_SENSITIVE_DATA: u32 = 0x80;
 const PURPOSE_PASSWORD: u32 = 8;
@@ -91,6 +92,8 @@ struct Command {
     text: String,
     #[serde(default)]
     key: String,
+    #[serde(default)]
+    state: Option<u32>,
     #[serde(default)]
     modifiers: Vec<String>,
     #[serde(default)]
@@ -195,7 +198,12 @@ impl Keymap {
             let text = CStr::from_ptr(text_ptr).to_bytes_with_nul().to_vec();
             libc::free(text_ptr.cast::<c_void>());
             let shift_name = CString::new("Shift").unwrap();
-            let shift_mask = 1u32 << xkb_keymap_mod_get_index(keymap, shift_name.as_ptr());
+            let shift_index = xkb_keymap_mod_get_index(keymap, shift_name.as_ptr());
+            let shift_mask = if shift_index < 32 && shift_index != XKB_MOD_INVALID {
+                1u32 << shift_index
+            } else {
+                0
+            };
             let min_keycode = xkb_keymap_min_keycode(keymap);
             let max_keycode = xkb_keymap_max_keycode(keymap);
             (
@@ -267,6 +275,7 @@ struct BackendState {
     keymap: Option<Keymap>,
     backend: BackendKind,
     input_method_available: bool,
+    text_input_available: bool,
     text_active: bool,
     content_purpose: u32,
     content_hints: u32,
@@ -287,6 +296,7 @@ impl BackendState {
             keymap: None,
             backend: BackendKind::Unavailable,
             input_method_available: false,
+            text_input_available: false,
             text_active: false,
             content_purpose: 0,
             content_hints: 0,
@@ -307,7 +317,7 @@ impl BackendState {
             "waylandConnection": self.seat.is_some(),
             "seat": self.seat.is_some(),
             "virtualKeyboard": if self.virtual_keyboard.is_some() { "native" } else { "unavailable" },
-            "textInput": "registry-probed",
+            "textInput": if self.text_input_available { "v3" } else { "unavailable" },
             "inputMethod": if self.input_method_available { "v2" } else { "unavailable" },
             "keymap": if self.keymap.is_some() { "xkbcommon" } else { "unavailable" },
             "layouts": ["en", "ru"],
@@ -332,6 +342,7 @@ impl BackendState {
             "group": self.group,
             "modifiers": self.modifiers,
             "inputMethod": if self.input_method_available { "v2" } else { "unavailable" },
+            "textInput": if self.text_input_available { "v3" } else { "unavailable" },
             "queueDepth": self.queue_depth,
         })
     }
@@ -346,6 +357,13 @@ impl BackendState {
     }
     fn emit_status(&self) {
         emit(&self.emitter, self.status());
+    }
+
+    fn emit_ack(&self, command: &str) {
+        emit(
+            &self.emitter,
+            json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"input.ack","command":command,"queueDepth":self.queue_depth}),
+        );
     }
 
     fn set_keymap(&mut self, layout: &str) -> Result<(), String> {
@@ -365,6 +383,8 @@ impl BackendState {
 
     fn handle(&mut self, command: Command) -> bool {
         self.queue_depth = self.queue_depth.saturating_sub(1);
+        let kind = command.kind.clone();
+        let keep_running = command.kind != "shutdown";
         match command.kind.as_str() {
             "input.status" => self.emit_status(),
             "input.capabilities" => self.emit_capabilities(),
@@ -390,7 +410,9 @@ impl BackendState {
                 }
             }
             "keyboard.key" => {
-                if let Err(error) = self.send_named_key(&command.key, KEY_STATE_PRESSED) {
+                if let Err(error) =
+                    self.send_named_key(&command.key, command.state.unwrap_or(KEY_STATE_PRESSED))
+                {
                     self.error(&error, true);
                 }
             }
@@ -417,10 +439,11 @@ impl BackendState {
                 }
             }
             "text.state" => self.emit_status(),
-            "shutdown" => return false,
+            "shutdown" => {}
             _ => self.error("unknown-command", false),
         }
-        true
+        self.emit_ack(&kind);
+        keep_running
     }
 
     fn error(&self, code: &str, retryable: bool) {
@@ -590,6 +613,32 @@ fn modifier_mask(modifiers: &[String]) -> u32 {
 fn named_keycode(value: &str) -> Option<u32> {
     let key = value.to_ascii_lowercase();
     let code = match key.as_str() {
+        "q" => 16,
+        "w" => 17,
+        "e" => 18,
+        "r" => 19,
+        "t" => 20,
+        "y" => 21,
+        "u" => 22,
+        "i" => 23,
+        "o" => 24,
+        "p" => 25,
+        "a" => 30,
+        "s" => 31,
+        "d" => 32,
+        "f" => 33,
+        "g" => 34,
+        "h" => 35,
+        "j" => 36,
+        "k" => 37,
+        "l" => 38,
+        "z" => 44,
+        "x" => 45,
+        "c" => 46,
+        "v" => 47,
+        "b" => 48,
+        "n" => 49,
+        "m" => 50,
         "esc" | "escape" => 1,
         "1" => 2,
         "2" => 3,
@@ -679,7 +728,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     // Binding the text-input manager is a capability probe. The application
     // owns text focus, so the native backend never fabricates focus for it.
-    let _text_input_available = globals
+    state.text_input_available = globals
         .bind::<ZwpTextInputManagerV3, _, _>(&qh, 1..=2, ())
         .is_ok();
     queue.roundtrip(&mut state)?;
@@ -930,6 +979,8 @@ mod tests {
 
     #[test]
     fn named_keycodes_cover_navigation_and_function_keys() {
+        assert_eq!(named_keycode("c"), Some(46));
+        assert_eq!(named_keycode("M"), Some(50));
         assert_eq!(named_keycode("Esc"), Some(1));
         assert_eq!(named_keycode("F12"), Some(88));
         assert_eq!(named_keycode("PageDown"), Some(109));

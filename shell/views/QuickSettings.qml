@@ -365,7 +365,7 @@ Item {
         text: root.service.tr("showKeyboard", "Show keyboard")
         subtitle: root.service.wtypeAvailable ? root.service.tr("wtype", "Wayland-native") : root.service.tr("systemUnavailable", "Backend unavailable")
         icon: "⌨"
-        usable: root.service.wtypeAvailable && root.service.cfg("keyboard.enabled", true) === true
+        usable: (root.service.inputBackendAvailable || root.service.wtypeAvailable) && root.service.cfg("keyboard.enabled", true) === true
         onClicked: if (root.panel) root.panel.activeView = "keyboard"
       }
 

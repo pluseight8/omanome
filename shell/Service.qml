@@ -49,6 +49,17 @@ Item {
   readonly property var rotationRestartPolicy: ({ initialDelayMs: 1000, maxDelayMs: 30000, maxConsecutiveFailures: 5, stableAfterMs: 30000 })
   property var pendingCommands: ({})
   property var inputQueue: []
+  property string inputBackendPath: ""
+  property string inputBackendReason: "not-probed"
+  property string inputBackendProbeOutput: ""
+  property var inputBackendCapabilities: ({ backend: "unavailable", virtualKeyboard: "unavailable", textInput: "unavailable", inputMethod: "unavailable" })
+  property var inputBackendStatus: ({ backend: "unavailable", connected: false, textActive: false, secure: false, layout: "en", group: 0, modifiers: 0, queueDepth: 0 })
+  property bool inputTextFocusActive: false
+  property bool inputSecureContext: false
+  property bool inputTextBackendAvailable: false
+  property int inputNativePending: 0
+  property var inputRestartState: ({ consecutiveFailures: 0, startedAt: 0, blocked: false })
+  readonly property var inputRestartPolicy: ({ initialDelayMs: 1000, maxDelayMs: 30000, maxConsecutiveFailures: 5, stableAfterMs: 30000 })
 
   property var config: Config.defaults()
   property bool configReady: false
@@ -164,6 +175,162 @@ Item {
     root.captureScript = root.sourcePath("input/clipboard-capture.sh")
     forceQuitTermProcess.command = ["bash", root.sourcePath("input/force-quit.sh")]
     forceQuitKillProcess.command = ["bash", root.sourcePath("input/force-quit.sh")]
+  }
+
+  function inputBackendCandidates() {
+    var candidates = []
+    var configured = String(Quickshell.env("OMANOME_INPUT_BIN") || "")
+    if (configured) candidates.push(configured)
+    candidates.push(root.sourcePath("input/omanome-input/omanome-input"))
+    candidates.push(root.sourcePath("input/omanome-input/target/release/omanome-input"))
+    candidates.push(root.sourcePath("input/omanome-input/target/debug/omanome-input"))
+    return candidates
+  }
+
+  function firstLine(value) {
+    var lines = String(value || "").split(/\r?\n/)
+    for (var i = 0; i < lines.length; i++) {
+      var line = String(lines[i] || "").trim()
+      if (line) return line
+    }
+    return ""
+  }
+
+  function startInputBackendProbe() {
+    if (inputBackendProbe.running) return false
+    var candidates = root.inputBackendCandidates()
+    if (candidates.length === 0) return false
+    inputBackendProbeOutput = ""
+    inputBackendProbe.command = ["bash", "-c", "for candidate in \"$@\"; do if [ -x \"$candidate\" ]; then printf '%s\\n' \"$candidate\"; exit 0; fi; done; exit 1", "omanome-input"].concat(candidates)
+    inputBackendProbe.running = true
+    return true
+  }
+
+  function nativeInputReady() {
+    return inputBackendAvailable && inputBackendProcess.running && inputBackendPath !== ""
+  }
+
+  function nativeInputSend(commands) {
+    if (!root.nativeInputReady()) return false
+    var list = Array.isArray(commands) ? commands : [commands]
+    if (list.length === 0 || root.inputNativePending + list.length > 256) {
+      root.lastError = "Native input queue is full"
+      return false
+    }
+    for (var i = 0; i < list.length; i++) {
+      var command = list[i]
+      if (!command || typeof command !== "object") return false
+      inputBackendProcess.write(JSON.stringify(command) + "\n")
+    }
+    root.inputNativePending += list.length
+    return true
+  }
+
+  function nativeInputLanguage() {
+    var configured = String(root.cfg("keyboard.layout", "auto"))
+    if (configured === "ru" || configured === "en") return configured
+    return String(Quickshell.env("LANG") || "en").indexOf("ru") === 0 ? "ru" : "en"
+  }
+
+  function syncNativeInputLanguage() {
+    if (!root.nativeInputReady()) return false
+    return root.nativeInputSend({ type: "set.language", language: root.nativeInputLanguage() })
+  }
+
+  function shouldAutoShowOsk() {
+    if (!root.inputTextBackendAvailable || !root.inputTextFocusActive) return false
+    if (root.cfg("keyboard.enabled", true) !== true || root.cfg("keyboard.autoShow", true) !== true) return false
+    if (root.hasPhysicalKeyboard) return false
+    if (root.lastInput !== "touch" && root.lastInput !== "stylus") return false
+    if (root.lastInput === "stylus" && String(root.cfg("stylus.showOskOnTextField", "ask")) === "never") return false
+    return root.hasTouchscreen || root.lastInput === "stylus"
+  }
+
+  function requestAutoOsk(show) {
+    if (show && root.shouldAutoShowOsk()) root.open("keyboard")
+  }
+
+  function updateNativeInputLine(line) {
+    var parsed = root.parseJson(line, null)
+    if (!parsed || typeof parsed !== "object" || String(parsed.protocol || "") !== "omanome-input") return
+    var kind = String(parsed.type || "")
+    if (kind === "input.ack") {
+      root.inputNativePending = Math.max(0, root.inputNativePending - 1)
+      var ackStatus = {}
+      for (var ackKey in root.inputBackendStatus) ackStatus[ackKey] = root.inputBackendStatus[ackKey]
+      ackStatus.queueDepth = Number(parsed.queueDepth || 0)
+      root.inputBackendStatus = ackStatus
+      return
+    }
+    if (kind === "input.capabilities") {
+      var capabilities = {}
+      for (var key in parsed) capabilities[key] = parsed[key]
+      root.inputBackendCapabilities = capabilities
+      root.inputBackendAvailable = String(parsed.backend || "") === "native-wayland" && String(parsed.virtualKeyboard || "") === "native"
+      root.inputTextBackendAvailable = String(parsed.inputMethod || "") === "v2"
+      root.inputBackendReason = root.inputBackendAvailable ? "native-wayland" : String(parsed.reason || "native-capability-unavailable")
+      if (root.inputBackendAvailable) root.syncNativeInputLanguage()
+      root.stateRevision++
+      root.stateUpdated()
+      return
+    }
+    if (kind === "input.status") {
+      var status = {}
+      for (var statusKey in parsed) status[statusKey] = parsed[statusKey]
+      root.inputBackendStatus = status
+      root.inputBackendAvailable = String(parsed.backend || "") === "native-wayland" && String(root.inputBackendCapabilities.virtualKeyboard || "") === "native"
+      root.inputTextBackendAvailable = String(root.inputBackendCapabilities.inputMethod || "") === "v2"
+      root.inputTextFocusActive = parsed.textActive === true ? root.inputTextFocusActive : root.inputTextFocusActive
+      root.inputSecureContext = parsed.secure === true
+      root.stateRevision++
+      root.stateUpdated()
+      return
+    }
+    if (kind === "text.enter") {
+      root.inputTextFocusActive = true
+      root.inputSecureContext = parsed.secure === true
+      root.requestAutoOsk(true)
+      return
+    }
+    if (kind === "text.leave") {
+      root.inputTextFocusActive = false
+      root.inputSecureContext = false
+      return
+    }
+    if (kind === "osk.request") {
+      root.requestAutoOsk(String(parsed.request || "") === "show")
+      return
+    }
+    if (kind === "input.error") {
+      root.inputBackendReason = String(parsed.code || "input-error")
+      root.lastError = "Native input: " + root.inputBackendReason
+    }
+  }
+
+  function inputBackendExited(exitCode) {
+    root.processStopped("omanome-input", inputBackendProcess, exitCode)
+    root.inputBackendAvailable = false
+    root.inputTextBackendAvailable = false
+    root.inputNativePending = 0
+    root.inputTextFocusActive = false
+    if (!root.inputBackendPath) return
+    var decision = ProcessPolicy.nextRestart(root.inputRestartState, Date.now(), root.inputRestartPolicy)
+    root.inputRestartState = { consecutiveFailures: decision.consecutiveFailures, startedAt: 0, blocked: decision.blocked === true }
+    if (!decision.restart) {
+      root.inputBackendReason = "crash-loop-limit"
+      root.lastError = "Native input backend disabled after repeated failures"
+      return
+    }
+    root.inputBackendReason = "bounded-backoff"
+    inputBackendRestart.interval = Math.max(1, decision.delayMs)
+    inputBackendRestart.restart()
+  }
+
+  function startNativeInputBackend() {
+    if (!root.inputBackendPath || inputBackendProcess.running || root.inputRestartState.blocked) return false
+    inputBackendProcess.command = [root.inputBackendPath]
+    inputBackendProcess.running = true
+    return true
   }
 
   function ownedEnvironment(component) {
@@ -871,6 +1038,7 @@ Item {
     root.config = Config.set(root.config, path, value)
     root.saveConfig()
     root.configUpdated(String(path))
+    if (String(path) === "keyboard.layout") root.setInputLanguage(String(value || "auto"))
     if (String(path).indexOf("clipboard.") === 0 || String(path).indexOf("privacy.clipboard") === 0) {
       if (root.cfg("clipboard.privateMode", false) || root.cfg("privacy.clipboardPrivate", false)) root.stopClipboardWatchers()
       else root.startClipboardWatchers()
@@ -905,6 +1073,7 @@ Item {
     root.config = Config.defaults()
     root.saveConfig()
     root.startClipboardWatchers()
+    root.syncNativeInputLanguage()
     root.detectedMode = root.computeMode()
     root.refreshRotationBackend()
     root.blurRuleSignature = ""
@@ -1746,18 +1915,34 @@ Item {
   }
 
   function sendKey(key, shifted) {
-    if (!root.wtypeAvailable || root.cfg("keyboard.enabled", true) !== true) return false
+    if (root.cfg("keyboard.enabled", true) !== true) return false
     var value = String(key || "")
     var named = keyName(value)
+    if (root.nativeInputReady()) {
+      if (value.length === 1) return root.nativeInputSend({ type: "keyboard.text", text: shifted ? value.toUpperCase() : value })
+      return root.nativeInputSend([
+        { type: "keyboard.key", key: named, state: 1 },
+        { type: "keyboard.key", key: named, state: 0 }
+      ])
+    }
+    if (!root.wtypeAvailable) return false
     if (value.length === 1 && !shifted) return root.execute(["wtype", "--", value])
     if (value.length === 1 && shifted) return root.typeText(value.toUpperCase())
     return root.execute(["wtype", "-k", named])
   }
 
   function sendModifiedKey(key, modifiers) {
-    if (!root.wtypeAvailable || root.cfg("keyboard.enabled", true) !== true) return false
+    if (root.cfg("keyboard.enabled", true) !== true) return false
     var value = String(key || "")
     if (!value) return false
+    if (root.nativeInputReady() && value.length === 1 && value.charCodeAt(0) < 128) {
+      var nativeCommands = [{ type: "keyboard.modifiers", modifiers: Array.isArray(modifiers) ? modifiers : [] }]
+      nativeCommands.push({ type: "keyboard.key", key: root.keyName(value), state: 1 })
+      nativeCommands.push({ type: "keyboard.key", key: root.keyName(value), state: 0 })
+      nativeCommands.push({ type: "keyboard.modifiers", modifiers: [] })
+      return root.nativeInputSend(nativeCommands)
+    }
+    if (!root.wtypeAvailable) return false
     var args = ["wtype"]
     var active = Array.isArray(modifiers) ? modifiers : []
     for (var i = 0; i < active.length; i++) {
@@ -1774,10 +1959,19 @@ Item {
   }
 
   function typeText(text) {
-    if (!root.wtypeAvailable || root.cfg("keyboard.enabled", true) !== true) return false
+    if (root.cfg("keyboard.enabled", true) !== true) return false
     var value = String(text || "")
     if (!value) return false
+    if (root.nativeInputReady()) return root.nativeInputSend({ type: "keyboard.text", text: value })
+    if (!root.wtypeAvailable) return false
     return root.execute(["wtype", "--", value])
+  }
+
+  function setInputLanguage(language) {
+    var value = String(language || "auto")
+    if (["en", "ru", "auto"].indexOf(value) < 0) value = "auto"
+    if (!root.nativeInputReady()) return false
+    return root.nativeInputSend({ type: "set.language", language: value })
   }
 
   function saveClipboard() {
@@ -2038,6 +2232,37 @@ Item {
       root.processStopped("input", inputProcess, exitCode)
       if (root.inputQueue.length > 0) inputFlush.restart()
     }
+  }
+
+  Process {
+    id: inputBackendProbe
+    environment: root.ownedEnvironment("omanome-input-probe")
+    stdout: SplitParser { onRead: function(line) { root.inputBackendProbeOutput = String(line || "").trim() } }
+    onStarted: root.processStarted("omanome-input-probe", inputBackendProbe, "locate native input helper", false, "startup")
+    onExited: function(exitCode) {
+      root.processStopped("omanome-input-probe", inputBackendProbe, exitCode)
+      root.inputBackendPath = exitCode === 0 ? root.firstLine(root.inputBackendProbeOutput) : ""
+      if (root.inputBackendPath) root.startNativeInputBackend()
+      else root.inputBackendReason = "native-helper-unavailable"
+      root.stateRevision++
+      root.stateUpdated()
+    }
+  }
+
+  Process {
+    id: inputBackendProcess
+    stdinEnabled: true
+    environment: root.ownedEnvironment("omanome-input")
+    stdout: SplitParser { onRead: function(line) { root.updateNativeInputLine(line) } }
+    // Native helper diagnostics are intentionally not copied into the shell
+    // log: the helper's public stream is already redacted and bounded.
+    stderr: SplitParser { onRead: function(line) { root.inputBackendReason = "native-helper-diagnostic" } }
+    onStarted: {
+      root.processStarted("omanome-input", inputBackendProcess, "persistent native Wayland input backend", true, "bounded-backoff")
+      root.inputNativePending = 0
+      root.inputBackendReason = "connecting"
+    }
+    onExited: function(exitCode) { root.inputBackendExited(exitCode) }
   }
 
   Process {
@@ -2515,6 +2740,13 @@ Item {
   }
 
   Timer {
+    id: inputBackendRestart
+    interval: 1000
+    repeat: false
+    onTriggered: root.startNativeInputBackend()
+  }
+
+  Timer {
     id: clipboardMaintenance
     interval: 300000
     repeat: true
@@ -2639,5 +2871,6 @@ Item {
     root.refreshSystemState()
     root.refreshEffectBackend()
     wtypeCheck.running = true
+    root.startInputBackendProbe()
   }
 }
