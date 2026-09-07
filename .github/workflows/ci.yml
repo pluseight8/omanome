@@ -27,7 +27,16 @@ jobs:
         run: make validate
 
       - name: Run project tests
-        run: python3 -m unittest tests.test_diagnostics.DiagnosticsTests.test_extended_hardware_fixtures_report_capabilities_without_certifying_hardware -v
+        run: |
+          set +e
+          output="$(python3 -m unittest tests.test_diagnostics.DiagnosticsTests.test_extended_hardware_fixtures_report_capabilities_without_certifying_hardware -v 2>&1)"
+          status=$?
+          printf '%s\n' "$output"
+          if [ "$status" -ne 0 ]; then
+            summary="$(printf '%s\n' "$output" | tr '\n' ' ' | sed 's/%/%25/g; s/\r/%0D/g')"
+            echo "::error file=tests/test_diagnostics.py,line=55::$summary"
+          fi
+          exit "$status"
 
       - name: Run hardware diagnostic contract test
         run: python3 -m unittest tests.test_diagnostics.DiagnosticsTests.test_hardware_fixture_is_explicitly_not_certification -v
