@@ -79,6 +79,7 @@ Item {
   property bool configRecoveryRunning: false
   property string configRecoveryOutput: ""
   property bool safeMode: false
+  property bool shuttingDown: false
   property bool annotationVisible: false
 
   property var devices: []
@@ -420,6 +421,7 @@ Item {
 
   function inputBackendExited(exitCode) {
     root.processStopped("omanome-input", inputBackendProcess, exitCode)
+    if (root.shuttingDown) return
     root.inputBackendAvailable = false
     root.inputTextBackendAvailable = false
     root.inputNativePending = 0
@@ -439,7 +441,7 @@ Item {
 
   function startNativeInputBackend() {
     var nativePolicy = String(root.cfg("input.nativeBackend", "auto"))
-    if (nativePolicy === "disabled" || nativePolicy === "fallback" || !root.inputBackendPath || inputBackendProcess.running || root.inputRestartState.blocked) return false
+    if (root.shuttingDown || nativePolicy === "disabled" || nativePolicy === "fallback" || !root.inputBackendPath || inputBackendProcess.running || root.inputRestartState.blocked) return false
     inputBackendProcess.command = [root.inputBackendPath]
     inputBackendProcess.running = true
     return true
@@ -460,7 +462,7 @@ Item {
   }
 
   function requestPerformanceSnapshot() {
-    if (performanceSnapshotProcess.running) return false
+    if (root.shuttingDown || performanceSnapshotProcess.running) return false
     root.performanceSnapshotOutput = ""
     root.performanceSnapshot = ({})
     performanceSnapshotProcess.running = true
@@ -513,18 +515,25 @@ Item {
   }
 
   function scheduleProcessRegistryWrite() {
-    if (root.processRegistryReady && root.directoriesReady) processRegistryWriteDebounce.restart()
+    if (!root.shuttingDown && root.processRegistryReady && root.directoriesReady) processRegistryWriteDebounce.restart()
   }
 
   function loadProcessRegistry(raw) {
     var parsed = root.parseJson(raw, {})
     var next = []
     if (parsed && typeof parsed === "object" && (!parsed.owner || String(parsed.owner) === root.processOwner)) {
-      var entries = Array.isArray(parsed.processes) ? parsed.processes : []
-      for (var i = 0; i < entries.length; i++) {
-        var item = entries[i]
-        if (!item || Number(item.pid || 0) <= 0 || !item.component) continue
-        next.push(item)
+      // A registry belongs to one shell process. Never resurrect stale PIDs
+      // from a previous session after a normal restart or compositor reload.
+      var registryShellPid = String(parsed.shellPid || "")
+      var currentShellPid = String(Quickshell.processId || "")
+      var sameShell = registryShellPid !== "" && currentShellPid !== "" && registryShellPid === currentShellPid
+      if (sameShell) {
+        var entries = Array.isArray(parsed.processes) ? parsed.processes : []
+        for (var i = 0; i < entries.length; i++) {
+          var item = entries[i]
+          if (!item || Number(item.pid || 0) <= 0 || !item.component) continue
+          next.push(item)
+        }
       }
       var counters = parsed.counters && typeof parsed.counters === "object" ? parsed.counters : {}
       var mergedCounters = {}
@@ -549,6 +558,7 @@ Item {
   }
 
   function processStarted(component, process, purpose, persistent, restartPolicy) {
+    if (root.shuttingDown) return
     var pid = Number(process && process.processId || 0)
     if (pid <= 0) return
     var name = String(component || "unknown")
@@ -583,6 +593,7 @@ Item {
   }
 
   function processStopped(component, process, exitCode) {
+    if (root.shuttingDown) return
     var name = String(component || "unknown")
     var pid = Number(process && process.processId || 0)
     var next = []
@@ -606,7 +617,7 @@ Item {
 
   function clipboardWatcherExited(component, exitCode) {
     root.processStopped(component, component === "clipboard-text" ? textWatch : imageWatch, exitCode)
-    if (!root.clipboardWatching) return
+    if (root.shuttingDown || !root.clipboardWatching) return
     var now = Date.now()
     var decision = ProcessPolicy.nextRestart(root.clipboardRestartState, now, root.clipboardRestartPolicy)
     root.clipboardRestartState = {
@@ -631,7 +642,7 @@ Item {
 
   function rotationMonitorExited(exitCode) {
     root.processStopped("rotation-monitor", rotationProcess, exitCode)
-    if (!root.rotationBackendWanted()) return
+    if (root.shuttingDown || !root.rotationBackendWanted()) return
     var now = Date.now()
     var decision = ProcessPolicy.nextRestart(root.rotationRestartState, now, root.rotationRestartPolicy)
     root.rotationRestartState = { consecutiveFailures: decision.consecutiveFailures, startedAt: 0, blocked: decision.blocked === true }
@@ -644,6 +655,7 @@ Item {
   }
 
   function queuedCommand(command) {
+    if (root.shuttingDown) return false
     var key = ProcessPolicy.coalesceKey(command)
     if (!key) return false
     var pending = {}
@@ -656,7 +668,7 @@ Item {
   }
 
   function startNextCommand() {
-    if (commandProcess.running) return false
+    if (root.shuttingDown || commandProcess.running) return false
     var pending = {}
     for (var existing in root.pendingCommands) pending[existing] = root.pendingCommands[existing]
     for (var key in root.pendingCommands) {
@@ -693,7 +705,7 @@ Item {
   }
 
   function flushInputQueue() {
-    if (inputProcess.running || root.inputQueue.length === 0) return false
+    if (root.shuttingDown || inputProcess.running || root.inputQueue.length === 0) return false
     var queue = root.inputQueue.slice()
     var next = queue.shift()
     root.inputQueue = queue
@@ -710,7 +722,7 @@ Item {
   }
 
   function refreshEffectBackend() {
-    if (!effectsInfoProcess.running) effectsInfoProcess.running = true
+    if (!root.shuttingDown && !effectsInfoProcess.running) effectsInfoProcess.running = true
   }
 
   function previewRequested() {
@@ -883,6 +895,7 @@ Item {
   }
 
   function finishWobblyBackend(exitCode) {
+    if (root.shuttingDown) return
     var response = root.wobblyBackendResponse
     if (exitCode !== 0 || !response || response.error) {
       root.lastError = response && response.error ? String(response.error) : "Wobbly compositor command failed"
@@ -934,6 +947,7 @@ Item {
   }
 
   function finishWobblyConfig(exitCode) {
+    if (root.shuttingDown) return
     var response = root.wobblyConfigResponse
     if (exitCode !== 0 || !response || response.error) {
       root.lastError = response && response.error ? String(response.error) : "Wobbly compositor configuration failed"
@@ -1101,12 +1115,13 @@ Item {
   }
 
   function ensureDirectories() {
+    if (root.shuttingDown) return
     directoryProcess.command = ["mkdir", "-p", root.configDir, root.stateDir, root.stateDir + "/clipboard-images"]
     directoryProcess.running = true
   }
 
   function startConfigRecovery() {
-    if (configRecoveryProcess.running || root.configLoadStatus === "future-schema") return false
+    if (root.shuttingDown || configRecoveryProcess.running || root.configLoadStatus === "future-schema") return false
     root.configRecoveryOutput = ""
     root.configRecoveryRunning = true
     configRecoveryProcess.command = ["python3", root.sourcePath("scripts/config_tool.py"), "recover", root.configPath, "--json"]
@@ -1338,7 +1353,7 @@ Item {
   }
 
   function refreshSystemState() {
-    if (!systemStateProcess.running) systemStateProcess.running = true
+    if (!root.shuttingDown && !systemStateProcess.running) systemStateProcess.running = true
   }
 
   function updateSystemState(raw) {
@@ -1367,7 +1382,7 @@ Item {
   }
 
   function scanWifi() {
-    if (!wifiScanProcess.running) wifiScanProcess.running = true
+    if (!root.shuttingDown && !wifiScanProcess.running) wifiScanProcess.running = true
   }
 
   function updateWifiScan(raw) {
@@ -1378,7 +1393,7 @@ Item {
   }
 
   function scanBluetooth() {
-    if (!bluetoothScanProcess.running) bluetoothScanProcess.running = true
+    if (!root.shuttingDown && !bluetoothScanProcess.running) bluetoothScanProcess.running = true
   }
 
   function updateBluetoothScan(raw) {
@@ -1389,7 +1404,7 @@ Item {
   }
 
   function scanAudio() {
-    if (!audioScanProcess.running) audioScanProcess.running = true
+    if (!root.shuttingDown && !audioScanProcess.running) audioScanProcess.running = true
   }
 
   function updateAudioDevices(raw) {
@@ -1677,6 +1692,7 @@ Item {
   }
 
   function refreshRotationBackend() {
+    if (root.shuttingDown) return false
     if (root.rotationBackendWanted()) {
       if (!root.rotationRestartState.blocked && !rotationProcess.running) rotationProcess.running = true
       return
@@ -1687,6 +1703,7 @@ Item {
   }
 
   function refreshDevices() {
+    if (root.shuttingDown) return false
     if (!devicesProcess.running) devicesProcess.running = true
     if (!monitorsProcess.running) monitorsProcess.running = true
     if (!clientsProcess.running) clientsProcess.running = true
@@ -1778,7 +1795,7 @@ Item {
   }
 
   function startDeviceMonitor() {
-    if (!root.configReady || root.safeMode || root.cfg("input.deviceHotplug", true) !== true || deviceMonitorProcess.running) return false
+    if (root.shuttingDown || !root.configReady || root.safeMode || root.cfg("input.deviceHotplug", true) !== true || deviceMonitorProcess.running) return false
     if (!root.sourcePath("input/device-monitor.sh")) return false
     deviceMonitorProcess.command = ["bash", root.sourcePath("input/device-monitor.sh")]
     deviceMonitorProcess.running = true
@@ -1786,7 +1803,7 @@ Item {
   }
 
   function startSessionMonitor() {
-    if (!root.configReady || root.safeMode || sessionMonitorProcess.running) return false
+    if (root.shuttingDown || !root.configReady || root.safeMode || sessionMonitorProcess.running) return false
     if (!root.sourcePath("input/session-monitor.sh")) return false
     sessionMonitorProcess.command = ["bash", root.sourcePath("input/session-monitor.sh")]
     sessionMonitorProcess.running = true
@@ -2062,6 +2079,7 @@ Item {
   }
 
   function execute(argv) {
+    if (root.shuttingDown) return false
     var command = Array.isArray(argv) ? argv : []
     if (command.length === 0) return false
     if (String(command[0] || "").split("/").pop() === "wtype") return root.enqueueInput(command)
@@ -2383,7 +2401,7 @@ Item {
   }
 
   function startClipboardWatchers() {
-    if (!root.configReady || !root.cfg("clipboard.enabled", true) || root.cfg("clipboard.privateMode", false) || root.cfg("privacy.clipboardPrivate", false)) return
+    if (root.shuttingDown || !root.configReady || !root.cfg("clipboard.enabled", true) || root.cfg("clipboard.privateMode", false) || root.cfg("privacy.clipboardPrivate", false)) return
     if (!root.captureScript) root.reloadPaths()
     if (ProcessPolicy.stable(root.clipboardRestartState, Date.now(), root.clipboardRestartPolicy))
       root.clipboardRestartState = { consecutiveFailures: 0, startedAt: 0, blocked: false }
@@ -2484,6 +2502,7 @@ Item {
     onStarted: root.processStarted("command", commandProcess, "serialized user/system command", false, "serialized-coalesced")
     onExited: function(exitCode) {
       root.processStopped("command", commandProcess, exitCode)
+      if (root.shuttingDown) return
       root.startNextCommand()
       systemRefresh.restart()
     }
@@ -2495,6 +2514,7 @@ Item {
     onStarted: root.processStarted("input", inputProcess, "bounded one-shot input fallback", false, "queue-bounded")
     onExited: function(exitCode) {
       root.processStopped("input", inputProcess, exitCode)
+      if (root.shuttingDown) return
       if (root.inputQueue.length > 0) inputFlush.restart()
     }
   }
@@ -2566,6 +2586,7 @@ Item {
     onStarted: root.processStarted("directory", directoryProcess, "create user directories", false, "none")
     onExited: function(exitCode) {
       root.processStopped("directory", directoryProcess, exitCode)
+      if (root.shuttingDown) return
       if (exitCode !== 0) root.lastError = "Could not create Omanome user directories"
       else {
         root.directoriesReady = true
@@ -2599,6 +2620,7 @@ Item {
     onStarted: root.processStarted("config-recovery", configRecoveryProcess, "preserve damaged config and restore last-known-good", false, "recovery")
     onExited: function(exitCode) {
       root.processStopped("config-recovery", configRecoveryProcess, exitCode)
+      if (root.shuttingDown) return
       root.configRecoveryRunning = false
       var result = root.parseJson(root.configRecoveryOutput, {})
       if (exitCode !== 0 || result.ok !== true) {
@@ -2881,6 +2903,7 @@ Item {
     onStarted: root.processStarted("rotation-apply", rotationApplyProcess, "atomic monitor rotation", false, "rollback")
     onExited: function(exitCode) {
       root.processStopped("rotation-apply", rotationApplyProcess, exitCode)
+      if (root.shuttingDown) return
       if (exitCode === 0) {
         root.finishRotation(true)
         return
@@ -3217,6 +3240,43 @@ Item {
     onTriggered: root.refreshDevices()
   }
 
+  function shutdown() {
+    if (root.shuttingDown) return
+    root.shuttingDown = true
+    var timers = [
+      performanceSnapshotTimeout, configWriteDebounce, processRegistryWriteDebounce,
+      clipboardWriteDebounce, deviceRefreshDebounce, postureTransition,
+      orientationTransition, wobblyConfigDebounce, clipboardRestart, rotationRestart,
+      inputBackendRestart, oskPolicyTimer, clipboardMaintenance, integrationRefresh,
+      systemRefresh, systemFallbackRefresh, inputFlush, inputModeCommit, effectRefresh,
+      initialConfigSave, deviceRefresh
+    ]
+    for (var timerIndex = 0; timerIndex < timers.length; timerIndex++)
+      if (timers[timerIndex]) timers[timerIndex].stop()
+
+    root.clipboardWatching = false
+    root.inputQueue = []
+    root.pendingCommands = ({})
+    root.inputNativePending = 0
+    root.ownedProcesses = []
+    var processes = [
+      commandProcess, inputProcess, inputBackendProbe, inputBackendProcess,
+      screenshotProcess, performanceSnapshotProcess, directoryProcess,
+      configRecoveryProcess, devicesProcess, deviceMonitorProcess,
+      sessionMonitorProcess, monitorsProcess, clientsProcess, systemStateProcess,
+      effectsInfoProcess, wobblyControlProcess, wobblyConfigProcess,
+      forceQuitTermProcess, forceQuitKillProcess, wifiScanProcess,
+      bluetoothScanProcess, audioScanProcess, rotationApplyProcess,
+      rotationRollbackProcess, rotationProcess, nightLightProcess, wtypeCheck,
+      textWatch, imageWatch, copyProcess, diagnosticsCopyProcess, doctorProcess,
+      updateProcess, rollbackProcess, recoveryProcess, backupProcess,
+      supportBundleProcess, recorderProcess
+    ]
+    for (var processIndex = 0; processIndex < processes.length; processIndex++)
+      if (processes[processIndex] && processes[processIndex].running) processes[processIndex].running = false
+    if (root.processRegistryReady && root.directoriesReady) root.persistProcessRegistry()
+  }
+
   IpcHandler {
     target: "io.omanome.shell"
 
@@ -3254,4 +3314,6 @@ Item {
     root.startInputBackendProbe()
     root.startDeviceMonitor()
   }
+
+  Component.onDestruction: root.shutdown()
 }
