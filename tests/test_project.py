@@ -111,6 +111,32 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertEqual(result["move"], "movetoworkspace 4")
         self.assertEqual(result["adjacent"], 3)
 
+    def test_dynamic_workspace_keeps_active_empty_and_window_layout_is_mosaic(self) -> None:
+        result = self.run_node(
+            "const W=require('./shell/models/Workspaces.js'); const L=require('./shell/models/WindowLayout.js'); "
+            "const ids=W.ids([{id:1,windows:[1]},{id:2,windows:[]}],'dynamic',5,2); "
+            "const rects=L.rects([{width:1600,height:900},{width:900,height:1600},{width:1200,height:800}],900,500,12); "
+            "console.log(JSON.stringify({ids,rects,overlap:rects.some((a,i)=>rects.slice(i+1).some(b=>a.x<b.x+b.width&&a.x+a.width>b.x&&a.y<b.y+b.height&&a.y+a.height>b.y))}));"
+        )
+        self.assertEqual(result["ids"], [1, 2])
+        self.assertFalse(result["overlap"])
+        self.assertEqual(len(result["rects"]), 3)
+
+    def test_overview_search_has_apps_windows_settings_and_actions(self) -> None:
+        result = self.run_node(
+            "const S=require('./shell/models/Search.js'); const rows=S.all('перо',{"
+            "apps:[{id:'ink',name:'Ink',comment:'drawing'}],windows:[],"
+            "settings:[{key:'stylus',title:'Stylus',description:'Pen settings',aliases:['перо']}],"
+            "actions:[{key:'settings',title:'Settings',description:'Open settings',aliases:[]} ]}); "
+            "console.log(JSON.stringify({kinds:rows.map(x=>x.kind),setting:rows[0]&&rows[0].id}));"
+        )
+        self.assertIn("setting", result["kinds"])
+        self.assertEqual(result["setting"], "stylus")
+        overview = (ROOT / "shell/views/Overview.qml").read_text(encoding="utf-8")
+        self.assertIn("Search.all", overview)
+        self.assertIn("WindowLayout.rects", overview)
+        self.assertIn("Current workspace first", overview)
+
     def test_quick_settings_and_stylus_are_capability_aware(self) -> None:
         result = self.run_node(
             "const Q=require('./shell/models/QuickSettings.js'); const S=require('./shell/models/Stylus.js'); "

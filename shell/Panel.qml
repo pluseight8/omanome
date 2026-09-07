@@ -29,6 +29,7 @@ Item {
     var payload = {}
     try { payload = JSON.parse(String(payloadJson || "{}")) || {} } catch (error) { payload = {} }
     if (payload.view) root.activeView = String(payload.view)
+    if (payload.deepLink) root.payloadView = String(payload.deepLink)
     root.opened = true
     if (root.service) root.service.recordInput("touch")
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
@@ -170,6 +171,10 @@ Item {
                 onLoaded: {
                   if ("service" in item) item.service = root.service
                   if ("panel" in item) item.panel = root
+                  if (root.payloadView !== "" && typeof item.openDeepLink === "function") {
+                    item.openDeepLink(root.payloadView)
+                    root.payloadView = ""
+                  }
                 }
               }
 

@@ -132,7 +132,7 @@
     "style": "gnome",
     "animationDuration": 180,
     "blur": true,
-    "showAllWorkspaces": true,
+    "showAllWorkspaces": false,
     "showDock": true,
     "workspaceMode": "dynamic",
     "fixedWorkspaceCount": 5,

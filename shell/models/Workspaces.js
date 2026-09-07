@@ -19,7 +19,7 @@ function occupied(workspace) {
   return Number(workspace.windows || workspace.toplevelCount || 0) > 0
 }
 
-function ids(values, mode, fixedCount) {
+function ids(values, mode, fixedCount, activeId) {
   var list = Array.isArray(values) ? values : []
   var result = numericIds(list)
   var requested = Math.max(1, Number(fixedCount || 5))
@@ -29,7 +29,8 @@ function ids(values, mode, fixedCount) {
     return result
   }
 
-  if (result.length === 0) result.push(1)
+  var active = Math.floor(Number(activeId || 0))
+  if (result.length === 0) result.push(active > 0 ? active : 1)
   var byId = {}
   for (var i = 0; i < list.length; i++) {
     var id = Number(list[i] && list[i].id !== undefined ? list[i].id : list[i])
@@ -39,14 +40,19 @@ function ids(values, mode, fixedCount) {
   for (var r = 0; r < result.length; r++) {
     if (occupied(byId[result[r]])) highestOccupied = Math.max(highestOccupied, result[r])
   }
-  if (highestOccupied === 0) return [1]
+  if (highestOccupied === 0) {
+    if (active > 0 && result.indexOf(active) < 0) result.push(active)
+    result.sort(function(left, right) { return left - right })
+    return result.length > 0 ? result : [1]
+  }
 
   // Keep existing ids through the last occupied workspace and exactly one
   // empty workspace after it, matching GNOME's dynamic-workspace invariant.
   var dynamic = []
-  var boundary = highestOccupied + 1
+  var boundary = Math.max(highestOccupied + 1, active > 0 ? active : 0)
   for (var d = 0; d < result.length; d++) if (result[d] <= boundary) dynamic.push(result[d])
   if (dynamic.indexOf(boundary) < 0) dynamic.push(boundary)
+  dynamic.sort(function(left, right) { return left - right })
   return dynamic
 }
 
