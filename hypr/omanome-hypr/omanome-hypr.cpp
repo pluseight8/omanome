@@ -69,7 +69,8 @@ std::string statusJson() {
         "\"capabilities\":{\"blur\":false,\"livePreview\":false,\"wobblyWindows\":" + std::string(wobblyAvailable ? "true" : "false") + ",\"desktopCube\":false},"
         "\"wobbly\":{\"available\":" + std::string(wobblyAvailable ? "true" : "false") + ",\"enabled\":" +
         std::string(wobblyEnabled ? "true" : "false") + ",\"attachedWindows\":" +
-        std::to_string(g_wobblyManager ? g_wobblyManager->attachedWindows() : 0) + ",\"reason\":" + jsonString(wobblyReason) + "},"
+        std::to_string(g_wobblyManager ? g_wobblyManager->attachedWindows() : 0) + ",\"config\":" +
+        (g_wobblyManager ? g_wobblyManager->configJson() : "{}") + ",\"reason\":" + jsonString(wobblyReason) + "},"
         "\"renderer\":{\"windowTransformer\":" + jsonString(wobblyAvailable ? "ready" : "unavailable") + ",\"desktopCube3d\":\"unavailable\"},"
         "\"reason\":" + jsonString(wobblyReason) + "}";
 }
@@ -85,10 +86,17 @@ std::string statusCommand(eHyprCtlOutputFormat format, std::string arguments) {
     } else if (request == "wobbly disable") {
         if (g_wobblyManager)
             (void)g_wobblyManager->disable();
+    } else if (request.rfind("wobbly config ", 0) == 0) {
+        const auto arguments = request.substr(std::string("wobbly config ").size());
+        if (!g_wobblyManager || !g_wobblyManager->configure(arguments)) {
+            if (format == FORMAT_JSON)
+                return "{\"protocolVersion\":2,\"error\":\"invalid wobbly config\",\"status\":" + statusJson() + "}";
+            return "omanome-effects: invalid wobbly config";
+        }
     } else if (!request.empty() && request != "status") {
         if (format == FORMAT_JSON)
-            return "{\"protocolVersion\":2,\"error\":\"unsupported request\",\"supported\":[\"status\",\"wobbly enable\",\"wobbly disable\"]}";
-        return "omanome-effects: unsupported request; supported: status, wobbly enable, wobbly disable";
+            return "{\"protocolVersion\":2,\"error\":\"unsupported request\",\"supported\":[\"status\",\"wobbly enable\",\"wobbly disable\",\"wobbly config key=value ...\"]}";
+        return "omanome-effects: unsupported request; supported: status, wobbly enable, wobbly disable, wobbly config key=value ...";
     }
     if (format == FORMAT_JSON) {
         return statusJson();

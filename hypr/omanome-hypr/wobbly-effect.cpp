@@ -21,6 +21,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <cerrno>
+#include <sstream>
 #include <memory>
 #include <string>
 #include <utility>
@@ -337,6 +340,11 @@ class OmanomeWobblyTransformer final : public Render::IWindowTransformer {
 
     void amendTransformedRenderData(const CBox&, SMotionBlurData*) override {}
 
+    void reconfigure(const omanome::wobbly::Config& config) {
+        m_physics.configure(config);
+        m_ready = false;
+    }
+
   private:
     bool ensureBuffers() {
         if (m_vao && m_vbo && m_ebo)
@@ -436,6 +444,19 @@ void attachTransformer(WobblyRuntime& runtime, const PHLWINDOW& window) {
         window->m_transformers.emplace_back(makeUnique<OmanomeWobblyTransformer>(&runtime, window));
 }
 
+void reconfigureTransformers(WobblyRuntime& runtime) {
+    if (!Desktop::windowState())
+        return;
+    for (const auto& window : Desktop::windowState()->windows()) {
+        if (!window)
+            continue;
+        for (const auto& transformer : window->m_transformers) {
+            if (auto* wobbly = dynamic_cast<OmanomeWobblyTransformer*>(transformer.get()))
+                wobbly->reconfigure(runtime.config);
+        }
+    }
+}
+
 } // namespace omanome::hypr::detail
 
 namespace omanome::hypr {
@@ -498,6 +519,64 @@ bool WobblyManager::disable() {
     return true;
 }
 
+bool WobblyManager::configure(std::string_view arguments) {
+    if (!m_runtime)
+        return false;
+
+    auto candidate = m_runtime->config;
+    std::istringstream tokens{std::string(arguments)};
+    std::string token;
+    while (tokens >> token) {
+        const auto separator = token.find('=');
+        if (separator == std::string::npos || separator == 0 || separator + 1 >= token.size())
+            return false;
+
+        const std::string key = token.substr(0, separator);
+        const std::string value = token.substr(separator + 1);
+        if (key == "grid" || key == "gridResolution") {
+            char* end = nullptr;
+            errno = 0;
+            const long parsed = std::strtol(value.c_str(), &end, 10);
+            if (errno != 0 || !end || *end != '\0')
+                return false;
+            candidate.gridX = static_cast<int>(parsed);
+            candidate.gridY = static_cast<int>(parsed);
+        } else if (key == "maxVertices") {
+            char* end = nullptr;
+            errno = 0;
+            const long parsed = std::strtol(value.c_str(), &end, 10);
+            if (errno != 0 || !end || *end != '\0')
+                return false;
+            candidate.maxVertices = static_cast<int>(parsed);
+        } else if (key == "stiffness" || key == "friction" || key == "damping" || key == "mass" || key == "maxDeformation" ||
+                   key == "velocityInfluence") {
+            char* end = nullptr;
+            errno = 0;
+            const float parsed = std::strtof(value.c_str(), &end);
+            if (errno != 0 || !end || *end != '\0' || !std::isfinite(parsed))
+                return false;
+            if (key == "stiffness")
+                candidate.stiffness = parsed;
+            else if (key == "friction")
+                candidate.friction = parsed;
+            else if (key == "damping")
+                candidate.damping = parsed;
+            else if (key == "mass")
+                candidate.mass = parsed;
+            else if (key == "maxDeformation")
+                candidate.maxDeformation = parsed;
+            else
+                candidate.velocityInfluence = parsed;
+        } else {
+            return false;
+        }
+    }
+
+    m_runtime->config = omanome::wobbly::sanitize(candidate);
+    detail::reconfigureTransformers(*m_runtime);
+    return true;
+}
+
 void WobblyManager::shutdown() {
     (void)disable();
 }
@@ -514,6 +593,17 @@ std::size_t WobblyManager::attachedWindows() const {
         }));
     }
     return count;
+}
+
+std::string WobblyManager::configJson() const {
+    if (!m_runtime)
+        return "{}";
+    const auto& config = m_runtime->config;
+    return "{\"gridX\":" + std::to_string(config.gridX) + ",\"gridY\":" + std::to_string(config.gridY) +
+        ",\"maxVertices\":" + std::to_string(config.maxVertices) + ",\"stiffness\":" + std::to_string(config.stiffness) +
+        ",\"friction\":" + std::to_string(config.friction) + ",\"damping\":" + std::to_string(config.damping) +
+        ",\"mass\":" + std::to_string(config.mass) + ",\"maxDeformation\":" + std::to_string(config.maxDeformation) +
+        ",\"velocityInfluence\":" + std::to_string(config.velocityInfluence) + "}";
 }
 
 const std::string& WobblyManager::reason() const {

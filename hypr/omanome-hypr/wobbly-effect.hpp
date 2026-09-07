@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace omanome::hypr {
 
@@ -24,8 +25,10 @@ class WobblyManager {
     bool              enabled() const;
     bool              enable();
     bool              disable();
+    bool              configure(std::string_view arguments);
     void              shutdown();
     std::size_t       attachedWindows() const;
+    std::string       configJson() const;
     const std::string& reason() const;
 
   private:
