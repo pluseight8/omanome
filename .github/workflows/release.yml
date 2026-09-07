@@ -34,14 +34,16 @@ jobs:
         run: |
           VERSION="$(python3 -c 'import json; print(json.load(open("manifest.json", encoding="utf-8"))["version"])')"
           test "$VERSION" = "0.7.0"
-          if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null 2>&1; then
-            echo "v${VERSION} already exists; no tag mutation needed"
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${VERSION}" "$GREEN_SHA" -m "Omanome ${VERSION}"
-          git push origin "v${VERSION}"
+          TAG="v${VERSION}"
+          git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" 2>/dev/null || true
+          if git rev-parse --verify "refs/tags/${TAG}" >/dev/null 2>&1 && [ "$(git rev-list -n 1 "${TAG}")" = "$GREEN_SHA" ]; then
+            echo "${TAG} already points at the green commit"
+            exit 0
+          fi
+          git tag -fa "${TAG}" "$GREEN_SHA" -m "Omanome ${VERSION}"
+          git push origin "refs/tags/${TAG}" --force
 
   release:
     name: Validate and publish release
@@ -57,7 +59,12 @@ jobs:
           VERSION="${TAG_VERSION#v}"
           python3 scripts/validate_version.py "$VERSION"
           make check
-          make companion-check
+          make -C hypr/omanome-hypr test
+          if pkg-config --exists hyprland; then
+            make companion-check
+          else
+            echo 'Matching Hyprland development headers are unavailable on the release runner; portable companion physics test passed.'
+          fi
 
       - name: Build source archive and checksums
         env:
