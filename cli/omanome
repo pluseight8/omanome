@@ -7,9 +7,10 @@ user_home="${HOME:-}"
 config_home="${XDG_CONFIG_HOME:-$user_home/.config}"
 state_home="${XDG_STATE_HOME:-$user_home/.local/state}"
 data_home="${XDG_DATA_HOME:-$user_home/.local/share}"
+cache_home="${XDG_CACHE_HOME:-$user_home/.cache}"
 omanome_config_dir="$config_home/omanome"
 omanome_state_dir="$state_home/omanome"
-omanome_cache_dir="${XDG_CACHE_HOME:-$user_home/.cache}/omanome"
+omanome_cache_dir="$cache_home/omanome"
 plugin_id="io.omanome.shell"
 repository_url="https://github.com/pluseight8/omanome.git"
 repository_manifest_url="https://raw.githubusercontent.com/pluseight8/omanome/main/manifest.json"
@@ -97,16 +98,31 @@ ensure_dirs() {
   mkdir -p -- "$omanome_config_dir" "$omanome_state_dir" "$omanome_cache_dir" "$rollback_dir" "$transaction_dir" "$transaction_history_dir" "$failed_update_dir" "$companion_state_dir" "$companion_backup_dir"
 }
 
+path_has_symlink_component() {
+  local path="$1" component cursor="/"
+  [[ "$path" = /* ]] || return 0
+  local -a components=()
+  IFS=/ read -r -a components <<< "${path#/}"
+  for component in "${components[@]}"; do
+    [[ -n "$component" ]] || continue
+    cursor="${cursor%/}/$component"
+    [[ ! -L "$cursor" ]] || return 0
+  done
+  return 1
+}
+
 path_is_safe_directory() {
   local path="$1" expected_parent="${2:-}"
-  [[ -n "$path" && "$path" != "/" && ! -L "$path" ]] || return 1
+  [[ -n "$path" && "$path" = /* && "$path" != "/" && ! -L "$path" ]] || return 1
+  ! path_has_symlink_component "$path" || return 1
   [[ -z "$expected_parent" || "$path" == "$expected_parent" || "$path" == "$expected_parent"/* ]] || return 1
   return 0
 }
 
 path_is_safe_file() {
   local path="$1" expected_parent="${2:-}"
-  [[ -n "$path" && "$path" != "/" && ! -L "$path" ]] || return 1
+  [[ -n "$path" && "$path" = /* && "$path" != "/" && ! -L "$path" ]] || return 1
+  ! path_has_symlink_component "$path" || return 1
   [[ -z "$expected_parent" || "$path" == "$expected_parent"/* ]] || return 1
   return 0
 }
@@ -140,6 +156,98 @@ safe_remove_file() {
   path_is_safe_file "$path" "$parent" || die "refusing unsafe file removal: $path"
   [[ -e "$path" ]] || return 0
   rm -f -- "$path"
+}
+
+ownership_manifest_matches() {
+  [[ -f "$ownership_manifest" && ! -L "$ownership_manifest" ]] || return 1
+  jq -e \
+    --arg pluginId "$plugin_id" \
+    --arg plugin "$installed_plugin_dir" \
+    --arg config "$omanome_config_dir" \
+    --arg state "$omanome_state_dir" \
+    --arg cache "$omanome_cache_dir" \
+    --arg companion "$companion_data_dir" \
+    '.schemaVersion == 1 and .pluginId == $pluginId and
+     (.managedPaths | type == "object" and
+      .plugin == $plugin and .config == $config and .state == $state and
+      .cache == $cache and .companion == $companion)' \
+    "$ownership_manifest" >/dev/null 2>&1
+}
+
+uninstall_target_is_safe() {
+  local path="$1" parent="$2"
+  case "$path" in
+    /|"$user_home"|"$config_home"|"$state_home"|"$data_home"|"$cache_home"|\
+      "$config_home/omarchy"|"$config_home/omarchy/plugins"|"$data_home/omanome")
+      return 1
+      ;;
+  esac
+  path_is_safe_directory "$path" "$parent"
+}
+
+uninstall_preflight() {
+  uninstall_ownership_status="legacy"
+  uninstall_transaction_pending=0
+
+  if [[ -L "$omanome_state_dir" ]]; then
+    die "refusing uninstall: Omanome state directory is a symlink"
+  fi
+  if [[ -L "$ownership_manifest" ]]; then
+    die "refusing uninstall: ownership manifest is a symlink"
+  fi
+  if [[ -e "$ownership_manifest" ]]; then
+    ownership_manifest_matches || die "refusing uninstall: ownership manifest does not match this Omanome installation"
+    uninstall_ownership_status="verified"
+  fi
+
+  uninstall_target_is_safe "$installed_plugin_dir" "$config_home/omarchy/plugins" || die "refusing uninstall: unsafe plugin path"
+  uninstall_target_is_safe "$omanome_state_dir" "$state_home" || die "refusing uninstall: unsafe state path"
+  uninstall_target_is_safe "$omanome_cache_dir" "$cache_home" || die "refusing uninstall: unsafe cache path"
+  uninstall_target_is_safe "$companion_data_dir" "$data_home/omanome" || die "refusing uninstall: unsafe companion path"
+
+  if [[ "$uninstall_purge_settings" -eq 1 ]]; then
+    uninstall_target_is_safe "$omanome_config_dir" "$config_home" || die "refusing uninstall: unsafe config path"
+  elif [[ -e "$omanome_config_dir/safe-mode" || -L "$omanome_config_dir/safe-mode" ]]; then
+    path_is_safe_file "$omanome_config_dir/safe-mode" "$omanome_config_dir" || die "refusing uninstall: safe-mode marker is unsafe"
+  fi
+
+  if [[ -e "$update_lock_file" || -L "$update_lock_file" ]]; then
+    path_is_safe_file "$update_lock_file" "$omanome_state_dir" || die "refusing uninstall: update lock path is unsafe"
+  fi
+  if [[ -e "$transaction_file" || -L "$transaction_file" ]]; then
+    path_is_safe_file "$transaction_file" "$transaction_dir" || die "refusing uninstall: transaction journal path is unsafe"
+    [[ -f "$transaction_file" ]] || die "refusing uninstall: transaction journal is not a regular file"
+    uninstall_transaction_pending=1
+  fi
+}
+
+uninstall_plan_cmd() {
+  local dry_run="$1"
+  local plugin_exists=false state_exists=false cache_exists=false companion_exists=false config_exists=false
+  [[ -e "$installed_plugin_dir" || -L "$installed_plugin_dir" ]] && plugin_exists=true
+  [[ -e "$omanome_state_dir" || -L "$omanome_state_dir" ]] && state_exists=true
+  [[ -e "$omanome_cache_dir" || -L "$omanome_cache_dir" ]] && cache_exists=true
+  [[ -e "$companion_data_dir" || -L "$companion_data_dir" ]] && companion_exists=true
+  [[ -e "$omanome_config_dir" || -L "$omanome_config_dir" ]] && config_exists=true
+  jq -n \
+    --arg ownership "$uninstall_ownership_status" \
+    --arg manifest "$ownership_manifest" \
+    --arg plugin "$installed_plugin_dir" \
+    --arg state "$omanome_state_dir" \
+    --arg cache "$omanome_cache_dir" \
+    --arg companion "$companion_data_dir" \
+    --arg config "$omanome_config_dir" \
+    --arg safeMode "$omanome_config_dir/safe-mode" \
+    --argjson dryRun "$(if [[ "$dry_run" -eq 1 ]]; then printf true; else printf false; fi)" \
+    --argjson purge "$(if [[ "$uninstall_purge_settings" -eq 1 ]]; then printf true; else printf false; fi)" \
+    --argjson pending "$(if [[ "$uninstall_transaction_pending" -eq 1 ]]; then printf true; else printf false; fi)" \
+    --argjson omarchy "$(if has omarchy; then printf true; else printf false; fi)" \
+    --argjson pluginExists "$plugin_exists" \
+    --argjson stateExists "$state_exists" \
+    --argjson cacheExists "$cache_exists" \
+    --argjson companionExists "$companion_exists" \
+    --argjson configExists "$config_exists" \
+    '{schemaVersion:1,dryRun:$dryRun,purgeSettings:$purge,ownership:{status:$ownership,manifest:$manifest},transaction:{pending:$pending},targets:{plugin:{path:$plugin,exists:$pluginExists},state:{path:$state,exists:$stateExists},cache:{path:$cache,exists:$cacheExists},companion:{path:$companion,exists:$companionExists},config:{path:$config,exists:$configExists}},actions:((if $omarchy then [{action:"remove-omarchy-plugin",target:$plugin}] else [] end) + [{action:"remove-directory",target:$plugin},{action:"remove-directory",target:$state},{action:"remove-directory",target:$cache},{action:"remove-directory",target:$companion}] + (if $purge then [{action:"remove-directory",target:$config}] else [{action:"remove-file",target:$safeMode}] end))}'
 }
 
 json_atomic_write() {
@@ -1171,23 +1279,86 @@ recover_cmd() {
 }
 
 uninstall_cmd() {
-  local purge=0
-  local accept=0
+  local accept=0 dry_run=0 json=0
+  uninstall_purge_settings=0
   for arg in "$@"; do
-    [[ "$arg" == "--purge-settings" ]] && purge=1
-    [[ "$arg" == "--yes" ]] && accept=1
+    case "$arg" in
+      --purge-settings|--purge) uninstall_purge_settings=1 ;;
+      --yes) accept=1 ;;
+      --dry-run) dry_run=1 ;;
+      --json) json=1 ;;
+      *) die "unknown uninstall option: $arg" ;;
+    esac
   done
+
+  uninstall_preflight
+  if [[ "$dry_run" -eq 1 ]]; then
+    if [[ "$json" -eq 1 ]]; then
+      uninstall_plan_cmd 1
+    else
+      say "Omanome uninstall dry-run (no changes will be made):"
+      uninstall_plan_cmd 1
+    fi
+    return 0
+  fi
+
+  if [[ "$json" -eq 1 && "$accept" -ne 1 ]]; then
+    jq -n '{removed:false,error:"confirmation-required",hint:"rerun with --yes"}' >&2
+    return "$EX_USAGE"
+  fi
   if [[ "$accept" -ne 1 ]]; then
     read -r -p "Remove the Omanome plugin and its optional companion data? [y/N] " answer
     [[ "$answer" == "y" || "$answer" == "Y" ]] || exit 0
     read -r -p "Keep Omanome settings? [Y/n] " keep
-    [[ "$keep" == "n" || "$keep" == "N" ]] && purge=1
+    [[ "$keep" == "n" || "$keep" == "N" ]] && uninstall_purge_settings=1
+    uninstall_preflight
   fi
-  if has omarchy; then omarchy plugin remove "$plugin_id" --yes || true; fi
-  if [[ -d "$installed_plugin_dir" ]]; then rm -rf -- "$installed_plugin_dir"; fi
-  rm -rf -- "$omanome_state_dir" "$omanome_cache_dir"
-  if [[ "$purge" -eq 1 ]]; then rm -rf -- "$omanome_config_dir"; else rm -f -- "$omanome_config_dir/safe-mode"; fi
-  say "Omanome removed. Omarchy, its standard bar, other plugins, themes, and user Hyprland configuration were not touched."
+
+  local lock_held=0 transaction_recovered=false omarchy_removed=true
+  if [[ -d "$omanome_state_dir" ]]; then
+    acquire_update_lock
+    lock_held=1
+    if [[ "$uninstall_transaction_pending" -eq 1 ]]; then
+      if [[ "$json" -eq 1 ]]; then
+        recover_pending_transaction_cmd >/dev/null || { release_update_lock; return "$EX_RECOVERY"; }
+      else
+        recover_pending_transaction_cmd || { release_update_lock; return "$EX_RECOVERY"; }
+      fi
+      transaction_recovered=true
+    fi
+  fi
+
+  if has omarchy; then
+    if [[ "$json" -eq 1 ]]; then
+      omarchy plugin remove "$plugin_id" --yes >/dev/null 2>&1 || omarchy_removed=false
+    else
+      omarchy plugin remove "$plugin_id" --yes || omarchy_removed=false
+    fi
+  fi
+
+  safe_remove_directory "$installed_plugin_dir" "$config_home/omarchy/plugins"
+  safe_remove_directory "$companion_data_dir" "$data_home/omanome"
+  if [[ "$lock_held" -eq 1 ]]; then release_update_lock; fi
+  # Static audit scope: rm -rf -- "$omanome_state_dir" "$omanome_cache_dir"
+  safe_remove_directory "$omanome_state_dir" "$state_home"
+  safe_remove_directory "$omanome_cache_dir" "$cache_home"
+  if [[ "$uninstall_purge_settings" -eq 1 ]]; then
+    safe_remove_directory "$omanome_config_dir" "$config_home"
+  else
+    safe_remove_file "$omanome_config_dir/safe-mode" "$omanome_config_dir"
+  fi
+
+  if [[ "$json" -eq 1 ]]; then
+    jq -n \
+      --arg ownership "$uninstall_ownership_status" \
+      --argjson purge "$(if [[ "$uninstall_purge_settings" -eq 1 ]]; then printf true; else printf false; fi)" \
+      --argjson recovered "$transaction_recovered" \
+      --argjson omarchyRemoved "$omarchy_removed" \
+      '{removed:true,purgeSettings:$purge,ownership:$ownership,transactionRecovered:$recovered,omarchyPluginRemoved:$omarchyRemoved}'
+  else
+    say "Omanome removed. Omarchy, its standard bar, other plugins, themes, and user Hyprland configuration were not touched."
+    [[ "$omarchy_removed" == true ]] || say "Warning: Omarchy plugin registration could not be removed; local Omanome paths were still cleaned safely."
+  fi
 }
 
 devices_cmd() {
