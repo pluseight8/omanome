@@ -203,6 +203,46 @@ function toolbarItems() {
   return ["suggestions", "clipboard", "emoji", "handwriting", "editing", "language", "mode", "settings", "hide", "more"]
 }
 
+// This is deliberately a small, bundled, offline lexicon.  It gives the OSK
+// a useful deterministic baseline without sending keystrokes to a service or
+// persisting a user's vocabulary.  A future local provider can extend this
+// contract without changing the keyboard surface.
+var localWords = {
+  en: ["a", "about", "after", "all", "and", "are", "back", "be", "can", "for", "from", "good", "hello", "help", "home", "how", "in", "is", "it", "keyboard", "language", "local", "me", "my", "no", "not", "now", "of", "on", "open", "or", "please", "quick", "safe", "settings", "text", "that", "the", "this", "to", "today", "up", "use", "wayland", "we", "with", "yes", "you"],
+  ru: ["а", "авто", "без", "быть", "в", "вас", "ввод", "все", "вы", "да", "для", "домой", "еще", "есть", "здесь", "и", "из", "как", "клавиатура", "локально", "мне", "мой", "мы", "на", "нет", "не", "новый", "о", "он", "открыть", "пожалуйста", "привет", "работает", "русский", "с", "система", "текст", "то", "это", "я"]
+}
+
+var typoMap = {
+  en: { teh: "the", adn: "and", thsi: "this", recieve: "receive", dont: "don't", cant: "can't" },
+  ru: { превет: "привет", севодня: "сегодня", пожалуста: "пожалуйста", клавиатураа: "клавиатура" }
+}
+
+function languageKey(language) {
+  return String(language || "en").toLowerCase().indexOf("ru") === 0 ? "ru" : "en"
+}
+
+function suggestions(prefix, language, limit) {
+  var needle = String(prefix || "").trim().toLowerCase()
+  if (!needle) return []
+  var words = localWords[languageKey(language)] || []
+  var result = []
+  for (var i = 0; i < words.length; i++) {
+    var word = String(words[i]).trim()
+    if (word.indexOf(needle) === 0 && word !== needle && result.indexOf(word) < 0) result.push(word)
+  }
+  result.sort(function(a, b) { return a.length - b.length || a.localeCompare(b) })
+  return result.slice(0, Math.max(1, Number(limit) || 3))
+}
+
+function autocorrect(word, language) {
+  var value = String(word || "")
+  if (!value) return ""
+  var corrected = (typoMap[languageKey(language)] || {})[value.toLowerCase()]
+  if (!corrected) return value
+  if (value.charAt(0) === value.charAt(0).toUpperCase()) return corrected.charAt(0).toUpperCase() + corrected.slice(1)
+  return corrected
+}
+
 function isControl(key) {
   return [
     "Shift", "Caps", "Control", "Alt", "Super", "Tab", "Esc", "Backspace", "Space", "Enter", "123", "ABC",
@@ -245,6 +285,8 @@ var api = {
   emojiCategories: emojiCategories,
   emojiItems: emojiItems,
   alternateKeys: alternateKeys,
+  suggestions: suggestions,
+  autocorrect: autocorrect,
   toolbarItems: toolbarItems,
   isControl: isControl,
   isRepeatable: isRepeatable,

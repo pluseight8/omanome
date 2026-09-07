@@ -155,6 +155,30 @@ function classifyKeyboards(devices) {
   return result
 }
 
+function keyboardTransport(device) {
+  var item = device || {}
+  var values = [item.transport, item.connection, item.bus, item.backend, item.protocol, item.type]
+  for (var i = 0; i < values.length; i++) {
+    var value = token(values[i])
+    if (value) return value
+  }
+  return "unknown"
+}
+
+function isBluetoothKeyboard(device) {
+  if (!isPhysicalKeyboard(device)) return false
+  var value = keyboardTransport(device)
+  var name = token(device && (device.name || device.device || device.identifier))
+  return value.indexOf("bluetooth") >= 0 || value.indexOf("bluez") >= 0 || name.indexOf("bluetooth") >= 0
+}
+
+function isDetachableKeyboard(device) {
+  if (!isPhysicalKeyboard(device)) return false
+  var item = device || {}
+  var value = token(item.formFactor || item.connection || item.transport || item.role || item.type)
+  return item.detachable === true || item.detachableKeyboard === true || value.indexOf("detachable") >= 0 || value.indexOf("tablet-keyboard") >= 0
+}
+
 function diagnostics(device, fallbackBackend) {
   var item = normalizeDevice(device, fallbackBackend)
   var caps = item.capabilities
@@ -198,6 +222,9 @@ var api = {
   isTabletPad: isTabletPad,
   isStylus: isStylus,
   isPhysicalKeyboard: isPhysicalKeyboard,
+  keyboardTransport: keyboardTransport,
+  isBluetoothKeyboard: isBluetoothKeyboard,
+  isDetachableKeyboard: isDetachableKeyboard,
   capabilities: capabilities,
   normalizeDevice: normalizeDevice,
   classify: classify,

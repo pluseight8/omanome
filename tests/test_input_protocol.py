@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import json
 import pathlib
+import shutil
+import subprocess
 import unittest
 
 
@@ -19,6 +21,8 @@ class InputProtocolContractTests(unittest.TestCase):
         )
         cls.source = (ROOT / "input/omanome-input/src/main.rs").read_text(encoding="utf-8")
         cls.service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        cls.osk = (ROOT / "shell/views/Osk.qml").read_text(encoding="utf-8")
+        cls.osk_policy = (ROOT / "shell/models/OskPolicy.js").read_text(encoding="utf-8")
 
     def test_protocol_is_versioned_and_bounded(self) -> None:
         self.assertEqual(self.contract["protocol"], "omanome-input")
@@ -63,7 +67,29 @@ class InputProtocolContractTests(unittest.TestCase):
         self.assertIn("inputTextBackendAvailable", self.service)
         self.assertIn("inputTextFocusActive", self.service)
         self.assertIn("root.hasPhysicalKeyboard", self.service)
-        self.assertIn('root.lastInput !== "touch" && root.lastInput !== "stylus"', self.service)
+        self.assertIn("OskPolicy.desired", self.service)
+        self.assertIn('["touch", "stylus"]', self.osk_policy)
+
+    def test_osk_prediction_and_visibility_are_local_and_hysteretic(self) -> None:
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        expression = (
+            "const O=require('./shell/models/Osk.js'); "
+            "const P=require('./shell/models/OskPolicy.js'); "
+            "let source={autoShow:true,textFocus:true,physicalKeyboard:false,detachableKeyboard:false,bluetoothKeyboard:false,lastInput:'touch',mode:'tablet',touchscreen:true}; "
+            "let first=P.transition(source,{},1000); let second=P.transition(source,first.state,1110); "
+            "console.log(JSON.stringify({suggestions:O.suggestions('th','en',3),correct:O.autocorrect('teh','en'),first:first.pending,second:second.pending,visible:second.state.visible}));"
+        )
+        result = subprocess.run([node, "-e", expression], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertIn("the", payload["suggestions"])
+        self.assertEqual(payload["correct"], "the")
+        self.assertTrue(payload["first"])
+        self.assertTrue(payload["second"])
+        self.assertFalse(payload["visible"])
+        self.assertIn("secure field", self.osk)
 
 
 if __name__ == "__main__":

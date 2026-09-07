@@ -17,6 +17,7 @@ import "models/Stylus.js" as StylusModel
 import "models/Touch.js" as TouchModel
 import "models/Responsive.js" as ResponsiveModel
 import "models/Input.js" as InputModel
+import "models/OskPolicy.js" as OskPolicy
 import "models/TabletMode.js" as TabletModeModel
 import "models/ProcessPolicy.js" as ProcessPolicy
 
@@ -27,6 +28,7 @@ Item {
   id: root
 
   property var shell: null
+  property var panel: null
   property var manifest: null
   readonly property string home: Quickshell.env("HOME")
   readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME") || (home + "/.config")
@@ -57,6 +59,8 @@ Item {
   property bool inputTextFocusActive: false
   property bool inputSecureContext: false
   property bool inputTextBackendAvailable: false
+  property bool oskAutoShown: false
+  property var oskPolicyState: ({ visible: false, pending: false, pendingSince: 0, reason: "not-evaluated" })
   property int inputNativePending: 0
   property var inputRestartState: ({ consecutiveFailures: 0, startedAt: 0, blocked: false })
   readonly property var inputRestartPolicy: ({ initialDelayMs: 1000, maxDelayMs: 30000, maxConsecutiveFailures: 5, stableAfterMs: 30000 })
@@ -78,6 +82,8 @@ Item {
   property bool hasTouchscreen: false
   property bool hasStylus: false
   property bool hasPhysicalKeyboard: false
+  property bool hasDetachableKeyboard: false
+  property bool hasBluetoothKeyboard: false
   property bool tabletSwitchAvailable: false
   property bool tabletSwitchActive: false
   property bool hyprlandAvailable: false
@@ -237,17 +243,54 @@ Item {
     return root.nativeInputSend({ type: "set.language", language: root.nativeInputLanguage() })
   }
 
+  function oskPolicySource() {
+    return {
+      autoShow: root.inputTextBackendAvailable && root.cfg("keyboard.enabled", true) === true && root.cfg("keyboard.autoShow", true) === true,
+      textFocus: root.inputTextFocusActive,
+      secure: root.inputSecureContext,
+      securePolicy: "allow",
+      physicalKeyboard: root.hasPhysicalKeyboard,
+      detachableKeyboard: root.hasDetachableKeyboard,
+      bluetoothKeyboard: root.hasBluetoothKeyboard,
+      lastInput: root.lastInput,
+      mode: root.detectedMode,
+      touchscreen: root.hasTouchscreen
+    }
+  }
+
   function shouldAutoShowOsk() {
-    if (!root.inputTextBackendAvailable || !root.inputTextFocusActive) return false
-    if (root.cfg("keyboard.enabled", true) !== true || root.cfg("keyboard.autoShow", true) !== true) return false
-    if (root.hasPhysicalKeyboard) return false
-    if (root.lastInput !== "touch" && root.lastInput !== "stylus") return false
-    if (root.lastInput === "stylus" && String(root.cfg("stylus.showOskOnTextField", "ask")) === "never") return false
-    return root.hasTouchscreen || root.lastInput === "stylus"
+    return OskPolicy.desired(root.oskPolicySource()).visible === true
+  }
+
+  function applyOskPolicyVisibility(visible) {
+    if (visible) {
+      if (root.panel && root.panel.opened) {
+        root.panel.activeView = "keyboard"
+        root.oskAutoShown = true
+      } else if (root.open("keyboard")) {
+        root.oskAutoShown = true
+      }
+      return
+    }
+    if (root.oskAutoShown && root.panel && root.panel.opened && root.panel.activeView === "keyboard") root.panel.close()
+    root.oskAutoShown = false
+  }
+
+  function reconcileOskPolicy() {
+    var decision = OskPolicy.transition(root.oskPolicySource(), root.oskPolicyState, Date.now())
+    root.oskPolicyState = decision.state
+    if (decision.pending) {
+      oskPolicyTimer.interval = Math.max(1, decision.delayMs)
+      oskPolicyTimer.restart()
+    } else if (decision.changed) {
+      root.applyOskPolicyVisibility(decision.state.visible)
+    }
+    return decision
   }
 
   function requestAutoOsk(show) {
-    if (show && root.shouldAutoShowOsk()) root.open("keyboard")
+    if (!show) root.inputTextFocusActive = false
+    return root.reconcileOskPolicy()
   }
 
   function updateNativeInputLine(line) {
@@ -295,6 +338,7 @@ Item {
     if (kind === "text.leave") {
       root.inputTextFocusActive = false
       root.inputSecureContext = false
+      root.requestAutoOsk(false)
       return
     }
     if (kind === "osk.request") {
@@ -1048,6 +1092,8 @@ Item {
       root.detectedMode = root.computeMode()
       root.updateResponsiveContext()
     }
+    if (String(path).indexOf("keyboard.") === 0 || String(path).indexOf("stylus.showOskOnTextField") === 0 || String(path).indexOf("tabletMode.") === 0)
+      root.reconcileOskPolicy()
     if (String(path).indexOf("touch.") === 0) root.applyTouchIntegration()
     if (String(path).indexOf("rotation.") === 0) root.refreshRotationBackend()
     if (String(path).indexOf("notifications.enabled") === 0) root.refreshIntegrations()
@@ -1164,6 +1210,7 @@ Item {
       root.lastInput = observed.current
       root.detectedMode = root.computeMode()
       root.updateResponsiveContext()
+      root.reconcileOskPolicy()
       root.stateRevision++
       root.stateUpdated()
       return
@@ -1183,6 +1230,7 @@ Item {
     root.lastInput = observed.current
     root.detectedMode = root.computeMode()
     root.updateResponsiveContext()
+    root.reconcileOskPolicy()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -1562,6 +1610,9 @@ Item {
     root.hasStylus = styluses.length > 0
     root.keyboardDevices = StylusModel.classifyKeyboards(parsed.keyboards)
     root.hasPhysicalKeyboard = root.keyboardDevices.length > 0
+    root.hasDetachableKeyboard = root.keyboardDevices.some(function(device) { return StylusModel.isDetachableKeyboard(device.raw || device) })
+    root.hasBluetoothKeyboard = root.keyboardDevices.some(function(device) { return StylusModel.isBluetoothKeyboard(device.raw || device) })
+    root.reconcileOskPolicy()
     var tabletSwitch = parsed.tabletSwitch
     if (tabletSwitch === undefined) tabletSwitch = parsed.tablet_switch
     if (tabletSwitch === undefined && parsed.switches && typeof parsed.switches === "object") {
@@ -1582,6 +1633,7 @@ Item {
     }
     root.detectedMode = root.computeMode()
     root.updateResponsiveContext()
+    root.reconcileOskPolicy()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -1618,6 +1670,8 @@ Item {
       hasStylus: root.hasStylus,
       stylusCount: root.stylusDevices.length,
       physicalKeyboard: root.hasPhysicalKeyboard,
+      detachableKeyboard: root.hasDetachableKeyboard,
+      bluetoothKeyboard: root.hasBluetoothKeyboard,
       tabletMode: { switchAvailable: root.tabletSwitchAvailable, switchActive: root.tabletSwitchActive, reason: root.tabletModeState.reason, profile: root.tabletProfile },
       physicalKeyboardCount: root.keyboardDevices.length,
       touch: {
@@ -1630,6 +1684,13 @@ Item {
       hyprland: root.hyprlandAvailable,
       wtype: root.wtypeAvailable,
       inputBackend: root.inputBackendAvailable,
+      inputText: root.inputTextBackendAvailable,
+      inputBackendReason: root.inputBackendReason,
+      inputCapabilities: root.inputBackendCapabilities,
+      inputStatus: root.inputBackendStatus,
+      textFocus: root.inputTextFocusActive,
+      secureTextFocus: root.inputSecureContext,
+      oskPolicy: root.oskPolicyState,
       rotation: {
         available: root.systemState.rotationAvailable === true,
         sensor: root.systemState.rotationSensorAvailable === true,
@@ -1691,14 +1752,14 @@ Item {
       quickshell: String(Quickshell.env("QUICKSHELL_VERSION") || "host-provided"),
       wayland: String(Quickshell.env("WAYLAND_DISPLAY") || "unavailable"),
       mode: root.detectedMode,
-      input: { last: root.lastInput, pending: root.inputCandidate, touchscreen: root.hasTouchscreen, stylus: root.hasStylus, physicalKeyboard: root.hasPhysicalKeyboard },
+      input: { last: root.lastInput, pending: root.inputCandidate, touchscreen: root.hasTouchscreen, stylus: root.hasStylus, physicalKeyboard: root.hasPhysicalKeyboard, detachableKeyboard: root.hasDetachableKeyboard, bluetoothKeyboard: root.hasBluetoothKeyboard },
       tabletMode: { mode: root.detectedMode, reason: root.tabletModeState.reason, switchAvailable: root.tabletSwitchAvailable, switchActive: root.tabletSwitchActive, profile: root.tabletProfile },
       onboarding: { completed: root.cfg("onboarding.completed", false) === true, skipped: root.cfg("onboarding.skipped", false) === true, version: Number(root.cfg("onboarding.version", 1)) },
       devices: { monitors: root.monitors.length, stylus: root.stylusDevices.length, keyboards: root.keyboardDevices.length },
       rotation: { available: root.systemState.rotationAvailable === true, sensor: root.systemState.rotationSensorAvailable === true, backend: String(root.systemState.rotationSensorBackend || "manual") },
       companion: { installed: companion.installed === true, built: companion.built === true, loaded: companion.loaded === true, compatible: companion.compatible === true, crashMarker: companion.crashMarker === true, abiMatch: companion.abiMatch === true },
       effects: { blur: root.effectBackend.layerRulesAvailable === true, livePreview: root.livePreviewState.available === true, wobbly: root.effectCapabilities.wobblyWindows === true, cube: root.effectCapabilities.desktopCube === true },
-      osk: { enabled: root.cfg("keyboard.enabled", true) === true, wtype: root.wtypeAvailable, inputBackend: root.inputBackendAvailable },
+      osk: { enabled: root.cfg("keyboard.enabled", true) === true, wtype: root.wtypeAvailable, inputBackend: root.inputBackendAvailable, inputText: root.inputTextBackendAvailable, textFocus: root.inputTextFocusActive, secure: root.inputSecureContext, policy: root.oskPolicyState },
       processes: { owner: root.processOwner, registryReady: root.processRegistryReady, ownedCount: root.ownedProcesses.length, counters: root.processCounters },
       config: { schemaVersion: Number(root.config.schemaVersion || Config.CURRENT_SCHEMA_VERSION), path: root.configPath, loadStatus: root.configLoadStatus, loadError: root.configLoadError, migration: root.configMigration },
       responsive: root.responsiveState,
@@ -2744,6 +2805,13 @@ Item {
     interval: 1000
     repeat: false
     onTriggered: root.startNativeInputBackend()
+  }
+
+  Timer {
+    id: oskPolicyTimer
+    interval: 120
+    repeat: false
+    onTriggered: root.reconcileOskPolicy()
   }
 
   Timer {

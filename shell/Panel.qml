@@ -39,6 +39,9 @@ Item {
   function close() { root.opened = false }
   function toggle() { root.opened ? root.close() : root.open("{}") }
 
+  Component.onCompleted: if (root.service) root.service.panel = root
+  Component.onDestruction: if (root.service && root.service.panel === root) root.service.panel = null
+
   PanelWindow {
     id: window
     visible: root.opened

@@ -35,6 +35,9 @@ Item {
   property var strokes: []
   property var redoStrokes: []
   property var currentStroke: []
+  property string currentWord: ""
+  property var suggestionItems: []
+  property bool secureInput: false
   property string repeatKey: ""
   property real floatingX: 0.5
   property real floatingY: 0.72
@@ -47,6 +50,51 @@ Item {
 
   function setCfg(path, value) {
     if (root.service) root.service.setConfig(path, value)
+  }
+
+  function refreshSuggestions() {
+    root.secureInput = root.service && root.service.inputSecureContext === true
+    if (root.secureInput || root.cfg("keyboard.suggestions", true) !== true) {
+      root.suggestionItems = []
+      return
+    }
+    root.suggestionItems = Osk.suggestions(root.currentWord, root.language, 3)
+  }
+
+  function isWordCharacter(value) {
+    var item = String(value || "")
+    return item.length === 1 && /^[A-Za-zА-Яа-яЁё]$/.test(item)
+  }
+
+  function trackTextKey(value) {
+    var item = String(value || "")
+    if (root.isWordCharacter(item)) root.currentWord += item
+    else if (item === "Backspace") root.currentWord = root.currentWord.slice(0, -1)
+    else if (item !== "Shift" && item !== "Caps") root.currentWord = ""
+    root.refreshSuggestions()
+  }
+
+  function replaceCurrentWord(value) {
+    var next = String(value || "")
+    if (!next || !root.service || root.secureInput) return false
+    for (var i = 0; i < root.currentWord.length; i++) root.service.sendKey("Backspace", false)
+    root.service.typeText(next)
+    root.currentWord = next
+    root.refreshSuggestions()
+    return true
+  }
+
+  function commitWordBoundary() {
+    if (!root.service) return false
+    var word = root.currentWord
+    if (!root.secureInput && root.cfg("keyboard.autocorrect", false) === true) {
+      var corrected = Osk.autocorrect(word, root.language)
+      if (corrected && corrected !== word) root.replaceCurrentWord(corrected)
+    }
+    root.service.sendKey("Space", false)
+    root.currentWord = ""
+    root.refreshSuggestions()
+    return true
   }
 
   function refreshLanguage() {
@@ -73,6 +121,7 @@ Item {
     root.emojiCategory = String(root.cfg("keyboard.emojiCategory", "recent"))
     root.floatingX = Number(root.cfg("keyboard.floating.x", 0.5))
     root.floatingY = Number(root.cfg("keyboard.floating.y", 0.72))
+    root.refreshSuggestions()
   }
 
   Connections {
@@ -222,8 +271,15 @@ Item {
       return
     }
     var modifiers = root.activeModifiers()
+    if (value === "Space" && modifiers.length === 0) {
+      root.commitWordBoundary()
+      root.clearOneShotModifiers()
+      root.shifted = false
+      return
+    }
     if (modifiers.length > 0) root.service.sendModifiedKey(value, modifiers)
     else root.service.sendKey(value, root.shifted || root.capsLocked)
+    if (modifiers.length === 0) root.trackTextKey(value)
     root.clearOneShotModifiers()
     root.shifted = false
     if (root.inputLayer === "function") root.setLayer("letters")
@@ -282,6 +338,7 @@ Item {
     root.popupAlternates = []
     root.popupKey = ""
     if (root.service) root.service.typeText(String(value || ""))
+    root.trackTextKey(value)
   }
 
   function emojiItems() {
@@ -298,6 +355,8 @@ Item {
       if (String(recent[i]) !== String(value || "")) next.push(String(recent[i]))
     root.setCfg("keyboard.emojiRecent", next)
     root.setCfg("keyboard.emojiCategory", root.emojiCategory)
+    root.currentWord = ""
+    root.refreshSuggestions()
   }
 
   function toolbarButtons() {
@@ -390,7 +449,7 @@ Item {
     inkCanvas.requestPaint()
   }
 
-  Component.onCompleted: root.refreshLanguage()
+  Component.onCompleted: { root.refreshLanguage(); root.refreshSuggestions() }
 
   Timer {
     id: shiftTapTimer
@@ -492,10 +551,26 @@ Item {
       Item { Layout.fillWidth: true }
       Text {
         visible: root.inputLayer === "letters" && root.cfg("keyboard.suggestions", true)
-        text: root.service && root.service.inputBackendAvailable ? "Local suggestions" : "Suggestions require optional local input backend"
-        color: root.service && root.service.inputBackendAvailable ? Color.accent : Color.muted
+        text: root.secureInput ? "Suggestions disabled for secure field" : (root.suggestionItems.length > 0 ? "Offline local suggestions" : "Type for local suggestions")
+        color: root.secureInput ? Color.muted : (root.suggestionItems.length > 0 ? Color.accent : Color.muted)
         font.pixelSize: Style.font.caption
         elide: Text.ElideRight
+      }
+    }
+
+    RowLayout {
+      Layout.fillWidth: true
+      visible: root.inputLayer === "letters" && root.cfg("keyboard.suggestions", true) === true && !root.secureInput && root.suggestionItems.length > 0
+      spacing: Style.space(6)
+      Repeater {
+        model: root.suggestionItems
+        delegate: ActionButton {
+          required property string modelData
+          Layout.fillWidth: true
+          compact: true
+          text: modelData
+          onClicked: root.replaceCurrentWord(modelData)
+        }
       }
     }
 
