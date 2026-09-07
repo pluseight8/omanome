@@ -30,6 +30,7 @@ companion_backup_dir="$companion_state_dir/artifacts"
 config_tool="$repo_dir/scripts/config_tool.py"
 process_snapshot="$repo_dir/scripts/process_snapshot.py"
 performance_check="$repo_dir/scripts/performance_check.py"
+process_watchdog="$repo_dir/scripts/process_watchdog.py"
 transaction_dir="$omanome_state_dir/transactions"
 transaction_file="$transaction_dir/current.json"
 transaction_history_dir="$transaction_dir/history"
@@ -88,6 +89,7 @@ Commands:
   processes [--json]     Print only explicitly Omanome-owned processes
   benchmark [--watch]    Print runtime CPU/RAM/process diagnostics
   profiler               Watch the same owner-only performance snapshot
+  watchdog [--watch]     Notify about sustained owner-only resource pressure
   performance reset      Reset local performance counters/state
   devices                Print Hyprland's device inventory
 EOF
@@ -1462,7 +1464,7 @@ benchmark_cmd() {
     --arg layers "$layers" \
     --arg clients "$clients" \
     --argjson ownership "$ownership" \
-    '{schemaVersion:1,version:$version,quickshell:$quickshell,hyprland:$hyprland,layerCount:($layers|tonumber? // null),clientCount:($clients|tonumber? // null),ownerOnly:$ownership,method:"snapshot only; no per-frame polling; foreign processes excluded by explicit ownership marker"}'
+    '{schemaVersion:2,version:$version,quickshell:$quickshell,hyprland:$hyprland,layerCount:($layers|tonumber? // null),clientCount:($clients|tonumber? // null),ownerOnly:$ownership,metrics:{systemCpuPercent:($ownership.systemCpuPercent // null),omanomeCpuPercent:($ownership.ownerCpuPercent // $ownership.totalCpuPercent // null),helperCpuPercent:($ownership.helperCpuPercent // null),quickshellCpuPercent:($ownership.quickshellCpuPercent // null),companionCpuPercent:($ownership.companionCpuPercent // null),omanomeProcessCount:($ownership.processCount // 0),helperProcessCount:($ownership.helperProcessCount // 0),memoryBytes:($ownership.totalMemoryBytes // 0),subprocessRatePerMinute:($ownership.subprocessRatePerMinute // null),activeTimers:($ownership.activeTimers // null),previewStreams:($ownership.previewStreams // 0),activeExpensiveComponents:($ownership.activeExpensiveComponents // [])},measurement:{foreignProcessesExcluded:true,quickshellCpu:"not measured unless the host exposes an explicit Omanome-owned identity",companionCpu:"not measured unless the companion exposes an explicit Omanome-owned identity"},method:"owner-only snapshot; no per-frame polling; no process termination"}'
 }
 
 processes_cmd() {
@@ -1476,7 +1478,11 @@ processes_cmd() {
 }
 
 profiler_cmd() {
-  python3 "$process_snapshot" --watch --interval 1 --sample-ms 100 "${@:-}"
+  python3 "$process_snapshot" --watch --interval 1 --sample-ms 100 "$@"
+}
+
+watchdog_cmd() {
+  python3 "$process_watchdog" "$@"
 }
 
 performance_cmd() {
@@ -1486,6 +1492,7 @@ performance_cmd() {
     reset) python3 "$process_snapshot" --reset --json "$@" ;;
     check) python3 "$performance_check" --json "$@" ;;
     snapshot|benchmark) benchmark_cmd "$@" ;;
+    watchdog) watchdog_cmd "$@" ;;
     *) usage >&2; die "unknown performance operation: $operation" ;;
   esac
 }
@@ -1523,6 +1530,7 @@ case "$command_name" in
   processes) processes_cmd "$@" ;;
   benchmark) benchmark_cmd "$@" ;;
   profiler) profiler_cmd "$@" ;;
+  watchdog) watchdog_cmd "$@" ;;
   performance) performance_cmd "$@" ;;
   companion)
     companion_command="${1:-status}"

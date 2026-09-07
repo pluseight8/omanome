@@ -11,6 +11,7 @@ processes such as Omarchy's Lua helpers from being attributed to Omanome.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import os
 import pathlib
@@ -22,9 +23,11 @@ from typing import Any, Iterable
 
 OWNER = "io.omanome.shell"
 REGISTRY_SCHEMA = 1
+REPORT_SCHEMA = 2
 PROC_ENV_OWNER = "OMANOME_OWNER"
 PROC_ENV_COMPONENT = "OMANOME_COMPONENT"
 PROC_ENV_SHELL_PID = "OMANOME_SHELL_PID"
+PROC_ENV_ROLE = "OMANOME_ROLE"
 HZ = int(os.sysconf("SC_CLK_TCK"))
 PAGE_SIZE = int(os.sysconf("SC_PAGE_SIZE"))
 
@@ -91,7 +94,7 @@ def _environment(pid: int) -> dict[str, str]:
         key, value = item.split(b"=", 1)
         try:
             key_text = key.decode("utf-8", "replace")
-            if key_text in {PROC_ENV_OWNER, PROC_ENV_COMPONENT, PROC_ENV_SHELL_PID}:
+            if key_text in {PROC_ENV_OWNER, PROC_ENV_COMPONENT, PROC_ENV_SHELL_PID, PROC_ENV_ROLE}:
                 result[key_text] = value.decode("utf-8", "replace")
         except UnicodeDecodeError:
             continue
@@ -146,6 +149,48 @@ def _uptime_seconds(start_ticks: int, now: float | None = None) -> float:
     return max(0.0, (now if now is not None else time.time()) - started)
 
 
+def _process_start_epoch(start_ticks: int) -> float:
+    uptime_text = _read_text(pathlib.Path("/proc/uptime")).split()
+    try:
+        uptime = float(uptime_text[0])
+    except (IndexError, ValueError):
+        return 0.0
+    return time.time() - uptime + (start_ticks / HZ)
+
+
+def _registry_start_epoch(item: dict[str, Any]) -> float:
+    value = str(item.get("startedAt", ""))
+    if not value:
+        return 0.0
+    try:
+        return dt.datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def _registry_identity_matches(stat: dict[str, Any], item: dict[str, Any], command: list[str]) -> bool:
+    """Accept a registry-only match only when PID reuse is ruled out.
+
+    The environment marker is the primary proof.  The registry fallback is
+    deliberately strict: it requires the recorded start time and executable
+    to match the live process.  A bare PID or process name is never enough.
+    """
+
+    if not isinstance(item, dict) or item.get("owner") not in {None, OWNER}:
+        return False
+    recorded_start = _registry_start_epoch(item)
+    live_start = _process_start_epoch(int(stat.get("startTicks", 0) or 0))
+    if recorded_start <= 0 or live_start <= 0 or abs(recorded_start - live_start) > 15.0:
+        return False
+    recorded_command = item.get("command")
+    if isinstance(recorded_command, list) and recorded_command and command:
+        recorded_executable = pathlib.Path(str(recorded_command[0])).name
+        live_executable = pathlib.Path(str(command[0])).name
+        if recorded_executable != live_executable:
+            return False
+    return True
+
+
 def _load_registry(path: pathlib.Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -179,15 +224,21 @@ def _process_record(pid: int, registry_item: dict[str, Any] | None, cpu_percent:
         return None
     env = _environment(pid)
     command = _command(pid)
+    if env.get(PROC_ENV_ROLE) == "observer":
+        return None
     marker = env.get(PROC_ENV_OWNER) == OWNER
-    registry_match = isinstance(registry_item, dict) and int(registry_item.get("pid", 0) or 0) == pid
+    registry_match = (
+        isinstance(registry_item, dict)
+        and int(registry_item.get("pid", 0) or 0) == pid
+        and _registry_identity_matches(stat, registry_item, command)
+    )
     if not marker and not registry_match:
         return None
     evidence = []
     if marker:
         evidence.append("environment-marker")
     if registry_match:
-        evidence.append("runtime-registry")
+        evidence.append("runtime-registry-start-time")
     executable = ""
     try:
         executable = os.readlink(f"/proc/{pid}/exe")
@@ -222,8 +273,25 @@ def _process_record(pid: int, registry_item: dict[str, Any] | None, cpu_percent:
     return record
 
 
-def _cpu_samples(pids: list[int], sample_seconds: float) -> dict[int, float]:
+def _system_busy_ticks() -> tuple[int, int]:
+    fields = _read_text(pathlib.Path("/proc/stat")).splitlines()
+    if not fields:
+        return 0, 0
+    values = fields[0].split()
+    try:
+        ticks = [int(value) for value in values[1:]]
+    except (IndexError, ValueError):
+        return 0, 0
+    if len(ticks) < 5:
+        return 0, 0
+    total = sum(ticks)
+    idle = ticks[3] + ticks[4]
+    return total, max(0, total - idle)
+
+
+def _cpu_samples(pids: list[int], sample_seconds: float) -> tuple[dict[int, float], float]:
     before_total = _system_ticks()
+    before_system_total, before_system_busy = _system_busy_ticks()
     before: dict[int, int] = {}
     for pid in pids:
         stat = _proc_stat(pid)
@@ -232,6 +300,7 @@ def _cpu_samples(pids: list[int], sample_seconds: float) -> dict[int, float]:
     if sample_seconds > 0:
         time.sleep(sample_seconds)
     after_total = _system_ticks()
+    after_system_total, after_system_busy = _system_busy_ticks()
     total_delta = max(1, after_total - before_total)
     result: dict[int, float] = {}
     for pid, value in before.items():
@@ -240,7 +309,10 @@ def _cpu_samples(pids: list[int], sample_seconds: float) -> dict[int, float]:
             continue
         process_delta = max(0, stat["utimeTicks"] + stat["stimeTicks"] - value)
         result[pid] = process_delta / total_delta * (os.cpu_count() or 1) * 100.0
-    return result
+    system_total_delta = max(1, after_system_total - before_system_total)
+    system_busy_delta = max(0, after_system_busy - before_system_busy)
+    system_cpu = min(100.0, max(0.0, system_busy_delta / system_total_delta * 100.0))
+    return result, system_cpu
 
 
 def snapshot(registry_path: pathlib.Path | None = None, sample_seconds: float = 0.1) -> dict[str, Any]:
@@ -254,7 +326,7 @@ def snapshot(registry_path: pathlib.Path | None = None, sample_seconds: float = 
             pid = int(entry.name)
             if _environment(pid).get(PROC_ENV_OWNER) == OWNER:
                 candidates.add(pid)
-    cpu = _cpu_samples(sorted(candidates), max(0.0, min(sample_seconds, 1.0)))
+    cpu, system_cpu = _cpu_samples(sorted(candidates), max(0.0, min(sample_seconds, 1.0)))
     processes = []
     for pid in sorted(candidates):
         record = _process_record(pid, registry_by_pid.get(pid), cpu.get(pid, 0.0))
@@ -263,15 +335,20 @@ def snapshot(registry_path: pathlib.Path | None = None, sample_seconds: float = 
     total_cpu = sum(float(item["cpuPercent"]) for item in processes)
     total_memory = sum(int(item["memoryBytes"]) for item in processes)
     helpers = [item for item in processes if item.get("component") not in {"shell", "service"}]
+    helper_cpu = sum(float(item["cpuPercent"]) for item in helpers)
+    active_components = sorted({str(item.get("component", "unknown")) for item in processes})
     counters = registry.get("counters") if isinstance(registry.get("counters"), dict) else {}
     return {
-        "schemaVersion": REGISTRY_SCHEMA,
+        "schemaVersion": REPORT_SCHEMA,
         "owner": OWNER,
         "measuredAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "sampleSeconds": round(max(0.0, min(sample_seconds, 1.0)), 3),
         "processCount": len(processes),
         "helperProcessCount": len(helpers),
         "totalCpuPercent": round(total_cpu, 3),
+        "ownerCpuPercent": round(total_cpu, 3),
+        "helperCpuPercent": round(helper_cpu, 3),
+        "systemCpuPercent": round(system_cpu, 3),
         "totalMemoryBytes": total_memory,
         "spawnedTotal": int(counters.get("spawnedTotal", 0) or 0),
         "activeSubprocesses": len(processes),
@@ -279,6 +356,16 @@ def snapshot(registry_path: pathlib.Path | None = None, sample_seconds: float = 
         "configWrites": int(counters.get("configWrites", 0) or 0),
         "previewStreams": int(counters.get("previewStreams", 0) or 0),
         "helperRestarts": int(counters.get("helperRestarts", 0) or 0),
+        "subprocessRatePerMinute": counters.get("subprocessRatePerMinute"),
+        "activeTimers": counters.get("activeTimers"),
+        "activeExpensiveComponents": active_components,
+        "quickshellCpuPercent": None,
+        "companionCpuPercent": None,
+        "measurementNotes": {
+            "quickshellCpuPercent": "not measured: the host process is not Omanome-owned",
+            "companionCpuPercent": "not measured: the optional companion has no owner marker in this snapshot",
+            "foreignProcessesExcluded": True,
+        },
         "processes": processes,
         "ownership": {
             "method": "explicit environment marker or matching runtime registry",
@@ -296,7 +383,8 @@ def _format_bytes(value: int) -> str:
 
 def print_text(report: dict[str, Any]) -> None:
     print(f"Omanome-owned processes: {report['processCount']}")
-    print(f"Total CPU: {report['totalCpuPercent']:.3f}%")
+    print(f"Omanome-owned CPU: {report['totalCpuPercent']:.3f}%")
+    print(f"System CPU: {report['systemCpuPercent']:.3f}% (all processes; not attributed to Omanome)")
     print(f"Total RAM: {_format_bytes(int(report['totalMemoryBytes']))}")
     if not report["processes"]:
         print("No Omanome-owned helper is currently registered.")
@@ -319,6 +407,9 @@ def reset_counters(registry_path: pathlib.Path | None = None) -> dict[str, Any]:
         "configWrites": 0,
         "previewStreams": 0,
         "helperRestarts": 0,
+        "spawnWindowStartedAt": 0,
+        "spawnWindowCount": 0,
+        "subprocessRatePerMinute": 0,
     }
     registry_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = registry_path.with_name(registry_path.name + f".tmp.{os.getpid()}")

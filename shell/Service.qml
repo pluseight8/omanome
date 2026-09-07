@@ -42,7 +42,7 @@ Item {
   property bool processRegistryReady: false
   property var ownedProcesses: []
   property var processRestartHistory: ({})
-  property var processCounters: ({ spawnedTotal: 0, eventsReceived: 0, failedExits: 0, configWrites: 0, clipboardWrites: 0, helperRestarts: 0, coalescedRequests: 0 })
+  property var processCounters: ({ spawnedTotal: 0, eventsReceived: 0, failedExits: 0, configWrites: 0, clipboardWrites: 0, helperRestarts: 0, coalescedRequests: 0, spawnWindowStartedAt: 0, spawnWindowCount: 0, subprocessRatePerMinute: 0 })
   property var clipboardRestartState: ({ consecutiveFailures: 0, startedAt: 0, blocked: false })
   readonly property var clipboardRestartPolicy: ({ initialDelayMs: 1000, maxDelayMs: 30000, maxConsecutiveFailures: 5, stableAfterMs: 30000 })
   property var rotationRestartState: ({ consecutiveFailures: 0, startedAt: 0, blocked: false })
@@ -84,6 +84,9 @@ Item {
   property var livePreviewState: ({ available: false, backend: "quickshell-screencopy", protocol: "hyprland-toplevel-export-v1", activeStreams: 0, reason: "waiting for compositor-owned ScreencopyView content" })
   property var effectCapabilities: EffectsModel.capabilityState({}, {})
   property var performanceState: PerformanceModel.snapshot({}, {})
+  property var performanceSnapshot: ({})
+  property string performanceSnapshotOutput: ""
+  property bool performanceSnapshotRunning: false
   property bool wobblyBackendRequestInFlight: false
   property bool wobblyBackendSynced: true
   property bool wobblyBackendDesired: false
@@ -171,10 +174,54 @@ Item {
     }
   }
 
+  function observerEnvironment(component) {
+    var environment = root.ownedEnvironment(component)
+    environment.OMANOME_ROLE = "observer"
+    return environment
+  }
+
+  function requestPerformanceSnapshot() {
+    if (performanceSnapshotProcess.running) return false
+    root.performanceSnapshotOutput = ""
+    root.performanceSnapshot = ({})
+    performanceSnapshotProcess.running = true
+    return true
+  }
+
+  function updatePerformanceSnapshot(raw) {
+    var parsed = root.parseJson(raw, {})
+    if (!parsed || typeof parsed !== "object") return
+    root.performanceSnapshot = parsed
+    root.performanceSnapshotOutput = JSON.stringify(parsed, null, 2)
+  }
+
+  function finishPerformanceSnapshot(exitCode) {
+    performanceSnapshotTimeout.stop()
+    root.performanceSnapshotRunning = false
+    if (Number(exitCode || 0) !== 0) root.lastError = "Performance snapshot failed"
+  }
+
   function updateProcessCounter(name, delta) {
     var next = {}
     for (var key in root.processCounters) next[key] = root.processCounters[key]
     next[String(name)] = Number(next[String(name)] || 0) + Number(delta || 0)
+    root.processCounters = next
+  }
+
+  function recordProcessSpawn() {
+    var now = Date.now()
+    var next = {}
+    for (var key in root.processCounters) next[key] = root.processCounters[key]
+    var windowStartedAt = Number(next.spawnWindowStartedAt || 0)
+    var windowCount = Number(next.spawnWindowCount || 0)
+    if (windowStartedAt <= 0 || now - windowStartedAt >= 60000) {
+      windowStartedAt = now
+      windowCount = 0
+    }
+    windowCount++
+    next.spawnWindowStartedAt = windowStartedAt
+    next.spawnWindowCount = windowCount
+    next.subprocessRatePerMinute = Math.round(windowCount * 60000 / Math.max(1000, now - windowStartedAt) * 100) / 100
     root.processCounters = next
   }
 
@@ -252,6 +299,7 @@ Item {
     if (!replaced) next.push(entry)
     root.ownedProcesses = next
     root.updateProcessCounter("spawnedTotal", 1)
+    root.recordProcessSpawn()
     root.scheduleProcessRegistryWrite()
   }
 
@@ -456,6 +504,9 @@ Item {
     var context = {
       batterySaver: batterySaver,
       fullscreen: root.fullscreenActive(),
+      powerProfile: String(root.systemState.powerProfile || "unknown"),
+      thermalPressure: String(root.systemState.thermalPressure || "unknown"),
+      onAc: batteryState !== "discharging" && batteryState !== "unknown",
       disableOnFullscreen: performance.disableOnFullscreen !== false,
       highGpuThreshold: Number(performance.highGpuThreshold || 0.85),
       reducedMotion: root.cfg("general.reduceMotion", false) === true || root.cfg("animations.reducedMotion", false) === true,
@@ -1993,6 +2044,29 @@ Item {
     environment: root.ownedEnvironment("screenshot")
     onStarted: root.processStarted("screenshot", screenshotProcess, "user-requested screenshot", false, "user-action")
     onExited: function(exitCode) { root.processStopped("screenshot", screenshotProcess, exitCode) }
+  }
+
+  Process {
+    id: performanceSnapshotProcess
+    command: ["python3", root.sourcePath("scripts/process_snapshot.py"), "--json", "--sample-ms", "100"]
+    environment: root.observerEnvironment("performance-snapshot")
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updatePerformanceSnapshot(text) }
+    onStarted: {
+      root.performanceSnapshotRunning = true
+      root.processStarted("performance-snapshot", performanceSnapshotProcess, "on-demand owner-only diagnostics", false, "user-action")
+      performanceSnapshotTimeout.restart()
+    }
+    onExited: function(exitCode) {
+      root.processStopped("performance-snapshot", performanceSnapshotProcess, exitCode)
+      root.finishPerformanceSnapshot(exitCode)
+    }
+  }
+
+  Timer {
+    id: performanceSnapshotTimeout
+    interval: 5000
+    repeat: false
+    onTriggered: if (performanceSnapshotProcess.running) performanceSnapshotProcess.running = false
   }
 
   Process {

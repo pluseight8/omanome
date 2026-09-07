@@ -28,14 +28,14 @@
     "performance": {
       "type": "object",
       "properties": {
-        "mode": { "enum": ["balanced", "performance", "battery-saver"] },
-        "qualityPreset": { "enum": ["quality", "balanced", "performance", "battery-saver"] },
+        "mode": { "enum": ["automatic", "quality", "balanced", "performance", "battery-saver"] },
+        "qualityPreset": { "enum": ["automatic", "quality", "balanced", "performance", "battery-saver"] },
         "adaptiveQuality": { "type": "boolean" },
         "highGpuThreshold": { "type": "number", "minimum": 0, "maximum": 1 },
         "gpuLoadSource": { "type": "string" },
         "disableOnBattery": { "type": "boolean" },
         "disableOnFullscreen": { "type": "boolean" },
-        "fullscreenPolicy": { "enum": ["balanced", "performance", "battery-saver"] },
+        "fullscreenPolicy": { "enum": ["quality", "balanced", "performance", "battery-saver"] },
         "autoDisableOnFrameBudget": { "type": "boolean" }
       }
     },

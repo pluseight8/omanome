@@ -438,9 +438,11 @@ class OmanomeProjectTests(unittest.TestCase):
             "const motion=A.transition({enabled:true,preset:'Smooth'},180,true); "
             "const performance=P.snapshot({qualityPreset:'balanced',adaptiveQuality:true,highGpuThreshold:0.85},{gpuLoad:0.92}); "
             "const battery=P.snapshot({mode:'balanced',disableOnBattery:true},{batterySaver:true}); "
+            "const automatic=P.snapshot({mode:'automatic',adaptiveQuality:true},{powerProfile:'performance'}); "
+            "const quality=P.snapshot({mode:'quality'},{}); "
             "const caps=E.capabilityState({desktopCube:false},{desktopCube:true,desktopCubeBackend:'omarchy-desktop-cube'}); "
             "const rules=E.layerRules({enabled:true,quality:'balanced',surfaces:{dock:{enabled:true}}},{backend:'hyprland-layer-rule',layerRulesAvailable:true},{backendAvailable:true}); "
-            "console.log(JSON.stringify({blur,rule,motion,performance,battery,caps,rules}));"
+            "console.log(JSON.stringify({blur,rule,motion,performance,battery,automatic,quality,caps,rules}));"
         )
         self.assertEqual(result["blur"]["quality"], "battery-saver")
         self.assertEqual(result["blur"]["passes"], 0)
@@ -451,6 +453,9 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertEqual(result["performance"]["requestedMode"], "balanced")
         self.assertEqual(result["battery"]["mode"], "battery-saver")
         self.assertFalse(result["battery"]["effectsEnabled"])
+        self.assertEqual(result["automatic"]["mode"], "quality")
+        self.assertEqual(result["quality"]["mode"], "quality")
+        self.assertEqual(result["quality"]["previewStreams"], 4)
         self.assertEqual(result["caps"]["desktopCubeBackend"], "omarchy-desktop-cube")
         self.assertTrue(any(item["rule"] == "blur,namespace:omanome-dock" for item in result["rules"]))
 

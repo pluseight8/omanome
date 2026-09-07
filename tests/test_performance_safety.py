@@ -72,6 +72,17 @@ class PerformanceSafetyTests(unittest.TestCase):
         self.assertIn("clipboardWriteDebounce.restart()", service)
         self.assertIn("root.persistClipboard()", service)
 
+    def test_owner_only_watchdog_and_on_demand_ui_snapshot_are_explicit(self) -> None:
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")
+        watchdog = (ROOT / "scripts/process_watchdog.py").read_text(encoding="utf-8")
+        self.assertIn("id: performanceSnapshotProcess", service)
+        self.assertIn("observerEnvironment", service)
+        self.assertIn("performanceSnapshotTimeout", service)
+        self.assertIn("watchdog_cmd", cli)
+        self.assertIn("automaticTermination", watchdog)
+        self.assertNotIn("os.kill", watchdog)
+
 
 if __name__ == "__main__":
     unittest.main()

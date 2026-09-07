@@ -1,6 +1,7 @@
-var MODES = ["balanced", "performance", "battery-saver"]
+var MODES = ["automatic", "quality", "balanced", "performance", "battery-saver"]
 
 var MODE_POLICY = {
+  quality: { animationScale: 1.0, previewStreams: 4, blurPasses: 3, fallbackIntervalMs: 90000 },
   balanced: { animationScale: 1.0, previewStreams: 3, blurPasses: 2, fallbackIntervalMs: 120000 },
   performance: { animationScale: 0.8, previewStreams: 2, blurPasses: 1, fallbackIntervalMs: 180000 },
   "battery-saver": { animationScale: 0.65, previewStreams: 1, blurPasses: 0, fallbackIntervalMs: 300000 }
@@ -20,10 +21,22 @@ function requestedMode(config) {
   return MODES.indexOf(value) >= 0 ? value : "balanced"
 }
 
+function automaticMode(settings, state) {
+  var powerProfile = String(state.powerProfile || "").toLowerCase()
+  var thermal = String(state.thermalPressure || "").toLowerCase()
+  if (["critical", "high", "serious"].indexOf(thermal) >= 0) return "battery-saver"
+  if (["power-saver", "powersave", "battery"].indexOf(powerProfile) >= 0) return "battery-saver"
+  if (state.fullscreen === true && settings.disableOnFullscreen !== false) return "battery-saver"
+  if (state.gpuLoad !== undefined && settings.adaptiveQuality !== false && Number(state.gpuLoad) >= Number(settings.highGpuThreshold || 0.85)) return "performance"
+  if (powerProfile === "performance" || state.onAc === true) return "quality"
+  return "balanced"
+}
+
 function mode(config, context) {
   var settings = settingsObject(config)
   var state = contextObject(context)
   var selected = requestedMode(settings)
+  if (selected === "automatic") selected = automaticMode(settings, state)
   if (state.safeMode === true) return "battery-saver"
   if (state.batterySaver === true && settings.disableOnBattery !== false) return "battery-saver"
   if (state.fullscreen === true && settings.disableOnFullscreen !== false && String(settings.fullscreenPolicy || "battery-saver") === "battery-saver") return "battery-saver"
@@ -61,5 +74,5 @@ function snapshot(config, context) {
   }
 }
 
-var api = { MODES: MODES, requestedMode: requestedMode, mode: mode, quality: quality, effectsEnabled: effectsEnabled, snapshot: snapshot }
+var api = { MODES: MODES, requestedMode: requestedMode, automaticMode: automaticMode, mode: mode, quality: quality, effectsEnabled: effectsEnabled, snapshot: snapshot }
 if (typeof module !== "undefined") module.exports = api
