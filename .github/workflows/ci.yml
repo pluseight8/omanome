@@ -24,7 +24,9 @@ jobs:
           python3 -m json.tool config/schema.json >/dev/null
 
       - name: Run project checks
-        run: make check
+        run: |
+          make check
+          make hardware-test
 
       - name: Verify safety invariants
         run: |

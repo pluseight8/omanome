@@ -79,6 +79,9 @@ Commands:
   companion disable      Unload the optional companion
   companion recover      Disable, restore the newest companion backup, and clear pending state
   effects                Print effect and preview backend capabilities
+  capabilities           Print merged capability probes as stable JSON
+  hardware-test          Run non-destructive hardware probes (fixture supported)
+  diagnostics bundle     Create a redacted support bundle
   benchmark              Print lightweight runtime/render diagnostics
   devices                Print Hyprland's device inventory
 EOF
@@ -212,15 +215,33 @@ backup_config() {
 }
 
 status_cmd() {
+  local json=0
+  for argument in "$@"; do [[ "$argument" == "--json" ]] && json=1; done
   if has omarchy-shell; then
     local result
     if result="$(omarchy-shell "$plugin_id" status 2>/dev/null)" && [[ -n "$result" ]]; then
-      printf '%s\n' "$result" | jq . 2>/dev/null || printf '%s\n' "$result"
+      if [[ "$json" -eq 1 ]]; then
+        printf '%s\n' "$result" | jq -c 'if type == "object" then . else {serviceStatus:.} end' 2>/dev/null || jq -n --arg status "$result" '{serviceStatus:$status}'
+      else
+        printf '%s\n' "$result" | jq . 2>/dev/null || printf '%s\n' "$result"
+      fi
       return 0
     fi
   fi
   local config_path
   config_path="$(config_file)"
+  if [[ "$json" -eq 1 ]]; then
+    jq -n \
+    --arg version "$(manifest_value version)" \
+    --arg config "$config_path" \
+    --arg plugin "$installed_plugin_dir" \
+    --arg shell "not running" \
+    --arg transaction "$(if [[ -f "$transaction_file" ]]; then jq -r '.phase // "unknown"' "$transaction_file" 2>/dev/null || printf 'unknown'; else printf 'none'; fi)" \
+    --argjson installed "$(if [[ -d "$installed_plugin_dir" ]]; then printf true; else printf false; fi)" \
+    --argjson safeMode "$(if [[ -f "$omanome_config_dir/safe-mode" ]]; then printf true; else printf false; fi)" \
+    '{schemaVersion:1,version:$version,service:$shell,configPath:$config,pluginPath:$plugin,installed:$installed,safeMode:$safeMode,transaction:$transaction}'
+    return 0
+  fi
   jq -n \
     --arg version "$(manifest_value version)" \
     --arg config "$config_path" \
@@ -231,6 +252,9 @@ status_cmd() {
 }
 
 doctor_cmd() {
+  local json=0
+  for argument in "$@"; do [[ "$argument" == "--json" ]] && json=1; done
+  if [[ "$json" -eq 1 ]]; then doctor_json_cmd; return; fi
   local failed=0
   say "Omanome $(manifest_value version)"
   say "Repository: $repo_dir"
@@ -262,6 +286,32 @@ doctor_cmd() {
   return "$failed"
 }
 
+doctor_json_cmd() {
+  local failed=0 manifest_ok=0 qmllint_ok=0 omarchy_ok=0 config_ok=0
+  if jq -e '.id == "io.omanome.shell" and ((.kinds // []) | index("bar") == null)' "$manifest_path" >/dev/null 2>&1; then manifest_ok=1; else failed=1; fi
+  if [[ -x /usr/lib/qt6/bin/qmllint ]] && make -C "$repo_dir" qmllint >/dev/null 2>&1; then qmllint_ok=1; elif ! [[ -x /usr/lib/qt6/bin/qmllint ]]; then qmllint_ok=1; else failed=1; fi
+  if has omarchy && omarchy plugin validate "$repo_dir" >/dev/null 2>&1; then omarchy_ok=1; else failed=1; fi
+  local config_target="$(config_file)"
+  [[ -f "$config_target" ]] || config_target="$repo_dir/config/defaults.json"
+  if python3 "$config_tool" validate "$config_target" >/dev/null 2>&1; then config_ok=1; else failed=1; fi
+  local companion='{}'
+  if [[ -x "$repo_dir/input/companion-info.sh" ]]; then companion="$("$repo_dir/input/companion-info.sh" 2>/dev/null || printf '{}')"; fi
+  jq -e . >/dev/null 2>&1 <<<"$companion" || companion='{}'
+  jq -n \
+    --arg version "$(manifest_value version)" \
+    --arg repository "$repo_dir" \
+    --arg transaction "$(if [[ -f "$transaction_file" ]]; then jq -r '.phase // "unknown"' "$transaction_file" 2>/dev/null || printf 'unknown'; else printf 'none'; fi)" \
+    --argjson manifest "$(if [[ "$manifest_ok" -eq 1 ]]; then printf true; else printf false; fi)" \
+    --argjson qmllint "$(if [[ "$qmllint_ok" -eq 1 ]]; then printf true; else printf false; fi)" \
+    --argjson omarchy "$(if [[ "$omarchy_ok" -eq 1 ]]; then printf true; else printf false; fi)" \
+    --argjson config "$(if [[ "$config_ok" -eq 1 ]]; then printf true; else printf false; fi)" \
+    --argjson safeMode "$(if [[ -f "$omanome_config_dir/safe-mode" ]]; then printf true; else printf false; fi)" \
+    --argjson companion "$companion" \
+    --argjson failed "$failed" \
+    '{schemaVersion:1,version:$version,repository:$repository,ok:($failed == 0),checks:{manifest:$manifest,qmllint:$qmllint,omarchy:$omarchy,config:$config},safeMode:$safeMode,transaction:$transaction,companion:$companion,safety:{noSudo:true,noX11:true,noSecondShell:true,noReplacementBar:true}}'
+  return "$failed"
+}
+
 logs_cmd() {
   if has journalctl; then
     journalctl --user -n 120 --no-pager 2>/dev/null | rg -i 'omanome|quickshell|omarchy-shell' || true
@@ -280,7 +330,7 @@ reload_cmd() {
 
 enable_cmd() {
   has omarchy || die "omarchy is not installed"
-  rm -f -- "$omanome_config_dir/safe-mode"
+  safe_remove_file "$omanome_config_dir/safe-mode" "$omanome_config_dir"
   omarchy plugin enable "$plugin_id"
   reload_cmd || true
 }
@@ -292,11 +342,32 @@ disable_cmd() {
 }
 
 safe_mode_cmd() {
+  local action="on" json=0
+  for argument in "$@"; do
+    [[ "$argument" == "--json" ]] && json=1
+    [[ "$argument" != --* ]] && action="$argument"
+  done
   ensure_dirs
-  : >"$omanome_config_dir/safe-mode"
-  disable_cmd || true
-  companion_disable_cmd || true
-  say "Omanome safe mode enabled; the standard Omarchy shell remains available."
+  case "$action" in
+    status)
+      if [[ "$json" -eq 1 ]]; then
+        jq -n --arg marker "$omanome_config_dir/safe-mode" --argjson active "$(if [[ -f "$omanome_config_dir/safe-mode" ]]; then printf true; else printf false; fi)" '{active:$active,marker:$marker,reason:(if $active then "advanced Omanome effects are disabled" else "safe mode is inactive" end)}'
+      elif [[ -f "$omanome_config_dir/safe-mode" ]]; then say "Omanome safe mode is active."; else say "Omanome safe mode is inactive."; fi
+      ;;
+    on|enable)
+      json_atomic_write "$omanome_config_dir/safe-mode" "$(jq -n --arg at "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" '{schemaVersion:1,enabled:true,reason:"explicit safe-mode request",at:$at}')"
+      if has omarchy; then omarchy plugin disable "$plugin_id" || true; else say "omarchy is unavailable; plugin disable will apply on the next shell operation." >&2; fi
+      if [[ "$json" -eq 1 ]]; then companion_disable_cmd >/dev/null 2>&1 || true; else companion_disable_cmd || true; fi
+      if [[ "$json" -eq 1 ]]; then jq -n '{active:true,changed:true}'; else say "Omanome safe mode enabled; the standard Omarchy shell remains available."; fi
+      ;;
+    off|disable)
+      safe_remove_file "$omanome_config_dir/safe-mode" "$omanome_config_dir"
+      if has omarchy; then omarchy plugin enable "$plugin_id" || true; fi
+      reload_cmd || true
+      if [[ "$json" -eq 1 ]]; then jq -n '{active:false,changed:true}'; else say "Omanome safe mode disabled; review optional companion effects before enabling them."; fi
+      ;;
+    *) die "safe-mode expects on, off, or status" ;;
+  esac
 }
 
 companion_info_cmd() {
@@ -1144,6 +1215,50 @@ effects_cmd() {
   "$repo_dir/input/effects-info.sh" | jq .
 }
 
+capabilities_cmd() {
+  local hardware='{}' effects='{}' sensors='{}' companion='{}' system='{}'
+  hardware="$(python3 "$repo_dir/scripts/hardware_test.py" --json 2>/dev/null || printf '{}')"
+  effects="$("$repo_dir/input/effects-info.sh" 2>/dev/null || printf '{}')"
+  sensors="$("$repo_dir/input/sensor-info.sh" 2>/dev/null || printf '{}')"
+  companion="$("$repo_dir/input/companion-info.sh" 2>/dev/null || printf '{}')"
+  system="$("$repo_dir/input/system-state.sh" 2>/dev/null || printf '{}')"
+  for value in hardware effects sensors companion system; do
+    local json_value="${!value}"
+    jq -e . >/dev/null 2>&1 <<<"$json_value" || printf -v "$value" '{}'
+  done
+  jq -n \
+    --arg version "$(manifest_value version)" \
+    --argjson hardware "$hardware" \
+    --argjson effects "$effects" \
+    --argjson sensors "$sensors" \
+    --argjson companion "$companion" \
+    --argjson system "$system" \
+    --argjson safeMode "$(if [[ -f "$omanome_config_dir/safe-mode" ]]; then printf true; else printf false; fi)" \
+    '{schemaVersion:1,version:$version,safeMode:$safeMode,hardware:$hardware,effects:$effects,sensors:$sensors,companion:$companion,system:$system,policy:{optionalBackendsFailClosed:true,realHardwareOnly:true}}'
+}
+
+hardware_test_cmd() {
+  python3 "$repo_dir/scripts/hardware_test.py" "$@"
+}
+
+support_bundle_cmd() {
+  ensure_dirs
+  local output="${1:-$omanome_state_dir/support-bundles/$(date -u +%Y%m%d-%H%M%S).tar.gz}"
+  python3 "$repo_dir/scripts/support_bundle.py" --output "$output" --config "$(config_file)" --state "$omanome_state_dir"
+}
+
+diagnostics_cmd() {
+  local operation="${1:-capabilities}"
+  shift || true
+  case "$operation" in
+    capabilities) capabilities_cmd "$@" ;;
+    hardware|hardware-test) hardware_test_cmd "$@" ;;
+    bundle|support-bundle) support_bundle_cmd "$@" ;;
+    doctor) doctor_cmd --json "$@" ;;
+    *) usage >&2; die "unknown diagnostics operation: $operation" ;;
+  esac
+}
+
 benchmark_cmd() {
   local layers="unavailable"
   local clients="unavailable"
@@ -1187,6 +1302,9 @@ case "$command_name" in
   touch-info) touch_info_cmd "$@" ;;
   sensor-info) sensor_info_cmd "$@" ;;
   effects) effects_cmd "$@" ;;
+  capabilities) capabilities_cmd "$@" ;;
+  hardware-test) hardware_test_cmd "$@" ;;
+  diagnostics) diagnostics_cmd "$@" ;;
   benchmark) benchmark_cmd "$@" ;;
   companion)
     companion_command="${1:-status}"
