@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.0
+
+- Adds a cohesive tablet-first Overview with current-workspace-first mosaic
+  layout, dynamic/fixed workspace presentation, real search providers, and
+  native window/app/settings/action activation.
+- Adds App Grid 2.0 and Dock 2.0: real desktop icons, shared favorites,
+  recent ordering, categories, persistent folders, drag reorder, running
+  indicators, explicit launcher/settings items, and responsive placement.
+- Adds Settings 2.0 with category search, `settings://` deep links, portrait
+  navigation, reset boundaries, accessibility controls, safe diagnostics copy,
+  and an in-panel doctor runner.
+- Adds multi-signal Auto/Desktop/Tablet/Hybrid mode and a first-run onboarding
+  flow; legacy configs migrate without showing onboarding again.
+- Adds responsive logical-size tokens, input hysteresis, tablet profiles,
+  accessibility semantics, adaptive Quick Settings, and orientation-aware Dock
+  and window controls.
+- Bumps the optional companion identity to 0.6.0 while preserving its exact
+  ABI/API handshake and fail-closed loading policy.
+
 ## 0.5.0
 
 - Adds a versioned optional `omanome-hypr` Wobbly renderer using Hyprland's

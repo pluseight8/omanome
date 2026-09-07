@@ -2,13 +2,25 @@
 
 Omanome — открытый набор улучшений рабочего стола для актуального Omarchy Quattro на Hyprland. Он добавляет GNOME-подобный интерфейс для touchscreen и стилуса, но остаётся обычным Omarchy Shell Plugin: стандартная верхняя панель не заменяется, второй Quickshell не запускается, GNOME Shell и Mutter не нужны.
 
-Это запускаемая фаза версии 0.5.0. Ядро использует публичные API Omarchy/Quickshell/Hyprland, а дополнительные compositor-возможности подключаются только через явные version-aware companion boundaries. Если настоящего backend нет, функция остаётся явно недоступной, а не подменяется декоративной имитацией.
+Это запускаемая фаза версии 0.6.0. Ядро использует публичные API Omarchy/Quickshell/Hyprland, а дополнительные compositor-возможности подключаются только через явные version-aware companion boundaries. Если настоящего backend нет, функция остаётся явно недоступной, а не подменяется декоративной имитацией.
 
 ## Возможности
 
 - Manifest с `service`, `bar-widget` и `panel`; replacement-тип `bar` отсутствует.
 - Компактный Omanome widget в существующей панели Omarchy.
 - Единая ленивая панель: Overview, workspaces, launcher, Quick Settings, OSK, clipboard, notifications и Settings.
+- GNOME-подобный Overview с mosaic реальных окон, текущим workspace первым,
+  dynamic/fixed strip и поиском по приложениям, окнам, настройкам и actions.
+- Полноценная адаптивная App Grid с настоящими desktop icons, общим с Dock
+  избранным, категориями, recent ordering, folders, drag reorder и context menu.
+- First-run onboarding: input mode, позиция Dock, Overview, OSK, stylus,
+  rotation и privacy; при обновлении со старой версии setup не повторяется.
+- Settings 2.0: поиск категорий, deep links, portrait navigation, причины
+  недоступности backend, accessibility, безопасная Copy diagnostics и встроенный
+  запуск `omanome doctor`.
+- Tablet Mode 2.0 с Auto/Desktop/Tablet/Hybrid и несколькими сигналами:
+  touchscreen, stylus, физическая клавиатура, ориентация, recent input и switch;
+  переходы меняют targets, Dock, controls и density без reload shell.
 - Quick Settings получает живое состояние Wi-Fi/Bluetooth/PipeWire, яркости,
   профиля питания и батареи; отсутствующие backend явно отключаются, а не
   заменяются локальными фиктивными переключателями.
@@ -16,7 +28,7 @@ Omanome — открытый набор улучшений рабочего ст
   screenshot/copy и динамическими Hyprland transform для touch/tablet/output;
   автоматический поворот подключается только при наличии sensor backend.
 - Опциональный dock в стиле Dash-to-Dock на нескольких мониторах: избранное, running indicators, контекстные действия, configurable position/mode и intelligent autohide.
-- Определение touchscreen/stylus через Hyprland, режимы Automatic/Desktop/Tablet/Hybrid и применение touch-жестов через IPC.
+- Определение touchscreen/stylus через Hyprland, hysteresis ввода, logical-size responsive breakpoints, режимы Automatic/Desktop/Tablet/Hybrid и применение touch-жестов через IPC.
 - English/Русский, профили, versioned config, import/export/reset и приватная история clipboard для текста/PNG.
 - Настоящий compositor-backed blur Omanome layer surfaces через Hyprland layer rules, с per-surface settings, adaptive quality и app-rule exclusions; стандартная панель Omarchy по умолчанию не изменяется.
 - Native foreign-toplevel Coverflow Alt-Tab с grouping/scope, общими animations и capability-gated live preview; в текущем окружении preview недоступен, потому что Quickshell не предоставляет texture provider.
@@ -114,13 +126,13 @@ make check
 
 Подробности: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) и [`docs/TESTING.md`](docs/TESTING.md).
 
-## Границы 0.5 compositor и safety
+## Границы 0.6 compositor и safety
 
 Blur применяется через Hyprland layer-rule IPC к namespace Omanome, а не рисуется как прозрачный прямоугольник. Coverflow работает с реальными Hyprland foreign-toplevel объектами и native activation. Live preview остаётся выключенным, пока активный Quickshell/companion не даст настоящий texture provider. Force Quit сначала вызывает native close выбранного окна и только затем использует выбранный numeric PID; session-процессы защищены, broadcast по имени не используется.
 
 Настоящий Wobbly подключается через optional `omanome-hypr`: он получает compositor-owned workbuffer, рисует ограниченный mesh через публичный `IWindowTransformer` и возвращает framebuffer в обычный Hyprland pass. Включение выполняется через `hyprctl -j omanome-effects wobbly enable`, а bounded physics/mesh — через `wobbly config key=value ...`; QML Settings отправляет тот же IPC с debounce. Master-toggle advanced effects и battery/fullscreen policy отключают дорогой render path fail-closed. При несовпадении API/ABI, X11/rotated output, ошибке shader/buffer, crash-marker или недоступном GL renderer эффект остаётся выключенным, а исходный framebuffer сохраняется. Настоящий Desktop Cube подключается через отдельно сопровождаемый version-matched `omarchy-desktop-cube`, если он загружен; без него cube недоступен. Omanome не анимирует screenshots и не загружает неприкреплённый Hyprland `.so`.
 
-Автоматическое обнаружение focused text field, persistent input, handwriting recognition, stylus button-event mapping и полная persistence drag-and-drop app grid по-прежнему требуют отдельного backend. Весь основной shell остаётся работоспособным без companion.
+Автоматическое обнаружение focused text field, persistent input, handwriting recognition и stylus button-event mapping по-прежнему требуют отдельного backend. Избранное и folders App Grid сохраняются локально; compositor drag semantics не имитируются. Весь основной shell остаётся работоспособным без companion.
 
 ## Лицензия
 

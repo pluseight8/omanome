@@ -21,7 +21,7 @@ HANDLE g_pluginHandle = nullptr;
 SP<SHyprCtlCommand> g_statusCommand;
 std::unique_ptr<omanome::hypr::WobblyManager> g_wobblyManager;
 
-constexpr std::string_view kPluginVersion = "0.5.0";
+constexpr std::string_view kPluginVersion = "0.6.0";
 constexpr int kProtocolVersion = 2;
 
 std::string jsonString(std::string_view value) {
@@ -101,7 +101,7 @@ std::string statusCommand(eHyprCtlOutputFormat format, std::string arguments) {
     if (format == FORMAT_JSON) {
         return statusJson();
     }
-        return "omanome-effects protocol=2 version=0.5.0 wobbly=" + std::string(g_wobblyManager && g_wobblyManager->available() ?
+        return "omanome-effects protocol=2 version=0.6.0 wobbly=" + std::string(g_wobblyManager && g_wobblyManager->available() ?
                                                                                       (g_wobblyManager->enabled() ? "enabled" : "available") :
                                                                                       "unavailable") +
             " cube3d=unavailable";
@@ -144,7 +144,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         "omanome-hypr",
         "Version-aware optional compositor capability companion for Omanome",
         "Omanome contributors",
-        "0.5.0",
+        "0.6.0",
     };
 }
 

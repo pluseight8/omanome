@@ -34,7 +34,7 @@ class OmanomeProjectTests(unittest.TestCase):
 
     def test_manifest_preserves_the_standard_bar(self) -> None:
         manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "0.5.0")
+        self.assertEqual(manifest["version"], "0.6.0")
         self.assertNotIn("bar", manifest["kinds"])
         self.assertEqual(set(manifest["entryPoints"]), {"service", "barWidget", "panel"})
         for entry in manifest["entryPoints"].values():
@@ -372,7 +372,7 @@ class OmanomeProjectTests(unittest.TestCase):
         metadata = json.loads((companion / "compatibility.json").read_text(encoding="utf-8"))
         cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")
         self.assertEqual(metadata["protocolVersion"], 2)
-        self.assertEqual(metadata["pluginVersion"], "0.5.0")
+        self.assertEqual(metadata["pluginVersion"], "0.6.0")
         self.assertEqual(metadata["statusIpc"], "hyprctl -j omanome-effects")
         self.assertIn("__hyprland_api_get_hash", source)
         self.assertIn("__hyprland_api_get_client_hash", source)
@@ -397,9 +397,9 @@ class OmanomeProjectTests(unittest.TestCase):
 
         result = self.run_node(
             "const C=require('./shell/models/Companion.js'); "
-            "const good={installed:true,built:true,loaded:true,protocolVersion:2,pluginVersion:'0.5.0'," \
-            "runtime:{version:'0.56.2',abi:'same'},build:{version:'0.56.2',abi:'same',pluginBuild:'0.5.0'}," \
-            "versionMatch:true,pluginBuildMatch:true,artifactHashMatch:true,compatibility:{pluginVersion:'0.5.0'}," \
+            "const good={installed:true,built:true,loaded:true,protocolVersion:2,pluginVersion:'0.6.0'," \
+            "runtime:{version:'0.56.2',abi:'same'},build:{version:'0.56.2',abi:'same',pluginBuild:'0.6.0'}," \
+            "versionMatch:true,pluginBuildMatch:true,artifactHashMatch:true,compatibility:{pluginVersion:'0.6.0'}," \
             "capabilities:{desktopCube:true}}; " \
             "const bad={...good,runtime:{abi:'new'},build:{abi:'old'}}; " \
             "const crashed={...good,crashMarker:true}; "

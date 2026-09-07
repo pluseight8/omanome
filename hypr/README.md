@@ -6,7 +6,7 @@ compiled against the local Hyprland headers and refuses to load when the
 runtime API hash differs from the headers used to build it. This is the
 version-aware fail-closed boundary required for compositor code.
 
-The 0.5 companion adds a real Wobbly renderer through Hyprland's public
+The 0.6 companion adds a real Wobbly renderer through Hyprland's public
 `Render::IWindowTransformer` boundary. It renders the compositor-owned window
 workbuffer through a bounded mesh and returns the transformed framebuffer to
 Hyprland; it does not paint a QML imitation or replace the window with a

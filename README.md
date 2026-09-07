@@ -2,13 +2,26 @@
 
 Omanome is an open-source, GNOME-inspired touch and stylus enhancement suite for the current Omarchy Quattro shell on Hyprland. It is intentionally an Omarchy plugin, not a replacement desktop session: the standard Omarchy bar remains in charge of the top edge, the existing Quickshell process hosts the plugin, and all plugin state is namespaced under `io.omanome.shell`.
 
-This repository is the runnable 0.5.0 phase. It uses public Omarchy/Quickshell/Hyprland interfaces for the core and explicit, version-aware optional compositor integrations for advanced effects. Features without a real backend remain visibly unavailable rather than becoming fake overlays.
+This repository is the runnable 0.6.0 phase. It uses public Omarchy/Quickshell/Hyprland interfaces for the core and explicit, version-aware optional compositor integrations for advanced effects. Features without a real backend remain visibly unavailable rather than becoming fake overlays.
 
 ## What is included
 
 - An Omarchy Quattro manifest with `service`, `bar-widget`, and `panel` entry points. It never declares the replacement `bar` kind.
 - A compact Omanome bar widget that is added to the existing Omarchy layout like any other widget.
 - One lazy-loaded panel with Overview, workspaces, launcher, quick settings, OSK, clipboard, notifications, and settings views.
+- GNOME-like Overview with current-workspace-first mosaic windows, dynamic/fixed
+  workspace strip, real app/window/settings/action search, and native activation.
+- A full adaptive App Grid with real desktop icons, shared favorites with Dock,
+  recent ordering, categories, folders, drag reorder, context actions, and
+  keyboard/touch navigation.
+- A first-run setup flow for input mode, Dock placement, Overview, OSK, stylus,
+  rotation, and privacy; upgrades from earlier versions skip it automatically.
+- Settings 2.0 with searchable categories, deep links, portrait push navigation,
+  live capability reasons, accessibility controls, safe diagnostics export, and
+  an in-panel `omanome doctor` result view.
+- Multi-signal Tablet Mode (Auto/Desktop/Tablet/Hybrid) using touch, stylus,
+  physical keyboard, orientation, recent input, and a detected hardware switch;
+  transitions update targets, Dock, window controls, and responsive density live.
 - Capability-aware Quick Settings backed by live Wi-Fi/Bluetooth/PipeWire,
   brightness, power-profile, battery, and optional night-light/recording
   session probes; unavailable backends are visibly disabled.
@@ -17,7 +30,7 @@ This repository is the runnable 0.5.0 phase. It uses public Omarchy/Quickshell/H
   manual rotation; sensor auto-rotation is optional.
 - An optional multi-monitor Dash-to-Dock style surface using layer-shell and native `DesktopEntries`/foreign-toplevel objects, persisted favorites, running indicators, context actions, configurable position/mode, and intelligent autohide guardrails.
 - Touch-sized active-window controls in tablet or hybrid mode.
-- Tablet-mode detection from Hyprland device inventory, adaptive desktop/tablet/hybrid modes, stylus capability inventory, and touch gesture keyword integration through Hyprland IPC.
+- Tablet-mode detection from Hyprland device inventory, adaptive desktop/tablet/hybrid modes, stylus capability inventory, input hysteresis, responsive logical-size breakpoints, and touch gesture keyword integration through Hyprland IPC.
 - English/Russian UI strings, profiles, versioned configuration, import/export/reset, and privacy-aware clipboard history for text and PNG images.
 - Compositor-backed blur for Omanome layer surfaces through Hyprland layer rules, with per-surface settings, adaptive quality, battery/fullscreen policies, and application-rule exclusions. The standard Omarchy bar remains untouched by default.
 - Native foreign-toplevel Coverflow Alt-Tab with grouping, workspace scope, shared animations, and a capability-gated live-preview path; this environment reports previews unavailable because no real compositor texture provider is exposed.
@@ -135,13 +148,13 @@ The check runs repository validation, shell syntax checks, Python tests includin
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/TESTING.md`](docs/TESTING.md) for the plugin contract, coexistence rules, test matrix, and safe integration boundaries.
 
-## 0.5 compositor and safety boundaries
+## 0.6 compositor and safety boundaries
 
 Blur is applied through Hyprland layer-rule IPC to Omanome namespaces; it is not a translucent-rectangle imitation. Coverflow selects real Hyprland foreign-toplevel objects and activates them through native APIs. Live previews stay disabled unless the running Quickshell/companion exposes an actual texture provider. Force Quit starts with the selected foreign window's native close request and only falls back to the selected numeric PID; session processes are protected and no process-name broadcast is used.
 
 The optional `omanome-hypr` companion uses the exact Hyprland API hash handshake and the public `IWindowTransformer` workbuffer path for Wobbly. It is fail-closed on non-GL backends, rotated outputs, X11 windows, shader/buffer errors, lifecycle markers, ABI/version mismatches, or missing artifacts. Wobbly can be controlled with `hyprctl -j omanome-effects wobbly enable|disable` and configured with bounded `key=value` arguments; the QML setting debounces those commands and applies the same mesh/physics values. The advanced-effects master switch plus battery/fullscreen policy bypass expensive render hooks. The true Desktop Cube is integrated through the separately maintained, version-matched `omarchy-desktop-cube` backend when it is loaded; Omanome does not duplicate its renderer. Without that external backend, cube controls remain unavailable. Omanome never animates screenshots and never loads an unpinned Hyprland `.so`.
 
-Automatic text-field focus detection, persistent virtual input, local handwriting recognition, stylus button-event mapping, and full drag-and-drop app-grid persistence remain extension points until their corresponding public backend is selected. Auto-rotation remains manual-only when neither sensor backend is present.
+Automatic text-field focus detection, persistent virtual input, local handwriting recognition, and stylus button-event mapping remain explicitly gated until their corresponding public backend is selected. App-grid favorites/folders are persisted locally; compositor-level drag semantics remain scoped to real app metadata. Auto-rotation remains manual-only when neither sensor backend is present.
 
 These limitations are isolated: Omanome still loads without them, and `omanome safe-mode`/`omanome disable` returns to the normal Omarchy shell immediately.
 

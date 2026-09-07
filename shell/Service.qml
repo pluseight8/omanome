@@ -1126,7 +1126,7 @@ Item {
 
   function statusObject() {
     return {
-      version: root.manifest ? String(root.manifest.version || "0.5.0") : "0.5.0",
+      version: root.manifest ? String(root.manifest.version || "0.6.0") : "0.6.0",
       quickshell: String(Quickshell.env("QUICKSHELL_VERSION") || "host-provided"),
       service: "ready",
       safeMode: root.safeMode,

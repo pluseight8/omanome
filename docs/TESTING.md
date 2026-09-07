@@ -34,7 +34,8 @@ The QML code is designed for the following manual matrix when hardware is availa
 | Scale | 1.0x through 2.0x fractional scaling |
 | Apps | GTK, Qt, Electron, terminal, browser, fullscreen client, drawing application |
 | Lifecycle | disable, safe-mode, update check, rollback, uninstall with and without settings |
-| 0.5 effects | real layer-rule blur, native toplevel Coverflow, compositor-owned ScreencopyView streams, public-API Wobbly workbuffer renderer, external cube detection |
+| 0.6 surfaces | responsive Overview/App Grid/Dock, Settings deep links, onboarding migration, accessibility semantics, multi-signal Tablet Mode |
+| 0.6 effects | real layer-rule blur, native toplevel Coverflow, compositor-owned ScreencopyView streams, public-API Wobbly workbuffer renderer, external cube detection |
 | Safety | Force Quit protected PID 1/session process, sensitive MIME rejection, no payload command arguments, companion pending-load marker |
 
 ## Acceptance evidence available in this checkout
