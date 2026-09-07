@@ -45,13 +45,49 @@ class OmanomeProjectTests(unittest.TestCase):
         schema = json.loads((ROOT / "config/schema.json").read_text(encoding="utf-8"))
         self.assertEqual(defaults["schemaVersion"], 1)
         self.assertEqual(schema["properties"]["schemaVersion"]["const"], 1)
-        for key in ("tabletMode", "touch", "stylus", "keyboard", "clipboard", "updates", "animations", "performance", "applicationRules", "wobbly", "cube", "forceQuit"):
+        for key in ("tabletMode", "accessibility", "touch", "stylus", "keyboard", "clipboard", "updates", "animations", "performance", "applicationRules", "wobbly", "cube", "forceQuit"):
             self.assertIn(key, defaults)
         self.assertTrue(defaults["effects"]["enabled"])
         self.assertEqual(defaults["wobbly"]["maxVertices"], 1024)
         self.assertEqual(defaults["dock"]["mode"], "floating")
         self.assertIn("favoritesFirst", defaults["launcher"])
         self.assertEqual(defaults["overview"]["workspaceMode"], "dynamic")
+
+    def test_responsive_context_uses_logical_size_and_input_density(self) -> None:
+        result = self.run_node(
+            "const R=require('./shell/models/Responsive.js'); "
+            "console.log(JSON.stringify({small:R.context(1280,800,1.25,'mouse','desktop',{}),"
+            "portrait:R.context(1600,2560,2,'touch','tablet',{touchTargetSize:'large'}),"
+            "wide:R.classify(3440,1440,1),cols:R.columns(1600,1000,1,'touch','tablet',144)}));"
+        )
+        self.assertEqual(result["small"]["breakpoint"], "small-laptop")
+        self.assertEqual(result["small"]["logicalWidth"], 1024)
+        self.assertEqual(result["portrait"]["orientation"], "portrait")
+        self.assertGreaterEqual(result["portrait"]["targetSize"], 56)
+        self.assertEqual(result["wide"], "ultrawide")
+        self.assertGreaterEqual(result["cols"], 2)
+
+    def test_input_mode_hysteresis_ignores_single_spikes(self) -> None:
+        result = self.run_node(
+            "const I=require('./shell/models/Input.js'); let s=I.state({current:'keyboard'}); "
+            "s=I.observe(s,'touch',1000,320); const spike=s.current; "
+            "s=I.observe(s,'keyboard',1100,320); const cancelled=s.current; "
+            "s=I.observe(s,'touch',2000,320); s=I.commit(s,2300,320); const before=s.current; "
+            "s=I.commit(s,2400,320); console.log(JSON.stringify({spike,cancelled,before,after:s.current,delay:I.delay('touch',100)}));"
+        )
+        self.assertEqual(result["spike"], "keyboard")
+        self.assertEqual(result["cancelled"], "keyboard")
+        self.assertEqual(result["before"], "keyboard")
+        self.assertEqual(result["after"], "touch")
+        self.assertGreaterEqual(result["delay"], 360)
+
+    def test_design_tokens_and_service_expose_responsive_state(self) -> None:
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        tokens = (ROOT / "shell/components/DesignTokens.qml").read_text(encoding="utf-8")
+        self.assertIn("ResponsiveModel.context", service)
+        self.assertIn("inputModeCommit", service)
+        self.assertIn("Responsive.context", tokens)
+        self.assertIn("reduceTransparency", tokens)
 
     def test_favorites_persistence_and_dock_config_helpers(self) -> None:
         result = self.run_node(

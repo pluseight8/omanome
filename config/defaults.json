@@ -5,20 +5,31 @@
     "profile": "Desktop",
     "language": "system",
     "reduceMotion": false,
-    "largeUi": false
+    "largeUi": false,
+    "inputDebounceMs": 320
   },
   "appearance": {
     "theme": "follow-omarchy",
     "accent": "follow-omarchy",
     "radius": 18,
-    "opacity": 0.96
+    "opacity": 0.96,
+    "density": "comfortable"
   },
   "tabletMode": {
     "enabled": true,
     "touchTarget": 48,
     "autoFromTouch": true,
     "autoFromStylus": true,
-    "physicalKeyboardExit": true
+    "physicalKeyboardExit": true,
+    "transitionDuration": 180
+  },
+  "accessibility": {
+    "touchTargetSize": "default",
+    "textScale": 1.0,
+    "highContrast": false,
+    "reducedMotion": false,
+    "reduceTransparency": false,
+    "screenReaderHints": true
   },
   "touch": {
     "enabled": true,

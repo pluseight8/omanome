@@ -67,17 +67,24 @@ Item {
         surfaceColor: Color.menu.background
         surfaceOpacity: root.service ? root.service.surfaceOpacity("settings", root.service.cfg("appearance.opacity", 0.96)) : 0.96
 
+        DesignTokens {
+          id: tokens
+          service: root.service
+          viewportWidth: card.width
+          viewportHeight: card.height
+        }
+
         MouseArea { anchors.fill: parent; onClicked: {} }
 
         ColumnLayout {
           anchors.fill: parent
-          anchors.margins: Style.space(14)
-          spacing: Style.space(10)
+          anchors.margins: tokens.space(14)
+          spacing: tokens.space(10)
 
           RowLayout {
             Layout.fillWidth: true
-            Layout.preferredHeight: Style.space(50)
-            spacing: Style.space(10)
+            Layout.preferredHeight: tokens.target(44)
+            spacing: tokens.space(10)
 
             Text {
               text: root.service ? root.service.tr("omanome", "Omanome") : "Omanome"
@@ -111,7 +118,7 @@ Item {
             spacing: Style.space(12)
 
             ColumnLayout {
-              Layout.preferredWidth: Style.space(168)
+              Layout.preferredWidth: tokens.space(168)
               Layout.fillHeight: true
               spacing: Style.space(5)
 
@@ -129,8 +136,8 @@ Item {
                 delegate: ActionButton {
                   required property var modelData
                   Layout.fillWidth: true
-                  Layout.preferredHeight: Style.space(44)
-                  minimumHeight: Style.space(44)
+                  Layout.preferredHeight: tokens.target(44)
+                  minimumHeight: tokens.target(44)
                   compact: true
                   icon: modelData.icon
                   text: root.service ? root.service.tr(modelData.label, modelData.label) : modelData.label

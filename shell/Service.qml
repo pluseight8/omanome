@@ -15,6 +15,8 @@ import "models/I18n.js" as I18n
 import "models/QuickSettings.js" as QuickSettingsModel
 import "models/Stylus.js" as StylusModel
 import "models/Touch.js" as TouchModel
+import "models/Responsive.js" as ResponsiveModel
+import "models/Input.js" as InputModel
 
 // Omanome's one shared service. It is deliberately headless: all visible
 // surfaces are summoned through the existing Omarchy shell host, so Omanome
@@ -74,6 +76,9 @@ Item {
   property var forceQuitState: ({ active: false, phase: "idle", target: null, message: "" })
   property string blurRuleSignature: ""
   property string lastInput: "keyboard"
+  property string inputCandidate: ""
+  property double inputCandidateSince: 0
+  property var responsiveState: ResponsiveModel.context(1280, 720, 1, "keyboard", "desktop", {})
   property string detectedMode: "desktop"
   property string lastError: ""
   property int stateRevision: 0
@@ -527,6 +532,7 @@ Item {
     else
       root.startClipboardWatchers()
     root.detectedMode = root.computeMode()
+    root.updateResponsiveContext()
     if (root.hyprlandAvailable) root.applyTouchIntegration()
     root.refreshRotationBackend()
     root.refreshEffectBackend()
@@ -549,7 +555,10 @@ Item {
       else root.startClipboardWatchers()
       root.pruneClipboard()
     }
-    if (String(path).indexOf("general.mode") === 0 || String(path).indexOf("tabletMode.") === 0) root.detectedMode = root.computeMode()
+    if (String(path).indexOf("general.mode") === 0 || String(path).indexOf("tabletMode.") === 0 || String(path).indexOf("accessibility.") === 0 || String(path).indexOf("general.largeUi") === 0) {
+      root.detectedMode = root.computeMode()
+      root.updateResponsiveContext()
+    }
     if (String(path).indexOf("touch.") === 0) root.applyTouchIntegration()
     if (String(path).indexOf("rotation.") === 0) root.refreshRotationBackend()
     if (String(path).indexOf("notifications.enabled") === 0) root.refreshIntegrations()
@@ -627,12 +636,59 @@ Item {
     return root.hasTouchscreen ? "hybrid" : "desktop"
   }
 
+  function focusedMonitor() {
+    var list = Array.isArray(root.monitors) ? root.monitors : []
+    for (var i = 0; i < list.length; i++) if (list[i] && (list[i].focused === true || list[i].active === true)) return list[i]
+    return list.length > 0 ? list[0] : {}
+  }
+
+  function updateResponsiveContext() {
+    var monitor = root.focusedMonitor()
+    var width = Number(monitor.width || (monitor.resolution && monitor.resolution.width) || 1280)
+    var height = Number(monitor.height || (monitor.resolution && monitor.resolution.height) || 720)
+    var scale = Number(monitor.scale || monitor.factor || 1)
+    root.responsiveState = ResponsiveModel.context(width, height, scale, root.lastInput, root.detectedMode, {
+      largeUi: root.cfg("general.largeUi", false) === true,
+      touchTargetSize: root.cfg("accessibility.touchTargetSize", "default"),
+      textScale: root.cfg("accessibility.textScale", 1),
+      reducedMotion: root.cfg("general.reduceMotion", false) === true || root.cfg("accessibility.reducedMotion", false) === true,
+      reduceTransparency: root.cfg("accessibility.reduceTransparency", false) === true,
+      highContrast: root.cfg("accessibility.highContrast", false) === true
+    })
+  }
+
   function recordInput(kind) {
     var value = String(kind || "keyboard")
-    if (["touch", "stylus", "mouse", "keyboard", "touchpad"].indexOf(value) < 0) value = "keyboard"
-    root.lastInput = value
+    value = InputModel.normalize(value)
+    var now = Date.now()
+    var observed = InputModel.observe({ current: root.lastInput, pending: root.inputCandidate, pendingSince: root.inputCandidateSince }, value, now, root.cfg("general.inputDebounceMs", 320))
+    root.inputCandidate = observed.pending
+    root.inputCandidateSince = observed.pendingSince
+    if (observed.current !== root.lastInput) {
+      root.lastInput = observed.current
+      root.detectedMode = root.computeMode()
+      root.updateResponsiveContext()
+      root.stateRevision++
+      root.stateUpdated()
+      return
+    }
+    if (root.inputCandidate) {
+      inputModeCommit.interval = InputModel.delay(root.inputCandidate, root.cfg("general.inputDebounceMs", 320))
+      inputModeCommit.restart()
+    }
+  }
+
+  function commitInputMode() {
+    var now = Date.now()
+    var observed = InputModel.commit({ current: root.lastInput, pending: root.inputCandidate, pendingSince: root.inputCandidateSince }, now, root.cfg("general.inputDebounceMs", 320))
+    root.inputCandidate = observed.pending
+    root.inputCandidateSince = observed.pendingSince
+    if (observed.current === root.lastInput) return
+    root.lastInput = observed.current
     root.detectedMode = root.computeMode()
+    root.updateResponsiveContext()
     root.stateRevision++
+    root.stateUpdated()
   }
 
   function parseJson(text, fallback) {
@@ -1015,12 +1071,14 @@ Item {
     root.keyboardDevices = StylusModel.classifyKeyboards(parsed.keyboards)
     root.hasPhysicalKeyboard = root.keyboardDevices.length > 0
     root.detectedMode = root.computeMode()
+    root.updateResponsiveContext()
     root.stateRevision++
     root.stateUpdated()
   }
 
   function updateMonitors(raw) {
     root.monitors = parseJson(raw, [])
+    root.updateResponsiveContext()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -1044,6 +1102,8 @@ Item {
       mode: root.detectedMode,
       requestedMode: root.cfg("general.mode", "automatic"),
       lastInput: root.lastInput,
+      inputCandidate: root.inputCandidate,
+      responsive: root.responsiveState,
       hasTouchscreen: root.hasTouchscreen,
       hasStylus: root.hasStylus,
       stylusCount: root.stylusDevices.length,
@@ -1701,6 +1761,13 @@ Item {
     repeat: true
     running: root.configReady
     onTriggered: root.refreshSystemState()
+  }
+
+  Timer {
+    id: inputModeCommit
+    interval: 320
+    repeat: false
+    onTriggered: root.commitInputMode()
   }
 
   Timer {

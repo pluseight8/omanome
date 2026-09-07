@@ -1,9 +1,10 @@
 function defaults() {
   return {
     schemaVersion: 1,
-    general: { mode: "automatic", profile: "Desktop", language: "system", reduceMotion: false, largeUi: false },
-    appearance: { theme: "follow-omarchy", accent: "follow-omarchy", radius: 18, opacity: 0.96 },
-    tabletMode: { enabled: true, touchTarget: 48, autoFromTouch: true, autoFromStylus: true, physicalKeyboardExit: true },
+    general: { mode: "automatic", profile: "Desktop", language: "system", reduceMotion: false, largeUi: false, inputDebounceMs: 320 },
+    appearance: { theme: "follow-omarchy", accent: "follow-omarchy", radius: 18, opacity: 0.96, density: "comfortable" },
+    tabletMode: { enabled: true, touchTarget: 48, autoFromTouch: true, autoFromStylus: true, physicalKeyboardExit: true, transitionDuration: 180 },
+    accessibility: { touchTargetSize: "default", textScale: 1.0, highContrast: false, reducedMotion: false, reduceTransparency: false, screenReaderHints: true },
     touch: { enabled: true, edgeWidth: 36, threshold: 96, velocity: 0.35, inertia: true, invert: false, threeFingerAction: "workspace", fourFingerAction: "overview", conflictPolicy: "disable-fullscreen", disableOnFullscreen: true, fullscreenAllowList: [], fullscreenDenyList: [], adaptiveTargetMode: "automatic" },
     stylus: { enabled: true, pressureCurve: "linear", pressureMin: 0.0, pressureMax: 1.0, palmRejection: "automatic", palmBackend: "native-first", hoverCursor: true, showOskOnTextField: "ask", annotation: true, buttonMap: { primary: "right-click", secondary: "middle-click", tertiary: "annotation", eraser: "eraser" } },
     windowControls: { enabled: true, show: "tablet", minTarget: 48, style: "gnome", autoHide: true, autoHideDelay: 1800, position: "top-right", opacity: 0.94 },
