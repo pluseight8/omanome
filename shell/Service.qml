@@ -1190,6 +1190,36 @@ Item {
     return true
   }
 
+  function clientAppId(client) {
+    var item = client || {}
+    return String(item.appId || item.app_id || item.class || item.className || item.initialClass || "").replace(/\.desktop$/, "")
+  }
+
+  function windowsForApp(appId) {
+    var key = String(appId || "").replace(/\.desktop$/, "")
+    if (!key) return []
+    var result = []
+    var list = Array.isArray(root.clients) ? root.clients : []
+    for (var i = 0; i < list.length; i++) {
+      if (root.clientAppId(list[i]) !== key) continue
+      if (list[i].address || list[i].pid) result.push(list[i])
+    }
+    return result
+  }
+
+  function hasWindowsForApp(appId) { return root.windowsForApp(appId).length > 0 }
+
+  function closeWindowsForApp(appId) {
+    var rows = root.windowsForApp(appId)
+    var closed = false
+    for (var i = 0; i < rows.length; i++) {
+      var address = String(rows[i].address || "")
+      if (!address) continue
+      closed = root.dispatch("closewindow address:" + address) || closed
+    }
+    return closed
+  }
+
   function listConfig(path) {
     var value = root.cfg(path, [])
     return Array.isArray(value) ? value.slice() : []

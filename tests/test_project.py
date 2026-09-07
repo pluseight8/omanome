@@ -99,6 +99,37 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertEqual(result["dock"]["mode"], "floating")
         self.assertEqual(result["order"], ["c", "a", "b"])
 
+    def test_launcher_favorites_are_ordered_and_folders_are_persistent(self) -> None:
+        result = self.run_node(
+            "const A=require('./shell/models/Apps.js'); "
+            "const rows=A.sorted([{id:'one',name:'One'},{id:'two',name:'Two'},{id:'three',name:'Three'}],'',10,['two','one'],[]); "
+            "let folders=A.normalizeFolders([{id:'work',name:'Work',apps:['one','one']}]); "
+            "folders=A.addToFolder(folders,'work','two'); folders=A.renameFolder(folders,'work','Projects'); "
+            "console.log(JSON.stringify({order:rows.map(x=>x.id),folder:folders[0],removed:A.removeFromFolder(folders,'work','one')[0].apps,deleted:A.deleteFolder(folders,'work')}));"
+        )
+        self.assertEqual(result["order"][:2], ["two", "one"])
+        self.assertEqual(result["folder"]["name"], "Projects")
+        self.assertEqual(result["folder"]["apps"], ["one", "two"])
+        self.assertEqual(result["removed"], ["two"])
+        self.assertEqual(result["deleted"], [])
+        launcher = (ROOT / "shell/views/Launcher.qml").read_text(encoding="utf-8")
+        self.assertIn("adaptiveColumns", launcher)
+        self.assertIn('Drag.keys: ["omanome-app"]', launcher)
+        self.assertIn("launcher.folders", launcher)
+
+    def test_dock_contains_only_user_favorites_running_apps_and_explicit_items(self) -> None:
+        result = self.run_node(
+            "const C=require('./shell/models/Config.js'); const D=require('./shell/models/Dock.js'); "
+            "const d=D.config(C.defaults()); console.log(JSON.stringify({running:d.runningApplications,launcher:d.showLauncher,apps:C.defaults().dock.showApplications||false}));"
+        )
+        self.assertTrue(result["running"])
+        self.assertTrue(result["launcher"])
+        self.assertFalse(result["apps"])
+        dock = (ROOT / "shell/views/Dock.qml").read_text(encoding="utf-8")
+        self.assertIn("if (root.dockConfig.runningApplications)", dock)
+        self.assertNotIn("result.length < 18", dock)
+        self.assertNotIn("for (var a = 0; a < root.applications.length", dock)
+
     def test_workspace_movement_helper_uses_real_dispatch_commands(self) -> None:
         result = self.run_node(
             "const W=require('./shell/models/Workspaces.js'); "

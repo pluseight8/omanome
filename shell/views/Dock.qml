@@ -22,6 +22,13 @@ Item {
   property bool pointerInside: false
   property bool touchInside: false
 
+  DesignTokens {
+    id: tokens
+    service: root.service
+    viewportWidth: root.width
+    viewportHeight: root.height
+  }
+
   readonly property var dockConfig: root.service ? DockModel.config(root.service.config) : DockModel.config({})
   readonly property string position: root.dockConfig.position
   readonly property string mode: root.dockConfig.mode
@@ -85,21 +92,43 @@ Item {
       seen[key] = true
       result.push({ id: key, app: app || root.appFor(key), windows: matching, window: matching.length > 0 ? root.firstForeign(matching[0]) : null, running: matching.length > 0, multiple: matching.length > 1 })
     }
+    function addSpecial(id, icon, name) {
+      result.push({ id: id, special: id, app: { id: id, icon: icon, name: name }, windows: [], window: null, running: false, multiple: false, active: false, urgent: false })
+    }
 
     var list = Array.isArray(favorites) ? favorites : []
     for (var f = 0; f < list.length; f++) add(list[f], root.appFor(list[f]))
-    for (var w = 0; w < root.hyprWindows.length; w++) add(root.windowId(root.hyprWindows[w]), root.appFor(root.windowId(root.hyprWindows[w])))
-    for (var a = 0; a < root.applications.length && result.length < 18; a++) add(root.applications[a].id, root.applications[a])
+    if (root.dockConfig.runningApplications) {
+      for (var w = 0; w < root.hyprWindows.length; w++) add(root.windowId(root.hyprWindows[w]), root.appFor(root.windowId(root.hyprWindows[w])))
+    }
+    if (root.dockConfig.showLauncher) addSpecial("__omanome-launcher__", "view-grid", root.service.tr("apps", "Apps"))
+    if (root.dockConfig.showSettings) addSpecial("__omanome-settings__", "preferences-system", root.service.tr("settings", "Settings"))
+    for (var i = 0; i < result.length; i++) {
+      result[i].active = result[i].windows.some(function(window) { return Boolean((root.firstForeign(window) || {}).activated || window.activated) })
+      result[i].urgent = result[i].windows.some(function(window) { return Boolean((root.firstForeign(window) || {}).urgent || window.urgent) })
+    }
     return result
   }
 
   function activate(item) {
     if (!item) return
     root.service.recordInput("touch")
+    if (item.special === "__omanome-launcher__") { root.service.open("launcher"); return }
+    if (item.special === "__omanome-settings__") { root.service.open("settings"); return }
     var clickAction = String(root.service.cfg("dock.clickAction", "activate-or-launch"))
     if (item.window && clickAction !== "launch") {
-      if (item.window.activated && clickAction === "activate-or-minimize") item.window.minimized = true
-      else item.window.activate()
+      if (item.multiple) {
+        var multipleAction = String(root.service.cfg("dock.multipleWindowAction", "cycle"))
+        if (multipleAction === "overview") {
+          root.service.open("overview")
+          return
+        }
+        var next = 0
+        for (var i = 0; i < item.windows.length; i++) if (root.firstForeign(item.windows[i]) && root.firstForeign(item.windows[i]).activated) { next = (i + 1) % item.windows.length; break }
+        var nextWindow = root.firstForeign(item.windows[next])
+        if (nextWindow && typeof nextWindow.activate === "function") nextWindow.activate()
+      } else if (item.window.activated && clickAction === "activate-or-minimize") item.window.minimized = true
+      else if (typeof item.window.activate === "function") item.window.activate()
     } else {
       root.service.launchApp(item.id)
     }
@@ -139,13 +168,46 @@ Item {
     if (!root.dockConfig.autohide) return false
     if (root.pointerInside || root.touchInside || root.contextId !== "") return false
     var mode = root.dockConfig.autohideMode
-    if (mode === "always-visible") return false
-    if (mode === "fullscreen" && !(Hyprland.focusedWorkspace && Hyprland.focusedWorkspace.hasFullscreen)) return false
-    return true
+    if (mode === "never" || mode === "always-visible") return false
+    if (mode === "intelligent" || mode === "dodge-active-window" || mode === "dodge-any-window") return false
+    if (mode === "autohide" || mode === "always") return true
+    if (mode === "fullscreen" || mode === "fullscreen-only") return Hyprland.focusedWorkspace && Hyprland.focusedWorkspace.hasFullscreen === true
+    return false
+  }
+
+  function windowOverlapsDock(window, screen) {
+    var item = root.firstForeign(window) || window || {}
+    var at = item.at || item.position || {}
+    var size = item.size || item.geometry || {}
+    var x = Number(at.x || at[0] || 0)
+    var y = Number(at.y || at[1] || 0)
+    var width = Number(size.width || size[0] || 0)
+    var height = Number(size.height || size[1] || 0)
+    var screenWidth = Number(screen && screen.width || 0)
+    var screenHeight = Number(screen && screen.height || 0)
+    if (!width || !height || !screenWidth || !screenHeight) return false
+    var dockSize = tokens.space(root.dockConfig.iconSize + root.service.cfg("dock.padding", 10) * 2 + root.service.cfg("dock.margin", 18))
+    if (root.position === "bottom") return y + height >= screenHeight - dockSize
+    if (root.position === "top") return y <= dockSize
+    if (root.position === "left") return x <= dockSize
+    return x + width >= screenWidth - dockSize
+  }
+
+  function shouldDodge(screen) {
+    var mode = String(root.service.cfg("dock.dodgeMode", "active-window"))
+    if (mode === "none" || mode === "never") return false
+    var rows = Array.isArray(root.hyprWindows) ? root.hyprWindows : []
+    for (var i = 0; i < rows.length; i++) {
+      var item = root.firstForeign(rows[i]) || rows[i]
+      if (mode === "active-window" && !(item.activated || rows[i].activated)) continue
+      if (root.windowOverlapsDock(rows[i], screen)) return true
+    }
+    return false
   }
 
   function hiddenForScreen(screen) {
     if (!root.dockConfig.autohide || root.revealed) return false
+    if (root.shouldDodge(screen)) return true
     return root.shouldHide()
   }
 
@@ -202,9 +264,9 @@ Item {
           anchors.right: root.position === "right" ? parent.right : undefined
           anchors.bottomMargin: root.position === "bottom" ? Style.space(root.service.cfg("dock.margin", 18)) : 0
           anchors.topMargin: root.position === "top" ? Style.space(root.service.cfg("dock.margin", 18)) : 0
-          anchors.leftMargin: root.position === "left" ? Style.space(root.service.cfg("dock.margin", 18)) : 0
-          anchors.rightMargin: root.position === "right" ? Style.space(root.service.cfg("dock.margin", 18)) : 0
-          surfaceRadius: root.mode === "panel" ? 0 : Style.space(root.service.cfg("dock.radius", 22))
+          anchors.leftMargin: root.position === "left" ? tokens.space(root.service.cfg("dock.margin", 18)) : 0
+          anchors.rightMargin: root.position === "right" ? tokens.space(root.service.cfg("dock.margin", 18)) : 0
+          surfaceRadius: root.mode === "panel" ? 0 : tokens.radius(root.service.cfg("dock.radius", 22))
           surfaceColor: Color.menu.background
           surfaceOpacity: root.service.surfaceOpacity("dock", root.service.cfg("dock.backgroundOpacity", 0.82))
           border.width: root.service.cfg("dock.border", true) ? 1 : 0
@@ -226,14 +288,14 @@ Item {
 
           GridLayout {
             anchors.fill: parent
-            anchors.leftMargin: Style.space(root.service.cfg("dock.padding", 10))
-            anchors.rightMargin: Style.space(root.service.cfg("dock.padding", 10))
-            anchors.topMargin: Style.space(root.service.cfg("dock.padding", 10))
-            anchors.bottomMargin: Style.space(root.service.cfg("dock.padding", 10))
+            anchors.leftMargin: tokens.space(root.service.cfg("dock.padding", 10))
+            anchors.rightMargin: tokens.space(root.service.cfg("dock.padding", 10))
+            anchors.topMargin: tokens.space(root.service.cfg("dock.padding", 10))
+            anchors.bottomMargin: tokens.space(root.service.cfg("dock.padding", 10))
             columns: root.position === "left" || root.position === "right" ? 1 : Math.max(1, root.items().length)
             rows: root.position === "left" || root.position === "right" ? Math.max(1, root.items().length) : 1
-            columnSpacing: Style.space(root.service.cfg("dock.spacing", 8))
-            rowSpacing: Style.space(root.service.cfg("dock.spacing", 8))
+            columnSpacing: tokens.space(root.service.cfg("dock.spacing", 8))
+            rowSpacing: tokens.space(root.service.cfg("dock.spacing", 8))
 
             Repeater {
               model: root.revision >= 0 ? root.items() : []
@@ -259,10 +321,10 @@ Item {
                 Surface {
                   anchors.fill: parent
                   surfaceRadius: Style.space(16)
-                  surfaceColor: tile.modelData.running ? Color.accent : Color.foreground
-                  surfaceOpacity: tile.modelData.running ? 0.18 : 0.06
+                  surfaceColor: tile.modelData.urgent ? Color.accent : (tile.modelData.active ? Color.accent : Color.foreground)
+                  surfaceOpacity: tile.modelData.urgent ? 0.34 : (tile.modelData.active ? 0.22 : 0.06)
                   border.width: tile.modelData.multiple ? 2 : 0
-                  border.color: Color.accent
+                  border.color: tile.modelData.urgent ? Color.foreground : Color.accent
 
                   ScreencopyView {
                     id: previewView
@@ -291,7 +353,7 @@ Item {
                   Text {
                     anchors.bottom: parent.bottom
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: tile.modelData.multiple ? "••" : (tile.modelData.running ? "•" : "")
+                    text: root.service.cfg("dock.indicatorStyle", "dot") === "line" ? (tile.modelData.running ? "━" : "") : (tile.modelData.multiple ? "••" : (tile.modelData.running ? "•" : ""))
                     color: Color.accent
                     font.pixelSize: Style.font.caption
                   }
@@ -401,7 +463,7 @@ Item {
             anchors.fill: parent
             hoverEnabled: true
             onEntered: root.reveal()
-            onPressed: root.reveal()
+            onPressed: { root.reveal(); root.service.recordInput("touch") }
           }
         }
       }

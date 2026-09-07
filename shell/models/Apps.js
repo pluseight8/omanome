@@ -48,12 +48,14 @@ function sorted(entries, query, limit, favoriteIds, recentIds) {
     var itemScore = score(item, needle, favorites, recent)
     if (needle && itemScore < 0) continue
     item.favorite = favorites.indexOf(item.id) >= 0
+    item.favoriteIndex = favorites.indexOf(item.id)
     item.recent = recent.indexOf(item.id) >= 0
     item.score = itemScore
     result.push(item)
   }
   result.sort(function(a, b) {
     if (a.favorite !== b.favorite) return a.favorite ? -1 : 1
+    if (a.favorite && b.favorite && a.favoriteIndex !== b.favoriteIndex) return a.favoriteIndex - b.favoriteIndex
     if (a.score !== b.score) return b.score - a.score
     var recentCompare = recent.indexOf(a.id) - recent.indexOf(b.id)
     if (a.recent !== b.recent) return a.recent ? -1 : 1
@@ -83,5 +85,65 @@ function inCategory(item, category) {
   return Array.isArray(item.categories) && item.categories.indexOf(category) >= 0
 }
 
-var api = { normalize: normalize, searchable: searchable, sorted: sorted, categories: categories, inCategory: inCategory }
+function normalizeFolders(values) {
+  var source = Array.isArray(values) ? values : []
+  var result = []
+  var seen = {}
+  for (var i = 0; i < source.length; i++) {
+    var item = source[i] || {}
+    var id = String(item.id || "folder-" + (i + 1))
+    if (!id || seen[id]) continue
+    var apps = Array.isArray(item.apps) ? item.apps.map(function(value) { return String(value || "").replace(/\.desktop$/, "") }).filter(Boolean) : []
+    result.push({ id: id, name: String(item.name || "Folder"), apps: unique(apps) })
+    seen[id] = true
+  }
+  return result
+}
+
+function unique(values) {
+  var seen = {}
+  var result = []
+  var list = Array.isArray(values) ? values : []
+  for (var i = 0; i < list.length; i++) {
+    var value = String(list[i] || "")
+    if (!value || seen[value]) continue
+    seen[value] = true
+    result.push(value)
+  }
+  return result
+}
+
+function folderContains(folder, id) {
+  var item = folder || {}
+  var key = String(id || "").replace(/\.desktop$/, "")
+  return Array.isArray(item.apps) && item.apps.indexOf(key) >= 0
+}
+
+function addToFolder(folders, folderId, id) {
+  var result = normalizeFolders(folders)
+  var key = String(id || "").replace(/\.desktop$/, "")
+  for (var i = 0; i < result.length; i++) if (result[i].id === String(folderId)) result[i].apps = unique(result[i].apps.concat([key]))
+  return result
+}
+
+function removeFromFolder(folders, folderId, id) {
+  var result = normalizeFolders(folders)
+  var key = String(id || "").replace(/\.desktop$/, "")
+  for (var i = 0; i < result.length; i++) if (result[i].id === String(folderId)) result[i].apps = result[i].apps.filter(function(value) { return value !== key })
+  return result
+}
+
+function renameFolder(folders, folderId, name) {
+  var result = normalizeFolders(folders)
+  var value = String(name || "").trim()
+  if (!value) return result
+  for (var i = 0; i < result.length; i++) if (result[i].id === String(folderId)) result[i].name = value
+  return result
+}
+
+function deleteFolder(folders, folderId) {
+  return normalizeFolders(folders).filter(function(item) { return item.id !== String(folderId) })
+}
+
+var api = { normalize: normalize, searchable: searchable, sorted: sorted, categories: categories, inCategory: inCategory, normalizeFolders: normalizeFolders, folderContains: folderContains, addToFolder: addToFolder, removeFromFolder: removeFromFolder, renameFolder: renameFolder, deleteFolder: deleteFolder }
 if (typeof module !== "undefined") module.exports = api
