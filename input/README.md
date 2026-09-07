@@ -6,10 +6,13 @@ Wayland connection and one bounded JSON-lines stream; it does not use X11,
 capabilities only after probing the compositor registry at runtime.
 
 The primary transport is `zwp_virtual_keyboard_v1`. `zwp_input_method_v2` and
-`zwp_text_input_v3` are probed independently, and xkbcommon provides the
-authoritative `en,ru` keymap. Missing or unauthorized globals are reported as
-`unavailable`; the shell may then use its explicit, capability-gated `wtype`
-fallback.
+`zwp_text_input_v3` are probed independently, while the stable
+`zwp_tablet_v2` seat is bound when the compositor advertises it. Tablet tools
+forward normalized proximity, tip, motion, pressure, tilt, distance, rotation,
+button, and frame events without forwarding hardware serials or private text.
+xkbcommon provides the authoritative `en,ru` keymap. Missing or unauthorized
+globals are reported as `unavailable`; the shell may then use its explicit,
+capability-gated `wtype` fallback.
 
 The public IPC limits and privacy rules are documented in
 [`omanome-input/protocol.json`](omanome-input/protocol.json). Portable checks

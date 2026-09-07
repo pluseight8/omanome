@@ -29,13 +29,22 @@
     "text.enter",
     "text.leave",
     "text.state",
-    "osk.request"
+    "osk.request",
+    "tablet.event"
   ],
   "privacy": {
     "typedTextEmitted": false,
     "surroundingTextEmitted": false,
     "passwordPayloadPersisted": false,
-    "argvPayloadsAllowed": false
+    "argvPayloadsAllowed": false,
+    "hardwareIdentifiersEmitted": false
+  },
+  "tablet": {
+    "protocol": "zwp_tablet_v2",
+    "events": ["proximity", "motion", "tip", "pressure", "tilt", "distance", "rotation", "button", "frame"],
+    "normalizedAxes": {"pressure": [0, 65535], "distance": [0, 65535]},
+    "hardwareSerials": "redacted",
+    "provider": "native-wayland-only"
   },
   "fallback": {
     "nativeVirtualKeyboard": "runtime-probe",

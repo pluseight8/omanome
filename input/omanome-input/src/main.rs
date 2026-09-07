@@ -41,6 +41,13 @@ use virtual_keyboard::zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1;
 use wayland_client::globals::{registry_queue_init, GlobalListContents};
 use wayland_client::protocol::{wl_registry, wl_seat};
 use wayland_client::{delegate_noop, Connection, Dispatch, EventQueue, QueueHandle};
+use wayland_protocols::wp::tablet::zv2::client::{
+    zwp_tablet_manager_v2::ZwpTabletManagerV2,
+    zwp_tablet_pad_v2::ZwpTabletPadV2,
+    zwp_tablet_seat_v2::{self, ZwpTabletSeatV2},
+    zwp_tablet_tool_v2::{self, ZwpTabletToolV2},
+    zwp_tablet_v2::{self, ZwpTabletV2},
+};
 use wayland_protocols::wp::text_input::zv3::client::zwp_text_input_manager_v3::ZwpTextInputManagerV3;
 
 const PROTOCOL: &str = "omanome-input";
@@ -272,10 +279,23 @@ struct BackendState {
     seat: Option<wl_seat::WlSeat>,
     virtual_keyboard: Option<ZwpVirtualKeyboardV1>,
     input_method: Option<ZwpInputMethodV2>,
+    tablet_manager: Option<ZwpTabletManagerV2>,
+    tablet_seat: Option<ZwpTabletSeatV2>,
     keymap: Option<Keymap>,
     backend: BackendKind,
     input_method_available: bool,
     text_input_available: bool,
+    tablet_count: u32,
+    tool_count: u32,
+    stylus_proximity: bool,
+    stylus_contact: bool,
+    stylus_pressure: bool,
+    stylus_tilt: bool,
+    stylus_distance: bool,
+    stylus_rotation: bool,
+    stylus_eraser: bool,
+    stylus_buttons: bool,
+    stylus_tool_type: Option<u32>,
     text_active: bool,
     content_purpose: u32,
     content_hints: u32,
@@ -293,10 +313,23 @@ impl BackendState {
             seat: None,
             virtual_keyboard: None,
             input_method: None,
+            tablet_manager: None,
+            tablet_seat: None,
             keymap: None,
             backend: BackendKind::Unavailable,
             input_method_available: false,
             text_input_available: false,
+            tablet_count: 0,
+            tool_count: 0,
+            stylus_proximity: false,
+            stylus_contact: false,
+            stylus_pressure: false,
+            stylus_tilt: false,
+            stylus_distance: false,
+            stylus_rotation: false,
+            stylus_eraser: false,
+            stylus_buttons: false,
+            stylus_tool_type: None,
             text_active: false,
             content_purpose: 0,
             content_hints: 0,
@@ -321,6 +354,18 @@ impl BackendState {
             "inputMethod": if self.input_method_available { "v2" } else { "unavailable" },
             "keymap": if self.keymap.is_some() { "xkbcommon" } else { "unavailable" },
             "layouts": ["en", "ru"],
+            "tablet": if self.tablet_manager.is_some() { "v2" } else { "unavailable" },
+            "tabletCount": self.tablet_count,
+            "toolCount": self.tool_count,
+            "stylusProximity": self.stylus_proximity,
+            "stylusContact": self.stylus_contact,
+            "stylusPressure": self.stylus_pressure,
+            "stylusTilt": self.stylus_tilt,
+            "stylusDistance": self.stylus_distance,
+            "stylusRotation": self.stylus_rotation,
+            "stylusEraser": self.stylus_eraser,
+            "stylusButtons": self.stylus_buttons,
+            "stylusToolType": self.stylus_tool_type,
             "queueLimit": MAX_PENDING_COMMANDS,
             "queueDepth": self.queue_depth,
             "securePayloads": true,
@@ -343,6 +388,11 @@ impl BackendState {
             "modifiers": self.modifiers,
             "inputMethod": if self.input_method_available { "v2" } else { "unavailable" },
             "textInput": if self.text_input_available { "v3" } else { "unavailable" },
+            "tablet": if self.tablet_manager.is_some() { "v2" } else { "unavailable" },
+            "tabletCount": self.tablet_count,
+            "toolCount": self.tool_count,
+            "stylusProximity": self.stylus_proximity,
+            "stylusContact": self.stylus_contact,
             "queueDepth": self.queue_depth,
         })
     }
@@ -726,6 +776,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         state.input_method = Some(manager.get_input_method(&seat, &qh, ()));
         state.input_method_available = true;
     }
+    if let Ok(manager) = globals.bind::<ZwpTabletManagerV2, _, _>(&qh, 1..=2, ()) {
+        state.tablet_seat = Some(manager.get_tablet_seat(&seat, &qh, ()));
+        state.tablet_manager = Some(manager);
+        state.backend = BackendKind::NativeWayland;
+    }
     // Binding the text-input manager is a capability probe. The application
     // owns text focus, so the native backend never fabricates focus for it.
     state.text_input_available = globals
@@ -905,6 +960,219 @@ delegate_noop!(BackendState: ZwpVirtualKeyboardManagerV1);
 delegate_noop!(BackendState: ZwpVirtualKeyboardV1);
 delegate_noop!(BackendState: ZwpInputMethodManagerV2);
 delegate_noop!(BackendState: ZwpTextInputManagerV3);
+delegate_noop!(BackendState: ZwpTabletManagerV2);
+delegate_noop!(BackendState: ZwpTabletPadV2);
+
+impl Dispatch<ZwpTabletSeatV2, ()> for BackendState {
+    fn event(
+        state: &mut Self,
+        _: &ZwpTabletSeatV2,
+        event: zwp_tablet_seat_v2::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            zwp_tablet_seat_v2::Event::TabletAdded { .. } => {
+                state.tablet_count = state.tablet_count.saturating_add(1);
+                emit(
+                    &state.emitter,
+                    json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"tablet-added","tabletCount":state.tablet_count,"toolCount":state.tool_count}),
+                );
+            }
+            zwp_tablet_seat_v2::Event::ToolAdded { .. } => {
+                state.tool_count = state.tool_count.saturating_add(1);
+                emit(
+                    &state.emitter,
+                    json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"tool-added","tabletCount":state.tablet_count,"toolCount":state.tool_count}),
+                );
+            }
+            zwp_tablet_seat_v2::Event::PadAdded { .. } => {
+                emit(
+                    &state.emitter,
+                    json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"pad-added"}),
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<ZwpTabletV2, ()> for BackendState {
+    fn event(
+        state: &mut Self,
+        _: &ZwpTabletV2,
+        event: zwp_tablet_v2::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            zwp_tablet_v2::Event::Name { .. }
+            | zwp_tablet_v2::Event::Id { .. }
+            | zwp_tablet_v2::Event::Path { .. }
+            | zwp_tablet_v2::Event::Bustype { .. } => {}
+            zwp_tablet_v2::Event::Done => emit(
+                &state.emitter,
+                json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"tablet-ready"}),
+            ),
+            zwp_tablet_v2::Event::Removed => {
+                state.tablet_count = state.tablet_count.saturating_sub(1);
+                state.stylus_proximity = false;
+                state.stylus_contact = false;
+                emit(
+                    &state.emitter,
+                    json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"tablet-removed","tabletCount":state.tablet_count}),
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<ZwpTabletToolV2, ()> for BackendState {
+    fn event(
+        state: &mut Self,
+        _: &ZwpTabletToolV2,
+        event: zwp_tablet_tool_v2::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            zwp_tablet_tool_v2::Event::Type { tool_type } => {
+                let tool_type_code: u32 = tool_type.into();
+                state.stylus_tool_type = Some(tool_type_code);
+                state.stylus_eraser = tool_type_code == 0x141;
+                emit(
+                    &state.emitter,
+                    json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"tool-type","toolType":tool_type_code,"eraser":state.stylus_eraser}),
+                );
+            }
+            zwp_tablet_tool_v2::Event::Capability { capability } => {
+                let capability_code: u32 = capability.into();
+                match capability_code {
+                    1 => state.stylus_tilt = true,
+                    2 => state.stylus_pressure = true,
+                    3 => state.stylus_distance = true,
+                    4 => state.stylus_rotation = true,
+                    _ => {}
+                }
+                emit(
+                    &state.emitter,
+                    json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"tool-capability","capability":capability_code}),
+                );
+            }
+            zwp_tablet_tool_v2::Event::HardwareSerial { .. }
+            | zwp_tablet_tool_v2::Event::HardwareIdWacom { .. } => {
+                // Hardware identifiers are deliberately never forwarded or logged.
+            }
+            zwp_tablet_tool_v2::Event::Done => emit(
+                &state.emitter,
+                json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"tool-ready","pressure":state.stylus_pressure,"tilt":state.stylus_tilt,"distance":state.stylus_distance,"rotation":state.stylus_rotation,"eraser":state.stylus_eraser}),
+            ),
+            zwp_tablet_tool_v2::Event::Removed => {
+                state.tool_count = state.tool_count.saturating_sub(1);
+                state.stylus_proximity = false;
+                state.stylus_contact = false;
+                emit(
+                    &state.emitter,
+                    json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"tool-removed","toolCount":state.tool_count}),
+                );
+            }
+            zwp_tablet_tool_v2::Event::ProximityIn { .. } => {
+                state.stylus_proximity = true;
+                emit(
+                    &state.emitter,
+                    json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"proximity-in","proximity":true,"eraser":state.stylus_eraser}),
+                );
+            }
+            zwp_tablet_tool_v2::Event::ProximityOut => {
+                state.stylus_proximity = false;
+                state.stylus_contact = false;
+                emit(
+                    &state.emitter,
+                    json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"proximity-out","proximity":false}),
+                );
+            }
+            zwp_tablet_tool_v2::Event::Down { .. } => {
+                state.stylus_contact = true;
+                emit(
+                    &state.emitter,
+                    json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"tip-down","contact":true}),
+                );
+            }
+            zwp_tablet_tool_v2::Event::Up => {
+                state.stylus_contact = false;
+                emit(
+                    &state.emitter,
+                    json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"tip-up","contact":false}),
+                );
+            }
+            zwp_tablet_tool_v2::Event::Motion { x, y } => emit(
+                &state.emitter,
+                json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"motion","x":bounded_coordinate(x),"y":bounded_coordinate(y),"proximity":state.stylus_proximity,"contact":state.stylus_contact}),
+            ),
+            zwp_tablet_tool_v2::Event::Pressure { pressure } => emit(
+                &state.emitter,
+                json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"pressure","pressure":pressure.min(65535),"proximity":state.stylus_proximity,"contact":state.stylus_contact}),
+            ),
+            zwp_tablet_tool_v2::Event::Distance { distance } => emit(
+                &state.emitter,
+                json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"distance","distance":distance.min(65535)}),
+            ),
+            zwp_tablet_tool_v2::Event::Tilt { tilt_x, tilt_y } => emit(
+                &state.emitter,
+                json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"tilt","tiltX":bounded_angle(tilt_x),"tiltY":bounded_angle(tilt_y)}),
+            ),
+            zwp_tablet_tool_v2::Event::Rotation { degrees } => emit(
+                &state.emitter,
+                json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"rotation","degrees":bounded_angle(degrees)}),
+            ),
+            zwp_tablet_tool_v2::Event::Slider { position } => emit(
+                &state.emitter,
+                json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"slider","position":position.clamp(-65535, 65535)}),
+            ),
+            zwp_tablet_tool_v2::Event::Wheel { degrees, clicks } => emit(
+                &state.emitter,
+                json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"wheel","degrees":bounded_angle(degrees),"clicks":clicks.clamp(-128, 128)}),
+            ),
+            zwp_tablet_tool_v2::Event::Button {
+                button,
+                state: button_state,
+                ..
+            } => {
+                state.stylus_buttons = true;
+                let button_state_code: u32 = button_state.into();
+                emit(
+                    &state.emitter,
+                    json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"button","button":button,"pressed":button_state_code == 1}),
+                );
+            }
+            zwp_tablet_tool_v2::Event::Frame { time } => emit(
+                &state.emitter,
+                json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"tablet.event","event":"frame","time":time}),
+            ),
+            _ => {}
+        }
+    }
+}
+
+fn bounded_coordinate(value: f64) -> f64 {
+    if value.is_finite() {
+        value.clamp(-1_000_000.0, 1_000_000.0)
+    } else {
+        0.0
+    }
+}
+
+fn bounded_angle(value: f64) -> f64 {
+    if value.is_finite() {
+        value.clamp(-360.0, 360.0)
+    } else {
+        0.0
+    }
+}
 
 #[repr(C)]
 struct xkb_context {
