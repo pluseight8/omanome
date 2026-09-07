@@ -50,11 +50,16 @@ jobs:
         run: |
           python3 -m json.tool hypr/omanome-hypr/compatibility.json >/dev/null
           test -f hypr/omanome-hypr/omanome-hypr.cpp
+          test -f hypr/omanome-hypr/wobbly-effect.cpp
+          test -f hypr/omanome-hypr/wobbly-effect.hpp
           make -C hypr/omanome-hypr test
           grep -Fq '__hyprland_api_get_hash' hypr/omanome-hypr/omanome-hypr.cpp
           grep -Fq '__hyprland_api_get_client_hash' hypr/omanome-hypr/omanome-hypr.cpp
+          grep -Fq 'IWindowTransformer' hypr/omanome-hypr/wobbly-effect.cpp
+          grep -Fq 'glClearColor(0.F, 0.F, 0.F, 0.F)' hypr/omanome-hypr/wobbly-effect.cpp
+          ! grep -RIn 'LD_PRELOAD\|dlsym\|dlopen\|mprotect\|/proc/.*mem' hypr/omanome-hypr
           if pkg-config --exists hyprland; then
-            make -C hypr/omanome-hypr all
+            make -C hypr/omanome-hypr check
           else
             echo 'Hyprland development headers are not installed on this runner; build remains an explicit local/manual gate.'
           fi

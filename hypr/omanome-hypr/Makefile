@@ -1,6 +1,7 @@
 SHELL := /usr/bin/env bash
 
 TARGET := build/omanome-hypr.so
+SOURCES := omanome-hypr.cpp wobbly-effect.cpp
 CXX ?= g++
 CXXFLAGS ?= -O2
 CXXFLAGS += -shared -fPIC -std=c++23 -Wall -Wextra -Wpedantic
@@ -32,9 +33,9 @@ check-deps:
 	@command -v pkg-config >/dev/null 2>&1 || { echo 'omanome-hypr: pkg-config is required; install it with your normal package manager.' >&2; exit 2; }
 	@pkg-config --exists hyprland || { echo 'omanome-hypr: matching Hyprland development headers are unavailable.' >&2; echo 'omanome-hypr: run hyprpm update or install the distribution development package manually.' >&2; exit 2; }
 
-$(TARGET): omanome-hypr.cpp compatibility.json
+$(TARGET): $(SOURCES) wobbly-physics.hpp compatibility.json
 	@mkdir -p build
-	$(CXX) $(CXXFLAGS) $(EXTRA_FLAGS) $(PKG_CFLAGS) omanome-hypr.cpp -o $@ $(PKG_LIBS)
+	$(CXX) $(CXXFLAGS) $(EXTRA_FLAGS) $(PKG_CFLAGS) $(SOURCES) -o $@ $(PKG_LIBS)
 
 clean:
 	rm -rf build

@@ -2,7 +2,7 @@
 
 Omanome is an open-source, GNOME-inspired touch and stylus enhancement suite for the current Omarchy Quattro shell on Hyprland. It is intentionally an Omarchy plugin, not a replacement desktop session: the standard Omarchy bar remains in charge of the top edge, the existing Quickshell process hosts the plugin, and all plugin state is namespaced under `io.omanome.shell`.
 
-This repository is the runnable 0.4.0 phase. It uses public Omarchy/Quickshell/Hyprland interfaces for the core and explicit, version-aware optional compositor integrations for advanced effects. Features without a real backend remain visibly unavailable rather than becoming fake overlays.
+This repository is the runnable 0.5.0 phase. It uses public Omarchy/Quickshell/Hyprland interfaces for the core and explicit, version-aware optional compositor integrations for advanced effects. Features without a real backend remain visibly unavailable rather than becoming fake overlays.
 
 ## What is included
 
@@ -24,7 +24,7 @@ This repository is the runnable 0.4.0 phase. It uses public Omarchy/Quickshell/H
 - Safe Force Quit mode with native close, PID-scoped TERM/KILL fallback, protected session processes, cancellation, and no name-based `pkill` behavior.
 - Clipboard 2.0 with pinning, search, text edit, tags, image preview, retention/storage limits, per-app exclusions, clear-unpinned, password/secret MIME filtering, private mode, and stdin-only payload handling.
 - Notification center grouping, timestamps, actions, touch/stylus swipe dismissal, per-app mute, and clear-group/all controls backed by Omarchy's native notification service.
-- Optional compositor capability boundary: Omanome integrates the real `omarchy-desktop-cube` API when loaded; wobbly remains fail-closed until a compatible native renderer exists.
+- Optional compositor capability boundary: the companion provides a real bounded Wobbly mesh through Hyprland's public `IWindowTransformer` API when the exact ABI and GL renderer checks pass; Omanome integrates the real `omarchy-desktop-cube` API when loaded.
 - A Wayland-native OSK surface driven by `wtype` (`virtual-keyboard-v1`), with English/Russian QWERTY, standard/floating/split/thumb/left-right one-handed layouts, numeric/symbols/emoji/editing layers, toolbar, key popup, long-press alternates, repeat settings, and a local handwriting canvas.
 - Integration with Omarchy's native notification service for DND, popups, history, and dismissal.
 - Diagnostics and lifecycle commands: status, doctor, logs, enable/disable, safe mode, devices, stylus-info, touch-info, sensor-info, GitHub install/update checks, rollback, and uninstall.
@@ -135,11 +135,11 @@ The check runs repository validation, shell syntax checks, Python tests includin
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/TESTING.md`](docs/TESTING.md) for the plugin contract, coexistence rules, test matrix, and safe integration boundaries.
 
-## 0.4 compositor and safety boundaries
+## 0.5 compositor and safety boundaries
 
 Blur is applied through Hyprland layer-rule IPC to Omanome namespaces; it is not a translucent-rectangle imitation. Coverflow selects real Hyprland foreign-toplevel objects and activates them through native APIs. Live previews stay disabled unless the running Quickshell/companion exposes an actual texture provider. Force Quit starts with the selected foreign window's native close request and only falls back to the selected numeric PID; session processes are protected and no process-name broadcast is used.
 
-The current public Omarchy/Hyprland APIs do not provide a portable third-party QML path for compositor-rendered wobbly windows. The true Desktop Cube is integrated through the separately maintained, version-matched `omarchy-desktop-cube` backend when it is loaded; Omanome does not duplicate its renderer. Without that external backend, cube controls remain unavailable. Omanome never animates screenshots and never loads an unpinned Hyprland `.so`.
+The optional `omanome-hypr` companion uses the exact Hyprland API hash handshake and the public `IWindowTransformer` workbuffer path for Wobbly. It is fail-closed on non-GL backends, rotated outputs, X11 windows, shader/buffer errors, lifecycle markers, ABI/version mismatches, or missing artifacts. Wobbly can be controlled with `hyprctl -j omanome-effects wobbly enable|disable`; the QML setting sends the same stable command and reports failures. The true Desktop Cube is integrated through the separately maintained, version-matched `omarchy-desktop-cube` backend when it is loaded; Omanome does not duplicate its renderer. Without that external backend, cube controls remain unavailable. Omanome never animates screenshots and never loads an unpinned Hyprland `.so`.
 
 Automatic text-field focus detection, persistent virtual input, local handwriting recognition, stylus button-event mapping, and full drag-and-drop app-grid persistence remain extension points until their corresponding public backend is selected. Auto-rotation remains manual-only when neither sensor backend is present.
 

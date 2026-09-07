@@ -22,7 +22,7 @@
   "capabilities": {
     "blur": false,
     "livePreview": false,
-    "wobblyWindows": false,
+    "wobblyWindows": true,
     "desktopCube": false
   }
 }

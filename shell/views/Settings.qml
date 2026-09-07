@@ -247,7 +247,7 @@ Item {
           width: parent.width
           spacing: Style.space(10)
           visible: root.category === "about"
-          Text { text: "Omanome 0.4.0"; color: Color.accent; font.pixelSize: Style.font.title; font.bold: true }
+          Text { text: "Omanome 0.5.0"; color: Color.accent; font.pixelSize: Style.font.title; font.bold: true }
           Text { width: parent.width; text: "GNOME-inspired touch and stylus experience inside the existing Omarchy/Hyprland shell. It stays a single Omarchy plugin and never replaces the standard bar."; color: Color.foreground; font.pixelSize: Style.font.body; wrapMode: Text.WordWrap }
           Text { width: parent.width; text: "Detected: Hyprland " + (root.service.hyprlandAvailable ? (root.service.effectBackend.runtime ? root.service.effectBackend.runtime.version : "yes") : "no") + " · Quickshell " + (root.service.statusObject().quickshell || "host-provided") + " · touchscreen " + (root.service.hasTouchscreen ? "yes" : "no") + " · stylus " + (root.service.hasStylus ? "yes" : "no") + " · wtype " + (root.service.wtypeAvailable ? "yes" : "no"); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
           Text { width: parent.width; text: "Companion installed " + (root.service.companionState.installed ? "yes" : "no") + " · loaded " + (root.service.companionState.loaded ? "yes" : "no") + " · ABI " + (root.service.companionState.runtime.abi || "unknown") + " · live preview " + (root.service.statusObject().preview.available ? "yes" : "no") + " · safe mode " + (root.service.safeMode ? "on" : "off"); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }

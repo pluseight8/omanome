@@ -235,6 +235,7 @@ class OmanomeProjectTests(unittest.TestCase):
     def test_companion_contract_is_optional_and_version_aware(self) -> None:
         companion = ROOT / "hypr/omanome-hypr"
         source = (companion / "omanome-hypr.cpp").read_text(encoding="utf-8")
+        renderer = (companion / "wobbly-effect.cpp").read_text(encoding="utf-8")
         metadata = json.loads((companion / "compatibility.json").read_text(encoding="utf-8"))
         cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")
         self.assertEqual(metadata["protocolVersion"], 2)
@@ -243,6 +244,13 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertIn("__hyprland_api_get_hash", source)
         self.assertIn("__hyprland_api_get_client_hash", source)
         self.assertIn("HyprlandAPI::getHyprlandVersion", source)
+        self.assertIn("IWindowTransformer", renderer)
+        self.assertIn("glClearColor(0.F, 0.F, 0.F, 0.F)", renderer)
+        self.assertIn("glBlendFuncSeparate", renderer)
+        self.assertNotIn("LD_PRELOAD", renderer)
+        self.assertNotIn("dlsym", renderer)
+        self.assertNotIn("dlopen", renderer)
+        self.assertNotIn("mprotect", renderer)
         self.assertIn("companion_doctor_cmd", cli)
         self.assertIn("companion_enable_cmd", cli)
         self.assertIn("companion_recover_cmd", cli)

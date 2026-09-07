@@ -62,6 +62,9 @@ Item {
   property var livePreviewState: ({ available: false, backend: "quickshell-screencopy", protocol: "hyprland-toplevel-export-v1", activeStreams: 0, reason: "waiting for compositor-owned ScreencopyView content" })
   property var effectCapabilities: EffectsModel.capabilityState({}, {})
   property var performanceState: PerformanceModel.snapshot({}, {})
+  property bool wobblyBackendRequestInFlight: false
+  property bool wobblyBackendSynced: false
+  property var wobblyBackendResponse: null
   property var forceQuitState: ({ active: false, phase: "idle", target: null, message: "" })
   property string blurRuleSignature: ""
   property string lastInput: "keyboard"
@@ -232,6 +235,39 @@ Item {
     return WobblyModel.state(root.cfg("wobbly", {}), root.effectCapabilities, root.activeClient())
   }
 
+  function requestWobblyBackend(enabled) {
+    var wanted = Boolean(enabled)
+    root.wobblyBackendSynced = false
+    if (!root.hyprlandAvailable || root.companionState.loaded !== true || root.effectCapabilities.wobblyWindows !== true) {
+      if (wanted) root.lastError = "Wobbly needs a compatible loaded omanome-hypr renderer"
+      return false
+    }
+    if (wobblyControlProcess.running) wobblyControlProcess.running = false
+    root.wobblyBackendResponse = null
+    root.wobblyBackendRequestInFlight = true
+    wobblyControlProcess.command = ["hyprctl", "-j", "omanome-effects", "wobbly", wanted ? "enable" : "disable"]
+    wobblyControlProcess.running = true
+    return true
+  }
+
+  function updateWobblyBackendResponse(raw) {
+    root.wobblyBackendResponse = root.parseJson(raw, null)
+  }
+
+  function finishWobblyBackend(exitCode) {
+    var response = root.wobblyBackendResponse
+    if (exitCode !== 0 || !response || response.error) {
+      root.lastError = response && response.error ? String(response.error) : "Wobbly compositor command failed"
+      root.wobblyBackendSynced = false
+    } else {
+      root.wobblyBackendSynced = true
+    }
+    root.wobblyBackendRequestInFlight = false
+    root.refreshEffectBackend()
+    root.stateRevision++
+    root.stateUpdated()
+  }
+
   function cubeEval(action, value) {
     var state = root.cubeState()
     var expression = CubeModel.lua(action, value)
@@ -374,6 +410,8 @@ Item {
     root.companionState = CompanionModel.normalize(parsed.companion || {})
     root.effectCapabilities = EffectsModel.capabilityState(root.companionState.capabilities, parsed.external || {})
     if (parsed.hyprlandAvailable === true) root.hyprlandAvailable = true
+    if (root.cfg("wobbly.enabled", false) === true && root.effectCapabilities.wobblyWindows === true && !root.wobblyBackendSynced && !root.wobblyBackendRequestInFlight)
+      root.requestWobblyBackend(true)
     root.performanceState = PerformanceModel.snapshot(root.cfg("performance", {}), root.performanceContext())
     root.applyBlurRules()
     root.stateRevision++
@@ -422,6 +460,7 @@ Item {
     if (String(path).indexOf("touch.") === 0) root.applyTouchIntegration()
     if (String(path).indexOf("rotation.") === 0) root.refreshRotationBackend()
     if (String(path).indexOf("notifications.enabled") === 0) root.refreshIntegrations()
+    if (String(path) === "wobbly.enabled") root.requestWobblyBackend(Boolean(value))
     if (String(path).indexOf("blur.") === 0 || String(path).indexOf("performance.") === 0 || String(path).indexOf("effects.") === 0 || String(path).indexOf("applicationRules.") === 0 || String(path).indexOf("animations.") === 0) {
       root.performanceState = PerformanceModel.snapshot(root.cfg("performance", {}), root.performanceContext())
       root.applyBlurRules()
@@ -1388,6 +1427,12 @@ Item {
     onExited: function(exitCode) {
       if (exitCode !== 0) root.lastError = "Effect backend probe failed"
     }
+  }
+
+  Process {
+    id: wobblyControlProcess
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateWobblyBackendResponse(text) }
+    onExited: function(exitCode) { root.finishWobblyBackend(exitCode) }
   }
 
   Process {

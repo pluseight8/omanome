@@ -147,6 +147,16 @@ class MeshPhysics {
 
     std::size_t vertexCount() const { return m_nodes.size(); }
 
+    bool moving(float epsilon = 0.0001F) const {
+        const float threshold = std::max(0.F, finiteOr(epsilon, 0.0001F));
+        for (const auto& node : m_nodes) {
+            if (std::abs(node.offset.x) > threshold || std::abs(node.offset.y) > threshold || std::abs(node.velocity.x) > threshold ||
+                std::abs(node.velocity.y) > threshold || std::abs(node.target.x) > threshold || std::abs(node.target.y) > threshold)
+                return true;
+        }
+        return false;
+    }
+
     bool finiteAndBounded() const {
         const float maxX = m_width * m_config.maxDeformation + 0.001F;
         const float maxY = m_height * m_config.maxDeformation + 0.001F;

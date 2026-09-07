@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0
+
+- Adds a versioned optional `omanome-hypr` Wobbly renderer using Hyprland's
+  public `IWindowTransformer` workbuffer boundary, bounded mesh physics, and a
+  real GL shader/VAO/VBO path with transparent fail-closed fallback.
+- Adds explicit `wobbly enable|disable` status IPC, QML Settings integration,
+  lifecycle-aware companion reporting, and tests for the public renderer
+  boundary and unsafe-loader invariants.
+- Adds live `ScreencopyView` sources for window previews; previews report
+  available only after a compositor-owned stream has content.
+- Keeps Desktop Cube capability-gated to the separately maintained,
+  version-matched external backend.
+
 ## 0.4.0
 
 - Adds real Hyprland layer-rule blur for Omanome surfaces with per-surface

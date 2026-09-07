@@ -2,7 +2,7 @@
 
 Omanome — открытый набор улучшений рабочего стола для актуального Omarchy Quattro на Hyprland. Он добавляет GNOME-подобный интерфейс для touchscreen и стилуса, но остаётся обычным Omarchy Shell Plugin: стандартная верхняя панель не заменяется, второй Quickshell не запускается, GNOME Shell и Mutter не нужны.
 
-Это запускаемая фаза версии 0.4.0. Ядро использует публичные API Omarchy/Quickshell/Hyprland, а дополнительные compositor-возможности подключаются только через явные version-aware companion boundaries. Если настоящего backend нет, функция остаётся явно недоступной, а не подменяется декоративной имитацией.
+Это запускаемая фаза версии 0.5.0. Ядро использует публичные API Omarchy/Quickshell/Hyprland, а дополнительные compositor-возможности подключаются только через явные version-aware companion boundaries. Если настоящего backend нет, функция остаётся явно недоступной, а не подменяется декоративной имитацией.
 
 ## Возможности
 
@@ -23,7 +23,8 @@ Omanome — открытый набор улучшений рабочего ст
 - Безопасный Force Quit: native close, PID-scoped TERM/KILL fallback, защита session-процессов и отмена без `pkill` по имени.
 - Clipboard 2.0: pin/search/text edit/tags/image preview/retention/max storage/per-app exclusions/clear-unpinned, password/secret MIME filtering и передача payload только через stdin.
 - Notification center с grouping, timestamps, actions, touch/stylus swipe dismiss, per-app mute и clear group/all на базе нативного Omarchy notification service.
-- Real Desktop Cube backend интегрируется через внешний `omarchy-desktop-cube`, если он загружен; wobbly остаётся fail-closed до появления совместимого native renderer.
+- Wobbly companion выполняет настоящую bounded mesh-деформацию compositor-owned workbuffer через публичный Hyprland `IWindowTransformer`; exact API hash, GL backend, shader/buffer и lifecycle checks остаются обязательными, иначе capability закрывается.
+- Real Desktop Cube backend интегрируется через внешний `omarchy-desktop-cube`, если он загружен; Omanome не дублирует его renderer.
 - Wayland-native OSK через `wtype`: English/Russian QWERTY, standard/floating/split/thumb/one-handed left/right, numeric/symbols/emoji/editing и handwriting canvas; есть toolbar, long-press alternates, key popup и configurable repeat.
 - Использование нативного Omarchy notification service для DND, истории и dismiss.
 - CLI для диагностики, включая `stylus-info`, `touch-info`, `sensor-info`, установки из GitHub, safe mode, обновления, rollback и удаления.
@@ -113,11 +114,11 @@ make check
 
 Подробности: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) и [`docs/TESTING.md`](docs/TESTING.md).
 
-## Границы 0.4 compositor и safety
+## Границы 0.5 compositor и safety
 
 Blur применяется через Hyprland layer-rule IPC к namespace Omanome, а не рисуется как прозрачный прямоугольник. Coverflow работает с реальными Hyprland foreign-toplevel объектами и native activation. Live preview остаётся выключенным, пока активный Quickshell/companion не даст настоящий texture provider. Force Quit сначала вызывает native close выбранного окна и только затем использует выбранный numeric PID; session-процессы защищены, broadcast по имени не используется.
 
-Настоящий Desktop Cube подключается через отдельно сопровождаемый version-matched `omarchy-desktop-cube`, если он загружен; Omanome не дублирует его renderer. Без этого backend cube недоступен. Portable compositor-level wobbly renderer пока отсутствует, поэтому функция fail-closed. Omanome не анимирует screenshots и не загружает неприкреплённый Hyprland `.so`.
+Настоящий Wobbly подключается через optional `omanome-hypr`: он получает compositor-owned workbuffer, рисует ограниченный mesh через публичный `IWindowTransformer` и возвращает framebuffer в обычный Hyprland pass. Включение выполняется через `hyprctl -j omanome-effects wobbly enable`; QML Settings использует тот же IPC. При несовпадении API/ABI, X11/rotated output, ошибке shader/buffer, crash-marker или недоступном GL renderer эффект остаётся выключенным, а исходный framebuffer сохраняется. Настоящий Desktop Cube подключается через отдельно сопровождаемый version-matched `omarchy-desktop-cube`, если он загружен; без него cube недоступен. Omanome не анимирует screenshots и не загружает неприкреплённый Hyprland `.so`.
 
 Автоматическое обнаружение focused text field, persistent input, handwriting recognition, stylus button-event mapping и полная persistence drag-and-drop app grid по-прежнему требуют отдельного backend. Весь основной shell остаётся работоспособным без companion.
 
