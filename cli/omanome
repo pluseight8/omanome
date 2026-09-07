@@ -22,6 +22,10 @@ companion_data_dir="$data_home/omanome/companion"
 companion_artifact="$companion_data_dir/omanome-hypr.so"
 companion_state_dir="$omanome_state_dir/companion"
 companion_pending_marker="$companion_state_dir/load.pending"
+companion_disabled_marker="$companion_state_dir/disabled"
+companion_lifecycle_file="$companion_state_dir/lifecycle.json"
+companion_lifecycle_log="$companion_state_dir/lifecycle.log"
+companion_backup_dir="$companion_state_dir/artifacts"
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'omanome: %s\n' "$*" >&2; exit 1; }
@@ -58,6 +62,7 @@ Commands:
   companion rebuild      Rebuild and reinstall the companion
   companion enable       Load a compatible user-owned companion
   companion disable      Unload the optional companion
+  companion recover      Disable, restore the newest companion backup, and clear pending state
   effects                Print effect and preview backend capabilities
   benchmark              Print lightweight runtime/render diagnostics
   devices                Print Hyprland's device inventory
@@ -71,7 +76,7 @@ manifest_value() {
 config_file() { printf '%s/config.json\n' "$omanome_config_dir"; }
 
 ensure_dirs() {
-  mkdir -p -- "$omanome_config_dir" "$omanome_state_dir" "$omanome_cache_dir" "$rollback_dir"
+  mkdir -p -- "$omanome_config_dir" "$omanome_state_dir" "$omanome_cache_dir" "$rollback_dir" "$companion_state_dir" "$companion_backup_dir"
 }
 
 backup_config() {
@@ -184,6 +189,89 @@ companion_runtime_version() {
   fi
 }
 
+companion_runtime_commit() {
+  if has hyprctl; then
+    hyprctl version 2>/dev/null | sed -n '1s/.*commit[[:space:]]\+\([[:alnum:]_:-]\+\).*/\1/p' | head -n 1
+  fi
+}
+
+companion_timestamp() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
+
+companion_record_event() {
+  ensure_dirs
+  local event="${1:-unknown}"
+  local reason="${2:-}"
+  printf '%s event=%s reason=%s\n' "$(companion_timestamp)" "$event" "$reason" >>"$companion_lifecycle_log"
+  chmod 600 -- "$companion_lifecycle_log"
+}
+
+companion_state_update() {
+  ensure_dirs
+  local event="${1:-unknown}"
+  local reason="${2:-}"
+  local at
+  at="$(companion_timestamp)"
+  local current='{}'
+  if [[ -f "$companion_lifecycle_file" ]]; then
+    current="$(jq -c 'if type == "object" then . else {} end' "$companion_lifecycle_file" 2>/dev/null || printf '{}')"
+  fi
+  local temporary="$companion_lifecycle_file.tmp.$$"
+  jq --arg event "$event" --arg reason "$reason" --arg at "$at" '
+    .schemaVersion = 1
+    | .lastEvent = $event
+    | .lastEventAt = $at
+    | .lastReason = $reason
+    | if $event == "load-attempt" then
+        .enabled = true | .loadPending = true | .lastLoadAt = $at
+      elif $event == "load-success" then
+        .enabled = true | .loadPending = false | .lastSuccessAt = $at | .lastLoadFailure = null
+      elif $event == "load-failure" then
+        .loadPending = true | .loadFailureCount = ((.loadFailureCount // 0) + 1)
+        | .lastLoadFailure = {at:$at, reason:$reason}
+      elif $event == "crash-detected" then
+        .loadPending = true | .crashCount = ((.crashCount // 0) + 1)
+        | .lastCrash = {at:$at, reason:$reason}
+      elif $event == "disabled" then
+        .enabled = false | .loadPending = false
+      elif $event == "artifact-installed" then
+        .installedAt = $at
+      elif $event == "recovered" then
+        .enabled = false | .loadPending = false | .lastRecoveryAt = $at
+      else . end
+  ' <<<"$current" >"$temporary"
+  chmod 600 -- "$temporary"
+  mv -f -- "$temporary" "$companion_lifecycle_file"
+  companion_record_event "$event" "$reason"
+}
+
+companion_backup_artifact() {
+  [[ -f "$companion_artifact" ]] || return 0
+  ensure_dirs
+  local stamp destination
+  stamp="$(date -u +%Y%m%d-%H%M%S)"
+  destination="$companion_backup_dir/$stamp"
+  if [[ -e "$destination" ]]; then destination="$companion_backup_dir/${stamp}-$(date +%s%N)"; fi
+  mkdir -p -- "$destination"
+  install -Dm755 -- "$companion_artifact" "$destination/omanome-hypr.so"
+  if [[ -f "$companion_data_dir/compatibility.json" ]]; then
+    install -Dm600 -- "$companion_data_dir/compatibility.json" "$destination/compatibility.json"
+  fi
+  printf '%s\n' "$destination"
+}
+
+companion_artifact_verify() {
+  [[ -s "$companion_artifact" ]] || { say "FAIL: companion artifact is missing or empty"; return 1; }
+  if has file && ! file -b -- "$companion_artifact" | grep -Eq 'ELF.*shared object'; then
+    say "FAIL: companion artifact is not an ELF shared object"
+    return 1
+  fi
+  if has readelf && ! readelf -h -- "$companion_artifact" >/dev/null 2>&1; then
+    say "FAIL: companion artifact ELF header is unreadable"
+    return 1
+  fi
+  return 0
+}
+
 companion_doctor_cmd() {
   local failed=0
   say "Omanome companion doctor"
@@ -192,6 +280,15 @@ companion_doctor_cmd() {
     return 1
   fi
   say "OK: companion source is present"
+  for build_tool in jq make g++; do
+    if has "$build_tool"; then say "OK: $build_tool -> $(command -v "$build_tool")"; else say "FAIL: $build_tool is unavailable"; failed=1; fi
+  done
+  if has pkg-config; then
+    say "OK: pkg-config -> $(command -v pkg-config)"
+  else
+    say "FAIL: pkg-config is unavailable"
+    failed=1
+  fi
   if has pkg-config && pkg-config --exists hyprland; then
     say "OK: matching Hyprland development package: $(pkg-config --modversion hyprland)"
   else
@@ -200,29 +297,60 @@ companion_doctor_cmd() {
   if has hyprctl; then
     say "OK: runtime Hyprland $(companion_runtime_version)"
     say "ABI: $(companion_runtime_abi || printf 'unavailable')"
+    say "Commit: $(companion_runtime_commit || printf 'unavailable')"
   else
     say "WARN: hyprctl is unavailable; companion cannot be loaded in this session"
   fi
   if [[ -f "$companion_artifact" ]]; then
     say "OK: user-owned artifact $companion_artifact"
+    companion_artifact_verify || failed=1
     if [[ -f "$companion_data_dir/compatibility.json" && -n "$(companion_runtime_abi)" ]]; then
-      local built_abi
-      built_abi="$(jq -r '.hyprland.abi // empty' "$companion_data_dir/compatibility.json" 2>/dev/null || true)"
+      local built_abi built_version built_commit built_hash expected_hash
+      built_abi="$(jq -r '.build.hyprlandAbi // .hyprland.abi // empty' "$companion_data_dir/compatibility.json" 2>/dev/null || true)"
+      built_version="$(jq -r '.build.hyprlandVersion // .hyprland.version // empty' "$companion_data_dir/compatibility.json" 2>/dev/null || true)"
+      built_commit="$(jq -r '.build.hyprlandCommit // .hyprland.commit // empty' "$companion_data_dir/compatibility.json" 2>/dev/null || true)"
+      built_hash="$(jq -r '.build.artifactSha256 // empty' "$companion_data_dir/compatibility.json" 2>/dev/null || true)"
+      expected_hash="$(sha256sum "$companion_artifact" 2>/dev/null | awk '{print $1}')"
+      say "Build version: ${built_version:-unknown}"
+      say "Build commit: ${built_commit:-unknown}"
+      say "Build ABI: ${built_abi:-unknown}"
+      say "Artifact hash: ${built_hash:-unknown}"
       if [[ -n "$built_abi" && "$built_abi" == "$(companion_runtime_abi)" ]]; then
         say "OK: artifact ABI matches the running Hyprland"
       else
         say "FAIL: artifact ABI does not match the running Hyprland; rebuild before enabling"
         failed=1
       fi
+      if [[ -n "$built_version" && "$built_version" == "$(companion_runtime_version)" ]]; then
+        say "OK: artifact Hyprland version matches the running compositor"
+      else
+        say "FAIL: artifact Hyprland version is stale; rebuild before enabling"
+        failed=1
+      fi
+      if [[ -n "$built_hash" && -n "$expected_hash" && "$built_hash" == "$expected_hash" ]]; then
+        say "OK: artifact integrity hash matches build metadata"
+      else
+        say "FAIL: artifact integrity hash is missing or mismatched"
+        failed=1
+      fi
     else
       say "WARN: artifact build metadata is missing; reinstall it with 'omanome companion install'"
+      failed=1
     fi
   else
     say "INFO: companion is not installed; core Omanome remains fully available"
   fi
+  if [[ -f "$companion_disabled_marker" ]]; then
+    say "INFO: companion is disabled by user policy"
+  fi
   if [[ -f "$companion_pending_marker" ]]; then
     say "FAIL: previous companion load did not complete; run 'omanome companion disable' or rebuild before enabling"
     failed=1
+  fi
+  if [[ -f "$companion_lifecycle_file" ]]; then
+    say "Last event: $(jq -r '.lastEvent // "unknown"' "$companion_lifecycle_file" 2>/dev/null || printf 'unknown') at $(jq -r '.lastEventAt // "unknown"' "$companion_lifecycle_file" 2>/dev/null || printf 'unknown')"
+    say "Crash count: $(jq -r '.crashCount // 0' "$companion_lifecycle_file" 2>/dev/null || printf '0')"
+    say "Load failures: $(jq -r '.loadFailureCount // 0' "$companion_lifecycle_file" 2>/dev/null || printf '0')"
   fi
   if [[ -f "$omanome_config_dir/safe-mode" ]]; then
     say "WARN: Omanome safe mode marker disables companion loading"
@@ -243,18 +371,36 @@ companion_build_cmd() {
 companion_install_cmd() {
   companion_build_cmd
   mkdir -p -- "$companion_data_dir"
+  local previous_backup=""
+  previous_backup="$(companion_backup_artifact || true)"
   install -Dm755 -- "$companion_root/build/omanome-hypr.so" "$companion_artifact"
   install -Dm644 -- "$companion_manifest" "$companion_data_dir/compatibility.json"
-  local runtime_version runtime_abi
+  local runtime_version runtime_abi runtime_commit compiler artifact_hash plugin_build metadata
   runtime_version="$(companion_runtime_version || true)"
   runtime_abi="$(companion_runtime_abi || true)"
-  local metadata="$companion_data_dir/compatibility.json.tmp"
-  jq --arg version "${runtime_version:-unknown}" --arg abi "${runtime_abi:-unknown}" \
-    '. + {hyprland:{version:$version,abi:$abi}}' \
+  runtime_commit="$(companion_runtime_commit || true)"
+  compiler="$(g++ --version 2>/dev/null | head -n 1 || true)"
+  artifact_hash="$(sha256sum "$companion_artifact" | awk '{print $1}')"
+  plugin_build="$(manifest_value version)"
+  metadata="$companion_data_dir/compatibility.json.tmp"
+  jq --arg version "${runtime_version:-unknown}" \
+    --arg commit "${runtime_commit:-unknown}" \
+    --arg abi "${runtime_abi:-unknown}" \
+    --arg compiler "${compiler:-unknown}" \
+    --arg pluginBuild "$plugin_build" \
+    --arg artifactHash "$artifact_hash" \
+    --arg builtAt "$(companion_timestamp)" \
+    '. + {
+      hyprland:{version:$version,commit:$commit,abi:$abi},
+      build:{hyprlandVersion:$version,hyprlandCommit:$commit,hyprlandAbi:$abi,compiler:$compiler,pluginBuild:$pluginBuild,artifactSha256:$artifactHash,builtAt:$builtAt}
+    }' \
     "$companion_data_dir/compatibility.json" >"$metadata"
   mv -f -- "$metadata" "$companion_data_dir/compatibility.json"
+  chmod 600 -- "$companion_data_dir/compatibility.json"
   rm -f -- "$companion_pending_marker"
+  companion_state_update artifact-installed "new artifact installed${previous_backup:+; previous artifact backed up}"
   say "Installed user-owned companion at $companion_artifact"
+  [[ -z "$previous_backup" ]] || say "Previous artifact backed up at $previous_backup"
   say "No compositor module was loaded; run 'omanome companion enable' explicitly after reviewing the artifact."
 }
 
@@ -263,32 +409,87 @@ companion_rebuild_cmd() {
 }
 
 companion_enable_cmd() {
+  local force=0
+  for argument in "$@"; do [[ "$argument" == "--force" ]] && force=1; done
   ensure_dirs
   [[ ! -f "$omanome_config_dir/safe-mode" ]] || die "Omanome safe mode is active; run 'omanome enable' first"
-  [[ ! -f "$companion_pending_marker" ]] || die "previous companion load did not complete; run 'omanome companion disable' or 'omanome companion rebuild' first"
+  if [[ -f "$companion_pending_marker" && "$force" -ne 1 ]]; then
+    die "previous companion load did not complete; run 'omanome companion recover' or explicitly acknowledge with 'omanome companion enable --force'"
+  fi
+  if [[ -f "$companion_pending_marker" && "$force" -eq 1 ]]; then
+    say "WARNING: explicitly overriding the previous load-pending marker"
+    rm -f -- "$companion_pending_marker"
+    companion_state_update crash-detected "explicit enable --force override"
+  fi
   [[ -f "$companion_artifact" ]] || die "companion is not installed; run 'omanome companion install'"
-  companion_doctor_cmd || die "companion is not compatible with the running Hyprland"
+  if ! companion_doctor_cmd; then
+    die "companion is not compatible with the running Hyprland"
+  fi
   has hyprctl || die "hyprctl is unavailable"
   mkdir -p -- "$companion_state_dir"
+  rm -f -- "$companion_disabled_marker"
   : >"$companion_pending_marker"
+  chmod 600 -- "$companion_pending_marker"
+  companion_state_update load-attempt "explicit load requested"
   if ! hyprctl plugin load "$companion_artifact"; then
+    companion_state_update load-failure "hyprctl plugin load failed"
     say "Companion load failed; marker kept so the next startup will not retry it automatically."
     return 1
   fi
   if ! hyprctl plugins list 2>/dev/null | grep -Fq 'omanome-hypr'; then
+    companion_state_update load-failure "plugin load was not visible in Hyprland"
     say "Companion load was not confirmed; marker kept and the core remains usable."
     return 1
   fi
+  local status
+  status="$(hyprctl -j omanome-effects 2>/dev/null || true)"
+  if ! jq -e '.protocolVersion == 2 and .loaded == true and .api.hashMatch == true' >/dev/null 2>&1 <<<"$status"; then
+    companion_state_update load-failure "versioned status IPC did not confirm a compatible load"
+    say "Companion status IPC was not compatible; marker kept and advanced effects remain disabled."
+    return 1
+  fi
   rm -f -- "$companion_pending_marker"
+  companion_state_update load-success "versioned status IPC confirmed the loaded companion"
   say "Requested load of the version-matched Omanome companion."
 }
 
 companion_disable_cmd() {
+  ensure_dirs
+  : >"$companion_disabled_marker"
+  chmod 600 -- "$companion_disabled_marker"
+  local unload_failed=0
   if has hyprctl && [[ -f "$companion_artifact" ]]; then
-    hyprctl plugin unload "$companion_artifact" >/dev/null 2>&1 || true
+    if hyprctl plugins list 2>/dev/null | grep -Fq 'omanome-hypr'; then
+      hyprctl plugin unload "$companion_artifact" >/dev/null 2>&1 || unload_failed=1
+    fi
   fi
   rm -f -- "$companion_pending_marker"
-  say "Omanome companion disabled (if it was loaded)."
+  companion_state_update disabled "explicit disable requested"
+  if [[ "$unload_failed" -eq 1 ]]; then
+    say "Omanome companion marked disabled for the next session; runtime unload was rejected by Hyprland."
+    return 1
+  fi
+  say "Omanome companion disabled; advanced effects remain fail-closed."
+}
+
+companion_recover_cmd() {
+  ensure_dirs
+  companion_disable_cmd || true
+  local latest_backup
+  latest_backup="$(find "$companion_backup_dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort | tail -n 1)"
+  if [[ -n "$latest_backup" && -f "$companion_backup_dir/$latest_backup/omanome-hypr.so" ]]; then
+    mkdir -p -- "$companion_data_dir"
+    install -Dm755 -- "$companion_backup_dir/$latest_backup/omanome-hypr.so" "$companion_artifact"
+    if [[ -f "$companion_backup_dir/$latest_backup/compatibility.json" ]]; then
+      install -Dm600 -- "$companion_backup_dir/$latest_backup/compatibility.json" "$companion_data_dir/compatibility.json"
+    fi
+    say "Restored previous companion artifact from $latest_backup"
+  else
+    say "No previous companion artifact backup was available; companion remains disabled."
+  fi
+  rm -f -- "$companion_pending_marker"
+  companion_state_update recovered "explicit recovery requested"
+  say "Companion recovery complete; automatic loading remains disabled."
 }
 
 setup_cmd() {
@@ -457,6 +658,8 @@ create_rollback_cmd() {
   mkdir -p -- "$stamp"
   cp -a -- "$installed_plugin_dir" "$stamp/plugin"
   if [[ -f "$(config_file)" ]]; then cp -p -- "$(config_file)" "$stamp/config.json"; fi
+  if [[ -d "$companion_data_dir" ]]; then cp -a -- "$companion_data_dir" "$stamp/companion"; fi
+  if [[ -d "$companion_state_dir" ]]; then cp -a -- "$companion_state_dir" "$stamp/companion-state"; fi
   printf '%s\n' "$stamp"
 }
 
@@ -469,6 +672,14 @@ restore_latest_cmd() {
   if [[ -d "$installed_plugin_dir" ]]; then mv -- "$installed_plugin_dir" "$failed_dir"; fi
   cp -a -- "$rollback_dir/$snapshot/plugin" "$installed_plugin_dir"
   if [[ -f "$rollback_dir/$snapshot/config.json" ]]; then cp -p -- "$rollback_dir/$snapshot/config.json" "$(config_file)"; fi
+  if [[ -d "$rollback_dir/$snapshot/companion" ]]; then
+    if [[ -d "$companion_data_dir" ]]; then mv -- "$companion_data_dir" "${companion_data_dir}.failed.$(date +%s)"; fi
+    cp -a -- "$rollback_dir/$snapshot/companion" "$companion_data_dir"
+  fi
+  if [[ -d "$rollback_dir/$snapshot/companion-state" ]]; then
+    if [[ -d "$companion_state_dir" ]]; then mv -- "$companion_state_dir" "${companion_state_dir}.failed.$(date +%s)"; fi
+    cp -a -- "$rollback_dir/$snapshot/companion-state" "$companion_state_dir"
+  fi
   say "Restored rollback point $snapshot"
 }
 
@@ -594,6 +805,7 @@ case "$command_name" in
       rebuild) companion_rebuild_cmd "$@" ;;
       enable) companion_enable_cmd "$@" ;;
       disable) companion_disable_cmd "$@" ;;
+      recover) companion_recover_cmd "$@" ;;
       *) usage >&2; die "unknown companion command: $companion_command" ;;
     esac
     ;;

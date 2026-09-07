@@ -1,4 +1,5 @@
 {
+  "descriptorVersion": 1,
   "protocolVersion": 2,
   "pluginVersion": "0.5.0",
   "pluginName": "omanome-hypr",
@@ -9,6 +10,14 @@
     "coreIndependent": true,
     "failClosed": true,
     "userOwnedArtifact": true
+  },
+  "build": {
+    "hyprlandVersion": "unknown",
+    "hyprlandCommit": "unknown",
+    "hyprlandAbi": "unknown",
+    "compiler": "unknown",
+    "pluginBuild": "0.5.0",
+    "artifactSha256": "unknown"
   },
   "capabilities": {
     "blur": false,

@@ -245,7 +245,9 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertIn("HyprlandAPI::getHyprlandVersion", source)
         self.assertIn("companion_doctor_cmd", cli)
         self.assertIn("companion_enable_cmd", cli)
+        self.assertIn("companion_recover_cmd", cli)
         self.assertIn("companion_pending_marker", cli)
+        self.assertIn("companion_disabled_marker", cli)
         self.assertIn("load.pending", cli)
         self.assertNotIn("sudo pacman", cli)
         self.assertNotIn("LD_PRELOAD", source)
@@ -253,7 +255,8 @@ class OmanomeProjectTests(unittest.TestCase):
         result = self.run_node(
             "const C=require('./shell/models/Companion.js'); "
             "const good={installed:true,built:true,loaded:true,protocolVersion:2,pluginVersion:'0.5.0'," \
-            "runtime:{abi:'same'},build:{abi:'same'},compatibility:{pluginVersion:'0.5.0'}," \
+            "runtime:{version:'0.56.2',abi:'same'},build:{version:'0.56.2',abi:'same',pluginBuild:'0.5.0'}," \
+            "versionMatch:true,pluginBuildMatch:true,artifactHashMatch:true,compatibility:{pluginVersion:'0.5.0'}," \
             "capabilities:{desktopCube:true}}; " \
             "const bad={...good,runtime:{abi:'new'},build:{abi:'old'}}; " \
             "const crashed={...good,crashMarker:true}; "
@@ -273,9 +276,12 @@ class OmanomeProjectTests(unittest.TestCase):
             info = subprocess.run([str(ROOT / "input/companion-info.sh")], capture_output=True, text=True, env=env)
         self.assertEqual(info.returncode, 0, info.stderr)
         payload = json.loads(info.stdout)
-        for key in ("crashMarker", "safeMode", "abiMatch"):
+        for key in ("crashMarker", "safeMode", "abiMatch", "versionMatch", "pluginBuildMatch", "artifactHashMatch", "crashCount", "loadFailureCount"):
             self.assertIn(key, payload)
-            self.assertIsInstance(payload[key], bool)
+            if key.endswith("Count"):
+                self.assertIsInstance(payload[key], int)
+            else:
+                self.assertIsInstance(payload[key], bool)
 
     def test_effects_animation_and_rules_are_adaptive_without_fake_backends(self) -> None:
         result = self.run_node(

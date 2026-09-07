@@ -25,9 +25,13 @@ function normalize(snapshot) {
   var runtimeAbi = stringValue(runtime.abi, source.runtimeAbi)
   var buildAbi = stringValue(build.abi, source.buildAbi)
   var abiMatch = boolValue(source.abiMatch) || Boolean(runtimeAbi && buildAbi && runtimeAbi === buildAbi)
+  var versionMatch = boolValue(source.versionMatch) || Boolean(runtime.version && build.version && runtime.version !== "unknown" && build.version !== "unknown" && runtime.version === build.version)
   var pluginVersion = stringValue(source.pluginVersion, compatibility.pluginVersion)
-  var versionMatch = boolValue(source.versionMatch) || !compatibility.pluginVersion || Boolean(pluginVersion && pluginVersion === stringValue(compatibility.pluginVersion))
-  var compatible = !safeMode && !crashMarker && installed && loaded && protocolVersion === 2 && abiMatch && versionMatch
+  var pluginBuild = stringValue(build.pluginBuild, source.pluginBuild)
+  var pluginBuildMatch = source.pluginBuildMatch === undefined ? Boolean(pluginBuild && pluginBuild !== "unknown" && pluginBuild === pluginVersion) : boolValue(source.pluginBuildMatch)
+  var artifactHashMatch = boolValue(source.artifactHashMatch)
+  var descriptorVersionMatch = boolValue(source.versionMatch) || !compatibility.pluginVersion || Boolean(pluginVersion && pluginVersion === stringValue(compatibility.pluginVersion))
+  var compatible = !safeMode && !crashMarker && installed && loaded && protocolVersion === 2 && abiMatch && versionMatch && descriptorVersionMatch && pluginBuildMatch && artifactHashMatch
   return {
     installed: installed,
     built: boolValue(source.built),
@@ -37,9 +41,11 @@ function normalize(snapshot) {
     protocolVersion: protocolVersion,
     pluginVersion: pluginVersion || "unknown",
     runtime: { version: stringValue(runtime.version, "unknown"), abi: runtimeAbi || "unknown" },
-    build: { version: stringValue(build.version, "unknown"), abi: buildAbi || "unknown" },
+    build: { version: stringValue(build.version, "unknown"), abi: buildAbi || "unknown", pluginBuild: pluginBuild || "unknown" },
     abiMatch: abiMatch,
-    versionMatch: versionMatch,
+    versionMatch: versionMatch && descriptorVersionMatch,
+    pluginBuildMatch: pluginBuildMatch,
+    artifactHashMatch: artifactHashMatch,
     compatible: compatible,
     capabilities: {
       blur: capability(source, "blur"),
@@ -53,7 +59,7 @@ function normalize(snapshot) {
 
 function canLoad(snapshot) {
   var state = normalize(snapshot)
-  return state.installed && state.built && !state.safeMode && !state.crashMarker && state.protocolVersion === 2 && state.abiMatch && state.versionMatch
+  return state.installed && state.built && !state.safeMode && !state.crashMarker && state.protocolVersion === 2 && state.abiMatch && state.versionMatch && state.pluginBuildMatch && state.artifactHashMatch
 }
 
 function effectAvailable(snapshot, name) {
