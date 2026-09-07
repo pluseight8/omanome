@@ -64,7 +64,7 @@ class UpdateLifecycleTests(unittest.TestCase):
                 fi
                 if [[ "$2" == "update" ]]; then
                   plugin="${XDG_CONFIG_HOME}/omarchy/plugins/io.omanome.shell/manifest.json"
-                  sed -i 's/"version": "0.7.0"/"version": "0.8.0"/' "$plugin"
+                  sed -i 's/"version": "0.7.0"/"version": "0.9.0"/' "$plugin"
                   exit 0
                 fi
                 exit 0
@@ -106,7 +106,7 @@ class UpdateLifecycleTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(json.loads(result.stdout)["updated"])
             manifest = json.loads((plugin / "manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["version"], "0.8.0")
+            self.assertEqual(manifest["version"], "0.9.0")
             history = list((pathlib.Path(temporary) / "state" / "omanome" / "transactions" / "history").glob("*.json"))
             self.assertEqual(len(history), 1)
             self.assertEqual(json.loads(history[0].read_text(encoding="utf-8"))["phase"], "committed")

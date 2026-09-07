@@ -50,5 +50,10 @@
     "nativeVirtualKeyboard": "runtime-probe",
     "wtype": "explicit-shell-owned-fallback",
     "unknown": "unavailable"
+  },
+  "textFocus": {
+    "provider": "zwp_input_method_v2",
+    "textInput": "zwp_text_input_v3-capability-probe",
+    "recognition": "unavailable-until-provider-selected"
   }
 }

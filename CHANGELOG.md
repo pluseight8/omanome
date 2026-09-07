@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.9.0
+
+- Adds the native Rust `omanome-input` Wayland backend with one bounded seat
+  connection, `zwp_virtual_keyboard_v1`, xkbcommon EN/RU keymaps, explicit
+  text-focus capability reporting, bounded JSON IPC, and an honest `wtype`
+  fallback policy.
+- Adds capability-driven Wayland tablet-v2 handling for stylus proximity,
+  pressure, tilt, distance, rotation, eraser, buttons, tool type, output
+  mapping, hotplug, suspend/resume, reconnect backoff, and transactional
+  rotation rollback without vendor-specific assumptions.
+- Adds OSK 3.0 local prediction/autocorrect boundaries, bounded stylus ink,
+  local handwriting-provider architecture, explicit recognition-unavailable
+  status, privacy-safe diagnostics, and no cloud recognition by default.
+- Adds `stylus-info`, `touch-info`, and enriched `sensor-info`/capabilities
+  diagnostics plus non-certifying fixtures for stylus events, hotplug,
+  suspend/resume, output remap, rollback, and handwriting policy.
+- Preserves the 0.8 lifecycle, performance, safety, standard-bar coexistence,
+  companion fail-closed, updater, recovery, and uninstall invariants.
+
 ## 0.8.0
 
 - Adds an owner-only CPU/process investigation boundary with strict PID

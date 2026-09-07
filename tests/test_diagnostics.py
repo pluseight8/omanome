@@ -95,20 +95,31 @@ class DiagnosticsTests(unittest.TestCase):
                 self.assertFalse(payload["realHardwareValidated"])
                 for feature in features:
                     self.assertTrue(payload["capabilities"]["stylusFeatures"][feature]["available"])
+                for section in ("display", "touch", "multitouch", "stylus", "pressure", "tilt", "eraser", "stylusButtons", "keyboard", "detachableKeyboard", "orientation", "osk", "suspendResume", "multiMonitor"):
+                    self.assertIn(section, payload["capabilities"]["certification"])
                 self.assertTrue(payload["capabilities"]["lifecycle"]["hotplug"]["available"])
                 if filename == "suspend-resume.json":
                     self.assertTrue(payload["capabilities"]["lifecycle"]["suspendResume"]["available"])
+                    for section in ("display", "multitouch", "detachableKeyboard", "orientation", "osk", "multiMonitor"):
+                        self.assertTrue(payload["capabilities"]["certification"][section]["available"])
                 self.assertFalse(payload["capabilities"]["handwriting"]["cloud"]["available"])
 
     def test_stylus_and_touch_diagnostics_remain_json_without_hyprland(self) -> None:
-        for operation in ("stylus-info", "touch-info"):
+        for operation in ("input-info", "stylus-info", "touch-info"):
             with self.subTest(operation=operation):
                 result = subprocess.run([str(CLI), operation], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 payload = json.loads(result.stdout)
                 self.assertEqual(payload["schemaVersion"], 1)
                 self.assertIn("nativeBackend", payload)
-                self.assertIn("privacy", payload)
+                if operation == "input-info":
+                    self.assertIn("protocolSupport", payload)
+                    self.assertIn("privacy", payload)
+                    self.assertIn("handwriting", payload)
+                else:
+                    self.assertIn("privacy", payload)
+                if operation == "touch-info":
+                    self.assertIn("modeReasoning", payload)
 
     def test_support_bundle_excludes_personal_config_values(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

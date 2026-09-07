@@ -2,7 +2,7 @@
 
 Omanome is an open-source, GNOME-inspired touch and stylus enhancement suite for the current Omarchy Quattro shell on Hyprland. It is intentionally an Omarchy plugin, not a replacement desktop session: the standard Omarchy bar remains in charge of the top edge, the existing Quickshell process hosts the plugin, and all plugin state is namespaced under `io.omanome.shell`.
 
-This repository is the runnable 0.8.0 phase. It uses public Omarchy/Quickshell/Hyprland interfaces for the core and explicit, version-aware optional compositor integrations for advanced effects. Features without a real backend remain visibly unavailable rather than becoming fake overlays.
+This repository is the runnable 0.9.0 phase. It uses public Omarchy/Quickshell/Hyprland interfaces for the core and explicit, version-aware optional compositor integrations for advanced effects. The native Wayland input helper owns one bounded seat/keyboard/tablet connection, supports xkbcommon EN/RU layouts, and reports unavailable compositor protocols honestly. Features without a real backend remain visibly unavailable rather than becoming fake overlays.
 
 ## What is included
 
@@ -195,20 +195,23 @@ The check runs repository validation, shell syntax checks, Python tests includin
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/TESTING.md`](docs/TESTING.md), and [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) for the plugin contract, coexistence rules, test matrix, performance evidence, and safe integration boundaries.
 
-## 0.8 compositor, lifecycle and safety boundaries
+## 0.9 native input, stylus, lifecycle and safety boundaries
 
 Blur is applied through Hyprland layer-rule IPC to Omanome namespaces; it is not a translucent-rectangle imitation. Coverflow selects real Hyprland foreign-toplevel objects and activates them through native APIs. Live previews stay disabled unless the running Quickshell/companion exposes an actual texture provider. Force Quit starts with the selected foreign window's native close request and only falls back to the selected numeric PID; session processes are protected and no process-name broadcast is used.
 
 The optional `omanome-hypr` companion uses the exact Hyprland API hash handshake and the public `IWindowTransformer` workbuffer path for Wobbly. It is fail-closed on non-GL backends, rotated outputs, X11 windows, shader/buffer errors, lifecycle markers, ABI/version mismatches, or missing artifacts. Wobbly can be controlled with `hyprctl -j omanome-effects wobbly enable|disable` and configured with bounded `key=value` arguments; the QML setting debounces those commands and applies the same mesh/physics values. The advanced-effects master switch plus battery/fullscreen policy bypass expensive render hooks. The true Desktop Cube is integrated through the separately maintained, version-matched `omarchy-desktop-cube` backend when it is loaded; Omanome does not duplicate its renderer. Without that external backend, cube controls remain unavailable. Omanome never animates screenshots and never loads an unpinned Hyprland `.so`.
 
-The 0.8 lifecycle policy adds bounded subprocess backoff, crash-loop suppression,
+The 0.9 input stack retains the 0.8 lifecycle policy: bounded subprocess backoff, crash-loop suppression,
 one owned command lane, debounced persistence, slow/event-driven fallbacks,
 owner-only snapshots, and explicit release of preview delegates on panel close.
-OSK repeat stops on release, rotation and clipboard watchers do not restart in a
-tight loop, and optional wobbly control fails closed when the companion is not
-available. Automatic text-field focus detection, persistent virtual input, local
-handwriting recognition, and stylus button-event mapping remain explicitly
-gated until their corresponding public backend is selected. App-grid
+The native `omanome-input` path uses `zwp_virtual_keyboard_v1` when available,
+the compositor's real text-focus protocol when available, and an explicit
+`wtype` fallback only when enabled by policy. OSK 3.0 keeps prediction and
+autocorrect local and bounded; surrounding/password text is never persisted or
+logged. Tablet-v2 pressure, tilt, distance, rotation, eraser, buttons,
+proximity, output mapping, suspend/resume, and rollback are capability-driven;
+handwriting ink is local and recognition remains explicitly unavailable until a
+provider is selected. App-grid
 favorites/folders are persisted locally; compositor-level drag semantics remain
 scoped to real app metadata. Auto-rotation remains manual-only when neither
 sensor backend is present.

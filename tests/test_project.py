@@ -34,19 +34,19 @@ class OmanomeProjectTests(unittest.TestCase):
 
     def test_manifest_preserves_the_standard_bar(self) -> None:
         manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "0.8.0")
+        self.assertEqual(manifest["version"], "0.9.0")
         self.assertNotIn("bar", manifest["kinds"])
         self.assertEqual(set(manifest["entryPoints"]), {"service", "barWidget", "panel"})
         for entry in manifest["entryPoints"].values():
             self.assertTrue((ROOT / entry).is_file(), entry)
 
-    def test_08_release_and_performance_contract_are_documented(self) -> None:
+    def test_09_release_and_performance_contract_are_documented(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         readme_ru = (ROOT / "README.ru.md").read_text(encoding="utf-8")
         performance = (ROOT / "docs/PERFORMANCE.md").read_text(encoding="utf-8")
         release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
-        self.assertIn("runnable 0.8.0 phase", readme)
-        self.assertIn("версии 0.8.0", readme_ru)
+        self.assertIn("runnable 0.9.0 phase", readme)
+        self.assertIn("версии 0.9.0", readme_ru)
         self.assertIn("ownerCpuPercent", performance)
         self.assertIn("systemCpuPercent", performance)
         self.assertIn("notify-only", performance)
@@ -86,6 +86,20 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertFalse(result["fresh"]["completed"])
         self.assertTrue(result["legacy"]["completed"])
         self.assertEqual(result["legacyMode"], "performance")
+
+    def test_08_to_09_input_migration_preserves_user_intent(self) -> None:
+        result = self.run_node(
+            "const C=require('./shell/models/Config.js'); "
+            "const migrated=C.migrateDetailed({schemaVersion:2,performance:{mode:'performance'},keyboard:{layout:'ru',autoShow:false},stylus:{pressureCurve:'soft'},rotation:{orientation:'portrait'},tabletMode:{enabled:true}}); "
+            "console.log(JSON.stringify({applied:migrated.applied,input:migrated.config.input,keyboard:migrated.config.keyboard,stylus:migrated.config.stylus,rotation:migrated.config.rotation}));"
+        )
+        self.assertIn("input-v1", result["applied"])
+        self.assertEqual(result["input"]["nativeBackend"], "auto")
+        self.assertEqual(result["input"]["deviceMappings"], {})
+        self.assertEqual(result["keyboard"]["layout"], "ru")
+        self.assertFalse(result["keyboard"]["autoShow"])
+        self.assertEqual(result["stylus"]["pressureCurve"], "soft")
+        self.assertEqual(result["rotation"]["orientation"], "portrait")
 
         service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
         panel = (ROOT / "shell/Panel.qml").read_text(encoding="utf-8")
@@ -381,6 +395,10 @@ class OmanomeProjectTests(unittest.TestCase):
             self.assertIn(key, payload)
             self.assertIsInstance(payload[key], bool)
         self.assertIn(payload["selectedBackend"], ("manual", "monitor-sensor", "dbus-iio"))
+        for key in ("orientation", "posture"):
+            self.assertIn(key, payload)
+            self.assertIn("available", payload[key])
+            self.assertIn("state", payload[key])
         cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")
         self.assertIn("touch-info", cli)
         self.assertIn("sensor-info", cli)
@@ -393,7 +411,7 @@ class OmanomeProjectTests(unittest.TestCase):
         metadata = json.loads((companion / "compatibility.json").read_text(encoding="utf-8"))
         cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")
         self.assertEqual(metadata["protocolVersion"], 2)
-        self.assertEqual(metadata["pluginVersion"], "0.8.0")
+        self.assertEqual(metadata["pluginVersion"], "0.9.0")
         self.assertEqual(metadata["statusIpc"], "hyprctl -j omanome-effects")
         self.assertIn("__hyprland_api_get_hash", source)
         self.assertIn("__hyprland_api_get_client_hash", source)
@@ -418,9 +436,9 @@ class OmanomeProjectTests(unittest.TestCase):
 
         result = self.run_node(
             "const C=require('./shell/models/Companion.js'); "
-            "const good={installed:true,built:true,loaded:true,protocolVersion:2,pluginVersion:'0.8.0'," \
-            "runtime:{version:'0.56.2',abi:'same'},build:{version:'0.56.2',abi:'same',pluginBuild:'0.8.0'}," \
-            "versionMatch:true,pluginBuildMatch:true,artifactHashMatch:true,compatibility:{pluginVersion:'0.8.0'}," \
+            "const good={installed:true,built:true,loaded:true,protocolVersion:2,pluginVersion:'0.9.0'," \
+            "runtime:{version:'0.56.2',abi:'same'},build:{version:'0.56.2',abi:'same',pluginBuild:'0.9.0'}," \
+            "versionMatch:true,pluginBuildMatch:true,artifactHashMatch:true,compatibility:{pluginVersion:'0.9.0'}," \
             "capabilities:{desktopCube:true}}; " \
             "const bad={...good,runtime:{abi:'new'},build:{abi:'old'}}; " \
             "const crashed={...good,crashMarker:true}; "

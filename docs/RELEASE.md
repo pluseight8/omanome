@@ -9,14 +9,15 @@ outside the release archive.
 1. Update `manifest.json`, `hypr/omanome-hypr/compatibility.json`, README files,
    and `CHANGELOG.md` to the same semver.
 2. Run `make check`, `make companion-check`, `make dependency-audit`,
-   `make performance-test`, `make hardware-test`, and `make version-check`.
+   `make performance-test`, `make performance-check`, `make input-check`,
+   `make hardware-test`, and `make version-check`.
 3. Run `omarchy plugin validate .` and `./cli/omanome doctor` on an Omarchy
    host. Portable CI cannot certify a physical touchscreen, stylus, sensor, or
    loaded companion.
 4. Publish the commit to `main` and wait for the push Actions run to be green.
-5. For the 0.8.0 cut, the `Omanome Release` workflow observes the successful
+5. For the 0.9.0 cut, the `Omanome Release` workflow observes the successful
    `Omanome CI` run on `main`, reads the version from `manifest.json`, creates
-   or updates the annotated `v0.8.0` tag on that exact green commit, then
+   or updates the annotated `v0.9.0` tag on that exact green commit, then
    validates the tag, runs the portable and companion checks, creates a source
    archive plus SHA-256 checksum, and publishes the GitHub release. The
    workflow is version-agnostic for later semver cuts.

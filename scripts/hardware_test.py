@@ -155,6 +155,66 @@ def handwriting_result(fixture: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def explicit_available(value: Any) -> bool:
+    if isinstance(value, dict):
+        if "available" in value:
+            return bool(value["available"])
+        if "supported" in value:
+            return bool(value["supported"])
+        return bool(value)
+    return bool(value)
+
+
+def certification_results(fixture: dict[str, Any], touch: Any, stylus: Any, sensors: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    devices = fixture.get("devices") if isinstance(fixture.get("devices"), dict) else {}
+    keyboards = fixture.get("keyboard", devices.get("keyboards", []))
+    detachable = fixture.get("detachableKeyboard", devices.get("detachableKeyboard", []))
+    displays = fixture.get("display", fixture.get("displays", fixture.get("outputs", [])))
+    multitouch = fixture.get("multitouch", {})
+    orientation = fixture.get("orientation", sensors.get("available", sensors.get("accelerometer", False)))
+    osk = fixture.get("osk", {})
+    features = feature_results(stylus, "fixture")
+    lifecycle = lifecycle_results(fixture)
+    return {
+        "display": check("display", bool(displays), "fixture reports a display/output" if displays else "fixture has no display/output", "fixture"),
+        "touch": check("touch", bool(touch), "fixture reports touchscreen input" if touch else "fixture has no touchscreen input", "fixture"),
+        "multitouch": check("multitouch", explicit_available(multitouch), "fixture reports multitouch coverage" if explicit_available(multitouch) else "fixture has no multitouch coverage", "fixture"),
+        "stylus": check("stylus", bool(stylus), "fixture reports stylus input" if stylus else "fixture has no stylus input", "fixture"),
+        "pressure": features["pressure"],
+        "tilt": features["tilt"],
+        "eraser": features["eraser"],
+        "stylusButtons": features["buttons"],
+        "keyboard": check("keyboard", bool(keyboards), "fixture reports keyboard input" if keyboards else "fixture has no keyboard input", "fixture"),
+        "detachableKeyboard": check("detachableKeyboard", explicit_available(detachable), "fixture reports detachable keyboard" if explicit_available(detachable) else "fixture has no detachable keyboard", "fixture"),
+        "orientation": check("orientation", explicit_available(orientation), "fixture reports orientation capability" if explicit_available(orientation) else "fixture has no orientation capability", "fixture"),
+        "osk": check("osk", explicit_available(osk), "fixture reports OSK coverage" if explicit_available(osk) else "fixture has no OSK coverage", "fixture"),
+        "suspendResume": lifecycle["suspendResume"],
+        "multiMonitor": check("multiMonitor", explicit_available(fixture.get("multiMonitor", False)), "fixture reports multi-monitor coverage" if explicit_available(fixture.get("multiMonitor", False)) else "fixture has no multi-monitor coverage", "fixture"),
+    }
+
+
+def live_certification_results(devices: dict[str, Any], monitors: Any, touch: Any, stylus: Any, sensors: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    keyboards = devices.get("keyboards", []) if isinstance(devices, dict) else []
+    detachable = [item for item in records(keyboards) if item.get("detachable") is True or str(item.get("transport", "")).lower() == "bluetooth"]
+    features = feature_results(stylus, "hyprctl devices")
+    return {
+        "display": check("display", bool(monitors), "Hyprland exposed monitors" if monitors else "no monitors exposed", "hyprctl monitors"),
+        "touch": check("touch", bool(touch), "Hyprland exposed touchscreen devices" if touch else "no touchscreen exposed", "hyprctl devices"),
+        "multitouch": check("multitouch", False, "interactive multitouch fixture required", "live-session"),
+        "stylus": check("stylus", bool(stylus), "Hyprland exposed tablet devices" if stylus else "no stylus exposed", "hyprctl devices"),
+        "pressure": features["pressure"],
+        "tilt": features["tilt"],
+        "eraser": features["eraser"],
+        "stylusButtons": features["buttons"],
+        "keyboard": check("keyboard", bool(keyboards), "Hyprland exposed keyboard devices" if keyboards else "no keyboard exposed", "hyprctl devices"),
+        "detachableKeyboard": check("detachableKeyboard", bool(detachable), "live device metadata reports detachable/Bluetooth keyboard" if detachable else "no detachable keyboard exposed", "hyprctl devices"),
+        "orientation": check("orientation", bool(sensors.get("autoRotationSupported", False)), "sensor-info reports orientation support" if sensors.get("autoRotationSupported", False) else "orientation sensor unavailable", "input/sensor-info.sh"),
+        "osk": check("osk", False, "interactive text-focus fixture required", "live-session"),
+        "suspendResume": check("suspendResume", False, "interactive suspend/resume fixture required", "live-session"),
+        "multiMonitor": check("multiMonitor", isinstance(monitors, list) and len(monitors) > 1, "Hyprland exposed multiple monitors" if isinstance(monitors, list) and len(monitors) > 1 else "single/no monitor exposed", "hyprctl monitors"),
+    }
+
+
 def fixture_result(fixture: dict[str, Any]) -> dict[str, Any]:
     devices = fixture.get("devices") if isinstance(fixture.get("devices"), dict) else {}
     touch = fixture.get("touchscreen", fixture.get("touch", devices.get("touch", [])))
@@ -169,6 +229,7 @@ def fixture_result(fixture: dict[str, Any]) -> dict[str, Any]:
         "hyprland": check("hyprland", bool(fixture.get("hyprland", True)), "fixture reports Hyprland" if fixture.get("hyprland", True) else "fixture reports no Hyprland", "fixture"),
         "lifecycle": lifecycle_results(fixture),
         "handwriting": handwriting_result(fixture),
+        "certification": certification_results(fixture, touch, stylus, sensors),
     }
 
 
@@ -178,6 +239,7 @@ def live_result() -> dict[str, Any]:
         devices = {}
     touch = devices.get("touch", devices.get("touchDevices", []))
     stylus = devices.get("tablets", devices.get("tabletTools", []))
+    monitors, _ = command_json(["hyprctl", "monitors", "-j"])
     sensor_script = ROOT / "input" / "sensor-info.sh"
     sensors: dict[str, Any] = {}
     sensor_reason = "sensor probe unavailable"
@@ -204,6 +266,7 @@ def live_result() -> dict[str, Any]:
             name: check(f"handwriting.{name}", False, "live handwriting fixture/provider required", "live-session")
             for name in ("ink", "recognition", "cloud")
         },
+        "certification": live_certification_results(devices, monitors, touch, stylus, sensors),
     }
 
 

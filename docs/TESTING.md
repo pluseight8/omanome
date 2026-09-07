@@ -53,7 +53,7 @@ The QML code is designed for the following manual matrix when hardware is availa
 | Scale | 1.0x through 2.0x fractional scaling |
 | Apps | GTK, Qt, Electron, terminal, browser, fullscreen client, drawing application |
 | Lifecycle | disable, safe-mode, clean install, update check/dry-run, successful update, health-failure rollback, interrupted journal recovery, rollback inventory, uninstall with and without settings |
-| 0.8 performance/lifecycle | owner-only process snapshot and watchdog, strict identity, bounded restarts/backoff, search/write debounce, panel resource release, performance modes/migration, repeated open/close fixture |
+| 0.8/0.9 performance/lifecycle | owner-only process snapshot and watchdog, strict identity, bounded restarts/backoff, search/write debounce, panel resource release, performance modes/migration, repeated open/close fixture, native input suspend/reconnect lifecycle |
 | 0.7 lifecycle | transactional journal, bounded snapshots, config migration refusal, ownership manifest, dry-run/JSON uninstall, symlink refusal, support bundle redaction |
 | 0.6 surfaces retained | responsive Overview/App Grid/Dock, Settings deep links, onboarding migration, accessibility semantics, multi-signal Tablet Mode |
 | 0.6 effects retained | real layer-rule blur, native toplevel Coverflow, compositor-owned ScreencopyView streams, public-API Wobbly workbuffer renderer, external cube detection |
@@ -72,7 +72,7 @@ The QML code is designed for the following manual matrix when hardware is availa
 - `hypr/omanome-hypr/wobbly-physics-test.cpp` runs bounded mesh physics without a desktop session; when matching Hyprland headers are installed, `make companion-check` also compiles the public `IWindowTransformer`/GL renderer.
 - `input/system-state.sh`, `input/wifi-scan.sh`, `input/bluetooth-scan.sh`, and `input/audio-devices.sh` return capability-safe JSON; they do not invent state when a backend is absent.
 - `tests/fixtures/stylus-devices.json` covers touchscreen, generic tablet tools, eraser, no-pressure, serial, and mapped-output input records without requiring hardware.
-- `input/sensor-info.sh` and `omanome sensor-info` distinguish monitor-sensor, iio D-Bus, and manual fallback and expose the orientation debounce/dwell policy.
+- `input/sensor-info.sh` and `omanome sensor-info` distinguish monitor-sensor, iio D-Bus, and manual fallback, expose orientation/posture state when supplied by the session, and expose the orientation debounce/dwell policy.
 - `omanome stylus-info` and `omanome touch-info` return capability-safe JSON even when Hyprland or a physical device is absent; they include native protocol and privacy status without typed or surrounding text.
 - `scripts/hardware_test.py`, `scripts/support_bundle.py`, `scripts/dependency_audit.py`, and `scripts/performance_test.py` provide explicit non-certifying probes, redacted support evidence, static dependency policy, and deterministic performance budgets.
 - `hypr/README.md` records why no unpinned compositor `.so` is loaded.

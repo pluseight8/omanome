@@ -9,7 +9,7 @@ validate:
 	python3 scripts/validate_version.py
 	python3 scripts/config_tool.py validate config/defaults.json
 	python3 -m py_compile scripts/config_tool.py scripts/dependency_audit.py scripts/hardware_test.py scripts/performance_check.py scripts/performance_test.py scripts/process_snapshot.py scripts/process_watchdog.py scripts/support_bundle.py scripts/validate.py scripts/validate_version.py
-	bash -n cli/omanome input/clipboard-capture.sh input/system-state.sh input/wifi-scan.sh input/bluetooth-scan.sh input/rotation-monitor.sh input/sensor-info.sh input/companion-info.sh input/effects-info.sh input/force-quit.sh input/audio-devices.sh input/device-monitor.sh
+	bash -n cli/omanome input/clipboard-capture.sh input/system-state.sh input/wifi-scan.sh input/bluetooth-scan.sh input/rotation-monitor.sh input/sensor-info.sh input/companion-info.sh input/effects-info.sh input/force-quit.sh input/audio-devices.sh input/device-monitor.sh input/session-monitor.sh
 
 test:
 	python3 -m unittest discover -s tests -p 'test_*.py' -v
@@ -49,10 +49,13 @@ performance-check:
 	python3 scripts/performance_check.py --json
 
 version-check:
-	python3 scripts/validate_version.py 0.8.0
+	python3 scripts/validate_version.py 0.9.0
 
 input-check:
 	cargo fmt --manifest-path input/omanome-input/Cargo.toml --check
+	cargo clippy --manifest-path input/omanome-input/Cargo.toml --locked -- -D warnings
 	cargo test --manifest-path input/omanome-input/Cargo.toml --locked
 	cargo build --manifest-path input/omanome-input/Cargo.toml --release --locked
+	python3 -m json.tool input/omanome-input/protocol.json >/dev/null
 	python3 -m unittest tests.test_input_protocol -v
+	python3 scripts/performance_check.py --json

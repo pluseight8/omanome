@@ -1,7 +1,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 mod input_method_v2 {
-    use wayland_client;
+    pub extern crate wayland_client;
     use wayland_client::protocol::*;
     use wayland_protocols::wp::text_input::zv3::client::*;
 
@@ -15,7 +15,7 @@ mod input_method_v2 {
 }
 
 mod virtual_keyboard {
-    use wayland_client;
+    pub extern crate wayland_client;
     use wayland_client::protocol::*;
 
     pub mod __interfaces {
@@ -168,7 +168,7 @@ impl Drop for Keymap {
 impl Keymap {
     fn new(layout: &str) -> Result<Self, String> {
         let requested = normalize_layout(layout);
-        let layout_name = CString::new(if requested == "ru" { "us,ru" } else { "us,ru" }).unwrap();
+        let layout_name = CString::new("us,ru").unwrap();
         let rules = CString::new("evdev").unwrap();
         let model = CString::new("pc105").unwrap();
         let names = xkb_rule_names {
@@ -352,6 +352,7 @@ impl BackendState {
             "virtualKeyboard": if self.virtual_keyboard.is_some() { "native" } else { "unavailable" },
             "textInput": if self.text_input_available { "v3" } else { "unavailable" },
             "inputMethod": if self.input_method_available { "v2" } else { "unavailable" },
+            "textFocusProvider": if self.input_method_available { "input-method-v2" } else { "unavailable" },
             "keymap": if self.keymap.is_some() { "xkbcommon" } else { "unavailable" },
             "layouts": ["en", "ru"],
             "tablet": if self.tablet_manager.is_some() { "v2" } else { "unavailable" },
@@ -366,6 +367,10 @@ impl BackendState {
             "stylusEraser": self.stylus_eraser,
             "stylusButtons": self.stylus_buttons,
             "stylusToolType": self.stylus_tool_type,
+            "handwritingInk": self.tablet_manager.is_some(),
+            "handwritingRecognition": "unavailable",
+            "handwritingProvider": "none",
+            "handwritingCloud": false,
             "queueLimit": MAX_PENDING_COMMANDS,
             "queueDepth": self.queue_depth,
             "securePayloads": true,
@@ -388,6 +393,7 @@ impl BackendState {
             "modifiers": self.modifiers,
             "inputMethod": if self.input_method_available { "v2" } else { "unavailable" },
             "textInput": if self.text_input_available { "v3" } else { "unavailable" },
+            "textFocusProvider": if self.input_method_available { "input-method-v2" } else { "unavailable" },
             "tablet": if self.tablet_manager.is_some() { "v2" } else { "unavailable" },
             "tabletCount": self.tablet_count,
             "toolCount": self.tool_count,
@@ -453,7 +459,7 @@ impl BackendState {
                 }
             }
             "keyboard.text" | "text.commit" => {
-                if command.text.as_bytes().len() > 4096 {
+                if command.text.len() > 4096 {
                     self.error("payload-too-large", false);
                 } else if let Err(error) = self.commit_text(&command.text) {
                     self.error(&error, true);
@@ -590,7 +596,7 @@ fn create_keymap_fd(bytes: &[u8]) -> Result<OwnedFd, String> {
     // SAFETY: memfd_create and the bounded write/ftruncate calls operate on a
     // private descriptor and the exact keymap byte slice.
     unsafe {
-        let fd = libc::memfd_create(name.as_ptr(), libc::MFD_CLOEXEC as u32);
+        let fd = libc::memfd_create(name.as_ptr(), libc::MFD_CLOEXEC);
         if fd < 0 {
             return Err("memfd-unavailable".into());
         }

@@ -36,10 +36,27 @@ fi
 auto_rotation=false
 [[ "$monitor_sensor_available" == true || "$accelerometer_available" == true ]] && auto_rotation=true
 
+orientation="unavailable"
+case "${OMANOME_ORIENTATION:-}" in
+  normal|left-up|right-up|bottom-up) orientation="$OMANOME_ORIENTATION" ;;
+esac
+posture="unavailable"
+case "${OMANOME_POSTURE:-}" in
+  laptop|tablet|tent|stand|closed|unknown) posture="$OMANOME_POSTURE" ;;
+esac
+orientation_available=false
+posture_available=false
+[[ "$orientation" != unavailable ]] && orientation_available=true
+[[ "$posture" != unavailable ]] && posture_available=true
+
 jq -cn \
   --arg backend "$backend" \
   --argjson monitorSensorAvailable "$(bool_value "$monitor_sensor_available")" \
   --argjson dbusAvailable "$(bool_value "$dbus_available")" \
   --argjson accelerometerAvailable "$(bool_value "$accelerometer_available")" \
   --argjson autoRotationSupported "$(bool_value "$auto_rotation")" \
-  '{monitorSensorAvailable:$monitorSensorAvailable,dbusAvailable:$dbusAvailable,accelerometerAvailable:$accelerometerAvailable,autoRotationSupported:$autoRotationSupported,selectedBackend:$backend}'
+  --arg orientation "$orientation" \
+  --arg posture "$posture" \
+  --argjson orientationAvailable "$(bool_value "$orientation_available")" \
+  --argjson postureAvailable "$(bool_value "$posture_available")" \
+  '{monitorSensorAvailable:$monitorSensorAvailable,dbusAvailable:$dbusAvailable,accelerometerAvailable:$accelerometerAvailable,autoRotationSupported:$autoRotationSupported,selectedBackend:$backend,orientation:{available:$orientationAvailable,state:$orientation,source:(if $orientationAvailable then "runtime-environment" else "unavailable" end)},posture:{available:$postureAvailable,state:$posture,source:(if $postureAvailable then "runtime-environment" else "unavailable" end)}}'

@@ -2,7 +2,7 @@
 
 Omanome — открытый набор улучшений рабочего стола для актуального Omarchy Quattro на Hyprland. Он добавляет GNOME-подобный интерфейс для touchscreen и стилуса, но остаётся обычным Omarchy Shell Plugin: стандартная верхняя панель не заменяется, второй Quickshell не запускается, GNOME Shell и Mutter не нужны.
 
-Это запускаемая фаза версии 0.8.0. Ядро использует публичные API Omarchy/Quickshell/Hyprland, а дополнительные compositor-возможности подключаются только через явные version-aware companion boundaries. Если настоящего backend нет, функция остаётся явно недоступной, а не подменяется декоративной имитацией.
+Это запускаемая фаза версии 0.9.0. Ядро использует публичные API Omarchy/Quickshell/Hyprland, а дополнительные compositor-возможности подключаются только через явные version-aware companion boundaries. Нативный Wayland input helper держит одно bounded-соединение с seat/keyboard/tablet, использует xkbcommon EN/RU и честно сообщает недоступные протоколы. Если настоящего backend нет, функция остаётся явно недоступной, а не подменяется декоративной имитацией.
 
 ## Возможности
 
@@ -171,19 +171,24 @@ make check
 
 Подробности: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/TESTING.md`](docs/TESTING.md) и [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
 
-## Границы 0.8 compositor, lifecycle и safety
+## Границы 0.9 native input, stylus, lifecycle и safety
 
 Blur применяется через Hyprland layer-rule IPC к namespace Omanome, а не рисуется как прозрачный прямоугольник. Coverflow работает с реальными Hyprland foreign-toplevel объектами и native activation. Live preview остаётся выключенным, пока активный Quickshell/companion не даст настоящий texture provider. Force Quit сначала вызывает native close выбранного окна и только затем использует выбранный numeric PID; session-процессы защищены, broadcast по имени не используется.
 
 Настоящий Wobbly подключается через optional `omanome-hypr`: он получает compositor-owned workbuffer, рисует ограниченный mesh через публичный `IWindowTransformer` и возвращает framebuffer в обычный Hyprland pass. Включение выполняется через `hyprctl -j omanome-effects wobbly enable`, а bounded physics/mesh — через `wobbly config key=value ...`; QML Settings отправляет тот же IPC с debounce. Master-toggle advanced effects и battery/fullscreen policy отключают дорогой render path fail-closed. При несовпадении API/ABI, X11/rotated output, ошибке shader/buffer, crash-marker или недоступном GL renderer эффект остаётся выключенным, а исходный framebuffer сохраняется. Настоящий Desktop Cube подключается через отдельно сопровождаемый version-matched `omarchy-desktop-cube`, если он загружен; без него cube недоступен. Omanome не анимирует screenshots и не загружает неприкреплённый Hyprland `.so`.
 
-В 0.8 добавлены bounded backoff для subprocess, подавление crash loop,
+В 0.9 сохранены lifecycle-инварианты 0.8: bounded backoff для subprocess, подавление crash loop,
 единая command lane, debounce persistence, медленные/event-driven fallback,
 owner-only snapshots и явное освобождение preview delegates при закрытии panel.
-OSK repeat останавливается на release, rotation и clipboard watchers не входят в
-tight loop, а optional wobbly control fail-closed без companion. Автоматическое
-обнаружение focused text field, persistent input, handwriting recognition и
-stylus button-event mapping по-прежнему требуют отдельного backend. Избранное
+Нативный `omanome-input` использует `zwp_virtual_keyboard_v1`, когда compositor
+его предоставляет, реальный text-focus protocol при наличии и явный `wtype`
+fallback только при включённой политике. OSK 3.0 держит prediction и
+autocorrect локальными и bounded; surrounding/password text не сохраняется и не
+логируется. Tablet-v2 capability path покрывает pressure, tilt, distance,
+rotation, eraser, buttons, proximity, output mapping, suspend/resume и rollback;
+handwriting ink остаётся локальным, а recognition честно unavailable до выбора
+provider. OSK repeat останавливается на release, rotation и clipboard watchers не входят в
+tight loop, а optional wobbly control fail-closed без companion. Избранное
 и folders App Grid сохраняются локально; compositor drag semantics не
 имитируются. Весь основной shell остаётся работоспособным без companion.
 

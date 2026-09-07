@@ -5,8 +5,10 @@ Wayland connection and one bounded JSON-lines stream; it does not use X11,
 `xdotool`, a process per key, or private text logs. The helper reports native
 capabilities only after probing the compositor registry at runtime.
 
-The primary transport is `zwp_virtual_keyboard_v1`. `zwp_input_method_v2` and
-`zwp_text_input_v3` are probed independently, while the stable
+The primary transport is `zwp_virtual_keyboard_v1`. `zwp_input_method_v2` is
+the real text-focus provider when the compositor advertises it; the
+`zwp_text_input_v3` manager is probed independently because application
+surfaces own their text-input objects. The stable
 `zwp_tablet_v2` seat is bound when the compositor advertises it. Tablet tools
 forward normalized proximity, tip, motion, pressure, tilt, distance, rotation,
 button, and frame events without forwarding hardware serials or private text.
@@ -54,4 +56,6 @@ unavailable rather than replaced by a polling loop.
 `omanome input-info` combines the helper metadata, a short runtime Wayland
 probe when a session is present, keyboard/device counts, and the explicit
 `wtype` fallback. It never reports fallback as native and never includes typed
-text, surrounding text, or clipboard payloads.
+text, surrounding text, or clipboard payloads. `stylus-info`, `touch-info`, and
+`sensor-info` retain the same fail-closed behavior when Hyprland, a sensor, or
+physical hardware is absent.
