@@ -23,9 +23,17 @@ jobs:
           python3 -m json.tool config/defaults.json >/dev/null
           python3 -m json.tool config/schema.json >/dev/null
 
-      - name: Run project checks
+      - name: Validate project
+        run: make validate
+
+      - name: Run project tests
+        run: make test
+
+      - name: Run QML lint
+        run: make qmllint
+
+      - name: Run portable capability and safety checks
         run: |
-          make check
           make hardware-test
           make dependency-audit
           make performance-test
