@@ -27,6 +27,12 @@ companion_lifecycle_file="$companion_state_dir/lifecycle.json"
 companion_lifecycle_log="$companion_state_dir/lifecycle.log"
 companion_backup_dir="$companion_state_dir/artifacts"
 config_tool="$repo_dir/scripts/config_tool.py"
+transaction_dir="$omanome_state_dir/transactions"
+transaction_file="$transaction_dir/current.json"
+transaction_history_dir="$transaction_dir/history"
+failed_update_dir="$omanome_state_dir/failed-updates"
+update_lock_file="$omanome_state_dir/update.lock"
+ownership_manifest="$omanome_state_dir/ownership.json"
 
 EX_USAGE=2
 EX_CONFIG=78
@@ -58,6 +64,7 @@ Commands:
   update --check         Check the installed checkout and compatibility
   update                 Create rollback point, then use Omarchy plugin update
   rollback               Restore the newest Omanome rollback point
+  recover                Recover an interrupted update transaction
   uninstall [--purge-settings] [--yes]
   version                Print Omanome version
   stylus-info            Print capability inventory without changing input
@@ -84,7 +91,116 @@ manifest_value() {
 config_file() { printf '%s/config.json\n' "$omanome_config_dir"; }
 
 ensure_dirs() {
-  mkdir -p -- "$omanome_config_dir" "$omanome_state_dir" "$omanome_cache_dir" "$rollback_dir" "$companion_state_dir" "$companion_backup_dir"
+  mkdir -p -- "$omanome_config_dir" "$omanome_state_dir" "$omanome_cache_dir" "$rollback_dir" "$transaction_dir" "$transaction_history_dir" "$failed_update_dir" "$companion_state_dir" "$companion_backup_dir"
+}
+
+path_is_safe_directory() {
+  local path="$1" expected_parent="${2:-}"
+  [[ -n "$path" && "$path" != "/" && ! -L "$path" ]] || return 1
+  [[ -z "$expected_parent" || "$path" == "$expected_parent" || "$path" == "$expected_parent"/* ]] || return 1
+  return 0
+}
+
+path_is_safe_file() {
+  local path="$1" expected_parent="${2:-}"
+  [[ -n "$path" && "$path" != "/" && ! -L "$path" ]] || return 1
+  [[ -z "$expected_parent" || "$path" == "$expected_parent"/* ]] || return 1
+  return 0
+}
+
+write_ownership_manifest() {
+  ensure_dirs
+  local temporary="$ownership_manifest.tmp.$$"
+  jq -n \
+    --arg generatedAt "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+    --arg pluginId "$plugin_id" \
+    --arg plugin "$installed_plugin_dir" \
+    --arg config "$omanome_config_dir" \
+    --arg state "$omanome_state_dir" \
+    --arg cache "$omanome_cache_dir" \
+    --arg companion "$companion_data_dir" \
+    '{schemaVersion:1,pluginId:$pluginId,generatedAt:$generatedAt,managedPaths:{plugin:$plugin,config:$config,state:$state,cache:$cache,companion:$companion}}' \
+    >"$temporary"
+  chmod 600 -- "$temporary"
+  mv -f -- "$temporary" "$ownership_manifest"
+}
+
+safe_remove_directory() {
+  local path="$1" parent="$2"
+  path_is_safe_directory "$path" "$parent" || die "refusing unsafe directory removal: $path"
+  [[ -d "$path" ]] || return 0
+  rm -rf -- "$path"
+}
+
+safe_remove_file() {
+  local path="$1" parent="$2"
+  path_is_safe_file "$path" "$parent" || die "refusing unsafe file removal: $path"
+  [[ -e "$path" ]] || return 0
+  rm -f -- "$path"
+}
+
+json_atomic_write() {
+  local path="$1" content="$2" temporary="$1.tmp.$$"
+  printf '%s\n' "$content" >"$temporary"
+  chmod 600 -- "$temporary"
+  mv -f -- "$temporary" "$path"
+}
+
+transaction_update() {
+  local phase="$1" reason="${2:-}" snapshot="${3:-}" version="${4:-}" commit="${5:-}"
+  ensure_dirs
+  local current='{}'
+  if [[ -f "$transaction_file" ]]; then
+    current="$(jq -c 'if type == "object" then . else {} end' "$transaction_file" 2>/dev/null || printf '{}')"
+  fi
+  local updated
+  updated="$(jq -c \
+    --arg phase "$phase" \
+    --arg reason "$reason" \
+    --arg snapshot "$snapshot" \
+    --arg version "$version" \
+    --arg commit "$commit" \
+    --arg at "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+    '.schemaVersion = 1 | .phase = $phase | .updatedAt = $at | .reason = $reason
+     | if $snapshot != "" then .snapshot = $snapshot else . end
+     | if $version != "" then .targetVersion = $version else . end
+     | if $commit != "" then .targetCommit = $commit else . end' <<<"$current")"
+  json_atomic_write "$transaction_file" "$updated"
+}
+
+transaction_begin() {
+  local id="$1" channel="$2" current_version="$3" current_commit="$4" snapshot="$5"
+  ensure_dirs
+  local temporary="$transaction_file.tmp.$$"
+  jq -n \
+    --arg id "$id" \
+    --arg channel "$channel" \
+    --arg version "$current_version" \
+    --arg commit "$current_commit" \
+    --arg snapshot "$snapshot" \
+    --arg startedAt "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+    --arg pluginPath "$installed_plugin_dir" \
+    --arg configPath "$(config_file)" \
+    '{schemaVersion:1,id:$id,phase:"prepared",startedAt:$startedAt,updatedAt:$startedAt,channel:$channel,currentVersion:$version,currentCommit:$commit,snapshot:$snapshot,pluginPath:$pluginPath,configPath:$configPath}' \
+    >"$temporary"
+  chmod 600 -- "$temporary"
+  mv -f -- "$temporary" "$transaction_file"
+}
+
+transaction_finalize() {
+  local final_phase="$1" reason="${2:-}" id="unknown"
+  [[ -f "$transaction_file" ]] || return 0
+  id="$(jq -r '.id // "unknown"' "$transaction_file" 2>/dev/null || printf 'unknown')"
+  transaction_update "$final_phase" "$reason"
+  if [[ "$id" != "unknown" && "$id" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    cp -p -- "$transaction_file" "$transaction_history_dir/$id.json"
+    chmod 600 -- "$transaction_history_dir/$id.json"
+  fi
+  safe_remove_file "$transaction_file" "$transaction_dir"
+}
+
+transaction_status_cmd() {
+  if [[ -f "$transaction_file" ]]; then jq . "$transaction_file"; else jq -n '{active:false}'; fi
 }
 
 backup_config() {
@@ -616,23 +732,38 @@ normalize_repository_url() {
 }
 
 repository_version() {
-  local raw version
-  if ! has curl || ! raw="$(curl -fsSL --max-time 8 "$repository_manifest_url" 2>/dev/null)"; then
-    printf 'unavailable\n'
-    return 0
-  fi
+  local channel="${1:-stable}" raw version branch url
+  has curl || return 1
+  branch="$(repository_branch_for_channel "$channel")"
+  url="https://raw.githubusercontent.com/pluseight8/omanome/$branch/manifest.json"
+  raw="$(curl -fsSL --max-time "$(config_timeout)" "$url" 2>/dev/null)" || return 1
   version="$(printf '%s' "$raw" | jq -r '.version // empty' 2>/dev/null || true)"
-  [[ -n "$version" ]] && printf '%s\n' "$version" || printf 'unavailable\n'
+  [[ -n "$version" ]] || return 1
+  printf '%s\n' "$version"
 }
 
 current_update_channel() {
   local current
   current="$(config_file)"
-  if [[ -f "$current" ]]; then
-    jq -r '.updates.channel // "stable"' "$current" 2>/dev/null || printf 'stable\n'
-  else
-    printf 'stable\n'
-  fi
+  local channel="stable"
+  if [[ -f "$current" ]]; then channel="$(jq -r '.updates.channel // "stable"' "$current" 2>/dev/null || printf 'stable')"; fi
+  [[ "$channel" == "stable" || "$channel" == "beta" || "$channel" == "nightly" ]] || channel="stable"
+  printf '%s\n' "$channel"
+}
+
+config_timeout() {
+  local timeout="$(jq -r '.updates.checkTimeoutSeconds // 8' "$(config_file)" 2>/dev/null || printf '8')"
+  [[ "$timeout" =~ ^[0-9]+$ ]] || timeout=8
+  (( timeout >= 2 && timeout <= 60 )) || timeout=8
+  printf '%s\n' "$timeout"
+}
+
+repository_branch_for_channel() {
+  case "${1:-stable}" in
+    beta) printf 'beta\n' ;;
+    nightly) printf 'nightly\n' ;;
+    *) printf 'main\n' ;;
+  esac
 }
 
 installed_commit() {
@@ -644,33 +775,45 @@ installed_commit() {
 }
 
 remote_commit() {
-  local commit
-  commit="$(git ls-remote "$repository_url" refs/heads/main 2>/dev/null | awk 'NR == 1 { print $1 }')"
-  [[ -n "$commit" ]] && printf '%s\n' "$commit" || printf 'unavailable\n'
+  local channel="${1:-stable}" commit branch
+  has git || return 1
+  branch="$(repository_branch_for_channel "$channel")"
+  commit="$(git ls-remote "$repository_url" "refs/heads/$branch" 2>/dev/null | awk 'NR == 1 { print $1 }')" || return 1
+  [[ -n "$commit" ]] || return 1
+  printf '%s\n' "$commit"
 }
 
 check_update_cmd() {
-  say "Installed version: $(installed_version)"
-  say "Latest repository version: $(repository_version)"
-  say "Current update channel: $(current_update_channel)"
-  local current="unavailable"
-  local remote="unavailable"
-  local available="unknown"
+  local json=0 requested_channel=""
+  for argument in "$@"; do
+    [[ "$argument" == "--json" ]] && json=1
+    [[ "$argument" == --channel=* ]] && requested_channel="${argument#--channel=}"
+  done
+  local channel="${requested_channel:-$(current_update_channel)}"
+  [[ "$channel" == "stable" || "$channel" == "beta" || "$channel" == "nightly" ]] || { say "unsupported update channel: $channel" >&2; return "$EX_CONFIG"; }
+  local installed="$(installed_version)" version="unavailable" current="unavailable" remote="unavailable" available="unknown" network="offline"
+  if version="$(repository_version "$channel" 2>/dev/null)"; then network="online"; fi
   if [[ -d "$installed_plugin_dir/.git" ]]; then
-    say "Git remote: $(git -C "$installed_plugin_dir" remote get-url origin 2>/dev/null || printf 'none')"
     current="$(installed_commit)"
-    remote="$(remote_commit)"
+    remote="$(remote_commit "$channel" 2>/dev/null || printf 'unavailable')"
     if [[ "$current" != "unavailable" && "$remote" != "unavailable" ]]; then
       [[ "$current" == "$remote" ]] && available="no" || available="yes"
     fi
-  else
-    say "No installed git checkout found"
   fi
-  say "Current commit: $current"
-  say "Remote commit: $remote"
-  say "Update available: $available"
-  say "Hyprland: $(hyprctl version 2>/dev/null | head -n 1 || printf 'unavailable')"
-  say "Quickshell: $(quickshell --version 2>/dev/null | head -n 1 || printf 'unavailable')"
+  if [[ "$json" -eq 1 ]]; then
+    jq -n --arg installed "$installed" --arg latest "$version" --arg channel "$channel" --arg current "$current" --arg remote "$remote" --arg available "$available" --arg network "$network" \
+      '{installedVersion:$installed,latestVersion:$latest,channel:$channel,currentCommit:$current,remoteCommit:$remote,updateAvailable:$available,network:$network}'
+  else
+    say "Installed version: $installed"
+    say "Latest repository version: $version"
+    say "Current update channel: $channel"
+    say "Current commit: $current"
+    say "Remote commit: $remote"
+    say "Update available: $available"
+    say "Network: $network"
+    say "Hyprland: $(hyprctl version 2>/dev/null | head -n 1 || printf 'unavailable')"
+    say "Quickshell: $(quickshell --version 2>/dev/null | head -n 1 || printf 'unavailable')"
+  fi
 }
 
 ensure_repository_remote() {
@@ -682,60 +825,275 @@ ensure_repository_remote() {
   [[ "$normalized" == "$expected" ]] || die "installed checkout origin is '$configured'; expected '$repository_url'"
 }
 
+preflight_config_cmd() {
+  local current="$(config_file)"
+  [[ -f "$current" ]] || return 0
+  python3 "$config_tool" validate "$current" >/dev/null || die "configuration is invalid or from a future schema; run 'omanome config export' before updating"
+}
+
+migrate_config_cmd() {
+  local current="$(config_file)"
+  [[ -f "$current" ]] || return 0
+  [[ ! -L "$current" ]] || die "configuration is a symlink; refusing to migrate it"
+  local temporary="$current.migrate.$$"
+  python3 "$config_tool" migrate "$current" --output "$temporary" >/dev/null || { safe_remove_file "$temporary" "$omanome_config_dir"; die "configuration migration failed"; }
+  mv -f -- "$temporary" "$current"
+  chmod 600 -- "$current"
+}
+
+health_check_cmd() {
+  [[ -d "$installed_plugin_dir" && ! -L "$installed_plugin_dir" ]] || { say "FAIL: installed plugin directory is missing or unsafe" >&2; return 1; }
+  [[ -f "$installed_plugin_dir/manifest.json" ]] || { say "FAIL: installed manifest is missing" >&2; return 1; }
+  jq -e '.id == "io.omanome.shell" and (.kinds | index("bar") | not)' "$installed_plugin_dir/manifest.json" >/dev/null 2>&1 || { say "FAIL: installed manifest failed Omanome safety checks" >&2; return 1; }
+  if has omarchy && ! omarchy plugin validate "$installed_plugin_dir" >/dev/null 2>&1; then say "FAIL: Omarchy plugin validation failed" >&2; return 1; fi
+  if [[ -f "$(config_file)" ]] && ! python3 "$config_tool" validate "$(config_file)" >/dev/null 2>&1; then say "FAIL: configuration validation failed" >&2; return 1; fi
+  return 0
+}
+
+acquire_update_lock() {
+  ensure_dirs
+  if has flock; then
+    exec 9>"$update_lock_file"
+    flock -n 9 || die "another Omanome update or recovery is already running"
+    update_lock_mode="flock"
+  else
+    update_lock_mode="mkdir"
+    mkdir "$update_lock_file.d" 2>/dev/null || die "another Omanome update or recovery is already running"
+  fi
+}
+
+release_update_lock() {
+  if [[ "${update_lock_mode:-}" == "flock" ]]; then exec 9>&-; elif [[ "${update_lock_mode:-}" == "mkdir" ]]; then safe_remove_directory "$update_lock_file.d" "$omanome_state_dir"; fi
+  update_lock_mode=""
+}
+
+recover_pending_transaction_cmd() {
+  [[ -f "$transaction_file" ]] || return 0
+  local phase snapshot
+  phase="$(jq -r '.phase // "unknown"' "$transaction_file" 2>/dev/null || printf 'unknown')"
+  snapshot="$(jq -r '.snapshot // empty' "$transaction_file" 2>/dev/null || true)"
+  case "$phase" in
+    committed|rolled-back|recovered) transaction_finalize "$phase" "journal cleanup"; return 0 ;;
+  esac
+  [[ -n "$snapshot" ]] || { say "FAIL: transaction journal has no snapshot" >&2; return "$EX_RECOVERY"; }
+  say "Recovering interrupted Omanome transaction (${phase})"
+  transaction_update rollback "recovering interrupted transaction"
+  if ! restore_snapshot_cmd "$snapshot"; then say "FAIL: automatic transaction recovery failed; inspect $transaction_file" >&2; return "$EX_RECOVERY"; fi
+  transaction_finalize recovered "interrupted transaction restored"
+}
+
 create_rollback_cmd() {
   [[ -d "$installed_plugin_dir" ]] || die "installed Omanome checkout not found"
+  [[ ! -L "$installed_plugin_dir" ]] || die "installed Omanome checkout is a symlink; refusing to snapshot it"
   ensure_dirs
-  local stamp="$rollback_dir/$(date +%Y%m%d-%H%M%S)"
+  write_ownership_manifest
+  local stamp="$rollback_dir/$(date -u +%Y%m%d-%H%M%S)-$$"
   mkdir -p -- "$stamp"
-  cp -a -- "$installed_plugin_dir" "$stamp/plugin"
-  if [[ -f "$(config_file)" ]]; then cp -p -- "$(config_file)" "$stamp/config.json"; fi
-  if [[ -d "$companion_data_dir" ]]; then cp -a -- "$companion_data_dir" "$stamp/companion"; fi
-  if [[ -d "$companion_state_dir" ]]; then cp -a -- "$companion_state_dir" "$stamp/companion-state"; fi
+  if ! cp -a -- "$installed_plugin_dir" "$stamp/plugin"; then safe_remove_directory "$stamp" "$rollback_dir"; die "could not create plugin snapshot"; fi
+  if [[ -f "$(config_file)" ]]; then
+    [[ ! -L "$(config_file)" ]] || { safe_remove_directory "$stamp" "$rollback_dir"; die "config is a symlink; refusing to snapshot it"; }
+    cp -p -- "$(config_file)" "$stamp/config.json"
+  fi
+  if [[ -d "$companion_data_dir" ]]; then
+    [[ ! -L "$companion_data_dir" ]] || { safe_remove_directory "$stamp" "$rollback_dir"; die "companion data is a symlink; refusing to snapshot it"; }
+    cp -a -- "$companion_data_dir" "$stamp/companion"
+  fi
+  if [[ -d "$companion_state_dir" ]]; then
+    [[ ! -L "$companion_state_dir" ]] || { safe_remove_directory "$stamp" "$rollback_dir"; die "companion state is a symlink; refusing to snapshot it"; }
+    cp -a -- "$companion_state_dir" "$stamp/companion-state"
+  fi
+  local plugin_version config_hash companion_hash
+  plugin_version="$(jq -r '.version // "unknown"' "$installed_plugin_dir/manifest.json" 2>/dev/null || printf 'unknown')"
+  config_hash="$(sha256sum "$(config_file)" 2>/dev/null | awk '{print $1}' || true)"
+  companion_hash="$(sha256sum "$companion_artifact" 2>/dev/null | awk '{print $1}' || true)"
+  jq -n \
+    --arg id "$(basename -- "$stamp")" \
+    --arg createdAt "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+    --arg version "$plugin_version" \
+    --arg commit "$(installed_commit)" \
+    --arg channel "$(current_update_channel)" \
+    --arg configHash "$config_hash" \
+    --arg companionHash "$companion_hash" \
+    --arg pluginPath "$installed_plugin_dir" \
+    --arg configPath "$(config_file)" \
+    --arg ownership "$ownership_manifest" \
+    '{schemaVersion:1,id:$id,createdAt:$createdAt,pluginVersion:$version,commit:$commit,channel:$channel,configSha256:$configHash,companionSha256:$companionHash,pluginPath:$pluginPath,configPath:$configPath,ownershipManifest:$ownership}' \
+    >"$stamp/metadata.json"
+  chmod 600 -- "$stamp/metadata.json"
+  prune_rollback_cmd
   printf '%s\n' "$stamp"
 }
 
-restore_latest_cmd() {
-  local snapshot
-  snapshot="$(find "$rollback_dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort | tail -n 1)"
-  [[ -n "$snapshot" && -d "$rollback_dir/$snapshot/plugin" ]] || die "no rollback point available"
-  local failed_dir="${installed_plugin_dir}.failed.$(date +%s)"
-  if [[ -e "$failed_dir" ]]; then failed_dir="${installed_plugin_dir}.failed.$(date +%s%N)"; fi
-  if [[ -d "$installed_plugin_dir" ]]; then mv -- "$installed_plugin_dir" "$failed_dir"; fi
-  cp -a -- "$rollback_dir/$snapshot/plugin" "$installed_plugin_dir"
-  if [[ -f "$rollback_dir/$snapshot/config.json" ]]; then cp -p -- "$rollback_dir/$snapshot/config.json" "$(config_file)"; fi
-  if [[ -d "$rollback_dir/$snapshot/companion" ]]; then
-    if [[ -d "$companion_data_dir" ]]; then mv -- "$companion_data_dir" "${companion_data_dir}.failed.$(date +%s)"; fi
-    cp -a -- "$rollback_dir/$snapshot/companion" "$companion_data_dir"
-  fi
-  if [[ -d "$rollback_dir/$snapshot/companion-state" ]]; then
-    if [[ -d "$companion_state_dir" ]]; then mv -- "$companion_state_dir" "${companion_state_dir}.failed.$(date +%s)"; fi
-    cp -a -- "$rollback_dir/$snapshot/companion-state" "$companion_state_dir"
-  fi
-  say "Restored rollback point $snapshot"
+rollback_retention() {
+  local retention
+  retention="$(jq -r '.updates.rollbackRetention // 3' "$(config_file)" 2>/dev/null || printf '3')"
+  [[ "$retention" =~ ^[0-9]+$ ]] || retention=3
+  (( retention >= 1 && retention <= 20 )) || retention=3
+  printf '%s\n' "$retention"
 }
 
+prune_rollback_cmd() {
+  local retention="$(rollback_retention)" count=0
+  local snapshot
+  while IFS= read -r snapshot; do
+    [[ -n "$snapshot" ]] || continue
+    count=$((count + 1))
+    if (( count > retention )); then safe_remove_directory "$rollback_dir/$snapshot" "$rollback_dir"; fi
+  done < <(find "$rollback_dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort -r)
+}
+
+restore_directory_snapshot() {
+  local source="$1" target="$2" target_parent="$3" failed_root="$4" name="$5"
+  [[ ! -e "$target" || ! -L "$target" ]] || die "refusing to restore through symlink: $target"
+  if [[ -d "$source" ]]; then
+    [[ ! -L "$source" ]] || die "rollback snapshot contains a symlink: $source"
+    local stage="$target.restore.$$"
+    [[ ! -e "$stage" ]] || die "restore staging path already exists: $stage"
+    cp -a -- "$source" "$stage"
+    if [[ -e "$target" ]]; then mv -- "$target" "$failed_root/$name"; fi
+    mv -- "$stage" "$target"
+  elif [[ -e "$target" ]]; then
+    mv -- "$target" "$failed_root/$name"
+  fi
+}
+
+restore_snapshot_cmd() {
+  local requested="${1:-}" snapshot
+  if [[ -z "$requested" ]]; then
+    snapshot="$(find "$rollback_dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort -r | head -n 1)"
+  elif [[ "$requested" = /* ]]; then
+    snapshot="$requested"
+  else
+    snapshot="$rollback_dir/$requested"
+  fi
+  path_is_safe_directory "$snapshot" "$rollback_dir" || die "unsafe rollback path: $snapshot"
+  [[ "$snapshot" != "$rollback_dir" && -d "$snapshot/plugin" ]] || die "no rollback point available"
+  [[ ! -L "$snapshot/plugin" ]] || die "rollback snapshot plugin is a symlink"
+  ensure_dirs
+  mkdir -p -- "$(dirname -- "$installed_plugin_dir")" "$(dirname -- "$companion_data_dir")" "$(dirname -- "$companion_state_dir")"
+  local failed_root="$failed_update_dir/$(date -u +%Y%m%d-%H%M%S)-$$"
+  mkdir -p -- "$failed_root"
+  restore_directory_snapshot "$snapshot/plugin" "$installed_plugin_dir" "$(dirname -- "$installed_plugin_dir")" "$failed_root" plugin
+  if [[ -f "$snapshot/config.json" ]]; then
+    [[ ! -L "$(config_file)" ]] || die "current config is a symlink; refusing rollback"
+    cp -p -- "$(config_file)" "$failed_root/config.json" 2>/dev/null || true
+    install -Dm600 -- "$snapshot/config.json" "$(config_file)"
+  elif [[ -e "$(config_file)" ]]; then
+    [[ ! -L "$(config_file)" ]] || die "current config is a symlink; refusing rollback"
+    mv -- "$(config_file)" "$failed_root/config.json"
+  fi
+  restore_directory_snapshot "$snapshot/companion" "$companion_data_dir" "$(dirname -- "$companion_data_dir")" "$failed_root" companion
+  restore_directory_snapshot "$snapshot/companion-state" "$companion_state_dir" "$(dirname -- "$companion_state_dir")" "$failed_root" companion-state
+  write_ownership_manifest
+  say "Restored rollback point $(basename -- "$snapshot"); failed state preserved at $failed_root"
+}
+
+restore_latest_cmd() { restore_snapshot_cmd "${1:-}"; }
+
 update_cmd() {
-  if [[ "${1:-}" == "--check" ]]; then check_update_cmd; return; fi
+  local check=0 json=0 dry_run=0 force=0
+  for argument in "$@"; do
+    [[ "$argument" == "--check" ]] && check=1
+    [[ "$argument" == "--json" ]] && json=1
+    [[ "$argument" == "--dry-run" ]] && dry_run=1
+    [[ "$argument" == "--force" ]] && force=1
+  done
+  if [[ "$check" -eq 1 ]]; then check_update_cmd "$@"; return; fi
   has omarchy || die "omarchy is not installed"
+  acquire_update_lock
+  if [[ -f "$transaction_file" ]]; then
+    recover_pending_transaction_cmd || { release_update_lock; return "$EX_RECOVERY"; }
+  fi
   ensure_repository_remote
-  create_rollback_cmd >/dev/null
+  preflight_config_cmd
+  local check_output
+  check_output="$(check_update_cmd --json 2>/dev/null || true)"
+  if [[ "$dry_run" -eq 1 ]]; then
+    if [[ "$json" -eq 1 ]]; then printf '%s\n' "$check_output"; else check_update_cmd; fi
+    release_update_lock
+    return 0
+  fi
+  local available="unknown" current="unavailable" remote="unavailable" channel="$(current_update_channel)"
+  if [[ -n "$check_output" ]]; then
+    available="$(jq -r '.updateAvailable // "unknown"' <<<"$check_output" 2>/dev/null || printf 'unknown')"
+    current="$(jq -r '.currentCommit // "unavailable"' <<<"$check_output" 2>/dev/null || printf 'unavailable')"
+    remote="$(jq -r '.remoteCommit // "unavailable"' <<<"$check_output" 2>/dev/null || printf 'unavailable')"
+  fi
+  if [[ "$available" == "no" && "$force" -ne 1 ]]; then
+    [[ "$json" -eq 1 ]] && printf '%s\n' "$check_output" || say "Omanome is already current on channel $channel; no update performed."
+    release_update_lock
+    return 0
+  fi
+  if [[ "$remote" == "unavailable" && "$force" -ne 1 ]]; then
+    release_update_lock
+    die "remote update state is unavailable; use --force only after verifying the network and repository"
+  fi
+  local snapshot id
+  snapshot="$(create_rollback_cmd)"
+  id="$(basename -- "$snapshot")"
+  transaction_begin "$id" "$channel" "$(installed_version)" "$current" "$snapshot"
+  transaction_update config-migration "migrating configuration before update"
+  migrate_config_cmd
+  transaction_update updating "Omarchy plugin manager update" "" "$(repository_version "$channel" 2>/dev/null || printf 'unknown')" "$remote"
   if ! omarchy plugin update "$plugin_id" --yes; then
     say "Update failed; restoring the previous checkout."
-    restore_latest_cmd
-    return 1
+    transaction_update rollback "Omarchy plugin update failed"
+    if ! restore_snapshot_cmd "$id"; then release_update_lock; return "$EX_RECOVERY"; fi
+    transaction_finalize rolled-back "update command failed; snapshot restored"
+    release_update_lock
+    return "$EX_UPDATE"
   fi
-  if ! omarchy plugin validate "$installed_plugin_dir" >/dev/null 2>&1; then
-    say "Updated checkout failed validation; restoring the previous checkout."
-    restore_latest_cmd
-    return 1
+  transaction_update health-check "checking updated checkout"
+  if ! health_check_cmd; then
+    say "Updated checkout failed health checks; restoring the previous checkout."
+    transaction_update rollback "post-update health check failed"
+    if ! restore_snapshot_cmd "$id"; then release_update_lock; return "$EX_RECOVERY"; fi
+    transaction_finalize rolled-back "health check failed; snapshot restored"
+    release_update_lock
+    return "$EX_UPDATE"
   fi
+  transaction_update committed "update and health checks passed"
+  transaction_finalize committed "update completed"
+  release_update_lock
   reload_cmd || true
-  say "Omanome updated; rollback point kept under $rollback_dir"
+  if [[ "$json" -eq 1 ]]; then jq -n --arg snapshot "$snapshot" --arg channel "$channel" --arg version "$(installed_version)" '{updated:true,channel:$channel,version:$version,snapshot:$snapshot,transaction:"committed"}'; else say "Omanome updated; rollback point kept under $snapshot"; fi
 }
 
 rollback_cmd() {
-  restore_latest_cmd
+  local list=0 json=0 requested=""
+  for argument in "$@"; do
+    [[ "$argument" == "--list" ]] && list=1
+    [[ "$argument" == "--json" ]] && json=1
+    [[ "$argument" != --* ]] && requested="$argument"
+  done
+  if [[ "$list" -eq 1 ]]; then
+    local snapshot payload='[]'
+    while IFS= read -r snapshot; do
+      [[ -n "$snapshot" ]] || continue
+      if [[ -f "$rollback_dir/$snapshot/metadata.json" ]]; then payload="$(jq -n --argjson existing "$payload" --slurpfile item "$rollback_dir/$snapshot/metadata.json" '$existing + $item' 2>/dev/null || printf '%s' "$payload")"; fi
+    done < <(find "$rollback_dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort -r)
+    if [[ "$json" -eq 1 ]]; then printf '%s\n' "$payload"; else find "$rollback_dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort -r; fi
+    return 0
+  fi
+  acquire_update_lock
+  restore_snapshot_cmd "$requested"
+  release_update_lock
   reload_cmd || true
+}
+
+recover_cmd() {
+  local json=0
+  for argument in "$@"; do [[ "$argument" == "--json" ]] && json=1; done
+  acquire_update_lock
+  if [[ "$json" -eq 1 && -f "$transaction_file" ]]; then transaction_status_cmd; fi
+  if [[ ! -f "$transaction_file" ]]; then
+    release_update_lock
+    [[ "$json" -eq 1 ]] && jq -n '{recovered:false,active:false}' || say "No interrupted Omanome transaction is pending."
+    return 0
+  fi
+  recover_pending_transaction_cmd
+  release_update_lock
+  [[ "$json" -eq 1 ]] && jq -n '{recovered:true,active:false}' || say "Omanome transaction recovery complete."
 }
 
 uninstall_cmd() {
@@ -819,6 +1177,7 @@ case "$command_name" in
   reset) reset_cmd "$@" ;;
   update) update_cmd "$@" ;;
   rollback) rollback_cmd "$@" ;;
+  recover) recover_cmd "$@" ;;
   uninstall) uninstall_cmd "$@" ;;
   devices) devices_cmd "$@" ;;
   stylus-info) stylus_info_cmd "$@" ;;
