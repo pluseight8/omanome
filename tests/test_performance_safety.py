@@ -117,6 +117,7 @@ class PerformanceSafetyTests(unittest.TestCase):
         # fixture without pretending this headless CI host rendered QML.
         active_states = []
         for _ in range(100):
+            # Each cycle must cross the same owner boundary in both directions.
             active_states.extend((True, False))
         self.assertEqual(len(active_states), 200)
         self.assertEqual(active_states.count(True), 100)
