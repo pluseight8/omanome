@@ -27,6 +27,9 @@ jobs:
         run: |
           make check
           make hardware-test
+          make dependency-audit
+          make performance-test
+          make version-check
 
       - name: Verify safety invariants
         run: |
@@ -38,7 +41,7 @@ jobs:
           import json
           manifest = json.load(open("manifest.json", encoding="utf-8"))
           assert "bar" not in manifest["kinds"]
-          assert manifest["version"] == "0.6.0"
+          assert manifest["version"] == "0.7.0"
           PY
 
   companion-contract:

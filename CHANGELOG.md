@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.0
+
+- Adds a transactional updater with channel-aware checks, phase journals,
+  user-owned rollback snapshots, health checks, automatic restore, interrupted
+  transaction recovery, retention, and preserved failed-update evidence.
+- Adds schema-2 config migration/validation tooling with future-schema refusal,
+  atomic import/export/diff operations, and explicit safe-mode recovery state.
+- Adds capability, hardware-fixture, redacted support-bundle, doctor JSON, and
+  dependency/performance audit commands; fixture output never claims physical
+  hardware certification.
+- Adds ownership manifests, exact-path uninstall preflight, dry-run/JSON output,
+  symlink/broad-root refusal, companion cleanup, and settings-preserving default
+  uninstall behavior.
+- Adds explicit Updates, Backup, Recovery and support-bundle controls to Settings,
+  release metadata validation, source archives/checksums, and tag-driven release CI.
+- Preserves the Omarchy standard bar, single Quickshell host, Wayland/X11 safety
+  boundaries, optional companion fail-closed behavior, and all 0.6 surfaces.
+
 ## 0.6.0
 
 - Adds a cohesive tablet-first Overview with current-workspace-first mosaic

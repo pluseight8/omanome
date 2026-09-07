@@ -2,7 +2,7 @@
 
 Omanome is an open-source, GNOME-inspired touch and stylus enhancement suite for the current Omarchy Quattro shell on Hyprland. It is intentionally an Omarchy plugin, not a replacement desktop session: the standard Omarchy bar remains in charge of the top edge, the existing Quickshell process hosts the plugin, and all plugin state is namespaced under `io.omanome.shell`.
 
-This repository is the runnable 0.6.0 phase. It uses public Omarchy/Quickshell/Hyprland interfaces for the core and explicit, version-aware optional compositor integrations for advanced effects. Features without a real backend remain visibly unavailable rather than becoming fake overlays.
+This repository is the runnable 0.7.0 phase. It uses public Omarchy/Quickshell/Hyprland interfaces for the core and explicit, version-aware optional compositor integrations for advanced effects. Features without a real backend remain visibly unavailable rather than becoming fake overlays.
 
 ## What is included
 
@@ -40,7 +40,7 @@ This repository is the runnable 0.6.0 phase. It uses public Omarchy/Quickshell/H
 - Optional compositor capability boundary: the companion provides a real bounded Wobbly mesh through Hyprland's public `IWindowTransformer` API when the exact ABI and GL renderer checks pass; Omanome integrates the real `omarchy-desktop-cube` API when loaded.
 - A Wayland-native OSK surface driven by `wtype` (`virtual-keyboard-v1`), with English/Russian QWERTY, standard/floating/split/thumb/left-right one-handed layouts, numeric/symbols/emoji/editing layers, toolbar, key popup, long-press alternates, repeat settings, and a local handwriting canvas.
 - Integration with Omarchy's native notification service for DND, popups, history, and dismissal.
-- Diagnostics and lifecycle commands: status, doctor, logs, enable/disable, safe mode, devices, stylus-info, touch-info, sensor-info, GitHub install/update checks, rollback, and uninstall.
+- Diagnostics and lifecycle commands: status, doctor, logs, enable/disable, safe mode, devices, stylus-info, touch-info, sensor-info, capabilities, hardware-test, redacted support bundles, GitHub install/update checks, transactional rollback/recovery, and ownership-safe uninstall.
 
 ## Requirements
 
@@ -109,7 +109,12 @@ omanome import-config <file>
 omanome reset [--yes]
 omanome update --check
 omanome update
-omanome rollback
+omanome update --dry-run --json
+omanome rollback --list --json
+omanome recover --json
+omanome capabilities
+omanome hardware-test --fixture tests/fixtures/hardware-tablet.json --json
+omanome diagnostics bundle [output.tar.gz]
 omanome stylus-info
 omanome touch-info
 omanome sensor-info
@@ -123,12 +128,16 @@ omanome uninstall [--purge-settings] [--yes]
 `update --check` reports the installed and latest repository versions, current
 and remote commits, update channel, and whether an update is available.
 `update` verifies that the installed checkout points at the official GitHub
-origin, creates a user-owned rollback copy, then calls Omarchy's standard
-plugin updater. It validates the installed checkout before reloading the shell
-and restores the rollback point automatically if validation fails. `rollback`
-restores the newest snapshot. `uninstall --yes` removes only Omanome's plugin,
-cache, state, and optional settings; it does not remove Omarchy, the standard
-bar, other plugins, themes, or user Hyprland files.
+origin, journals each phase, creates a user-owned rollback copy, then calls
+Omarchy's standard plugin updater. It validates the installed checkout before
+reloading the shell and restores the rollback point automatically if validation
+fails. An interrupted journal is recovered before another update or uninstall.
+`rollback --list --json` inventories snapshots without changing them.
+`uninstall --dry-run --json` previews exact owned paths; a verified ownership
+manifest and symlink checks prevent broad deletion. `uninstall --yes` removes
+only Omanome's plugin, companion data, cache, state, and optionally settings;
+it does not remove Omarchy, the standard bar, other plugins, themes, or user
+Hyprland files.
 
 ## Stylus and tablet behavior
 
@@ -148,7 +157,7 @@ The check runs repository validation, shell syntax checks, Python tests includin
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/TESTING.md`](docs/TESTING.md) for the plugin contract, coexistence rules, test matrix, and safe integration boundaries.
 
-## 0.6 compositor and safety boundaries
+## 0.7 compositor, lifecycle and safety boundaries
 
 Blur is applied through Hyprland layer-rule IPC to Omanome namespaces; it is not a translucent-rectangle imitation. Coverflow selects real Hyprland foreign-toplevel objects and activates them through native APIs. Live previews stay disabled unless the running Quickshell/companion exposes an actual texture provider. Force Quit starts with the selected foreign window's native close request and only falls back to the selected numeric PID; session processes are protected and no process-name broadcast is used.
 

@@ -6,6 +6,11 @@ Run:
 
 ```sh
 make check
+make companion-check
+make dependency-audit
+make performance-test
+make hardware-test
+make version-check
 ```
 
 The command performs:
@@ -14,6 +19,13 @@ The command performs:
 2. `bash -n` on the CLI, clipboard and Force Quit helpers, capability probes, scanners, sensor/rotation helpers, and audio helper;
 3. Python unit tests for the GitHub install contract, bar coexistence, config version/migrations, OSK layouts and controls, capability-based stylus fixtures, touch conflict policy, rotation transforms, sensor diagnostics, companion ABI/crash-marker handling, Force Quit PID protection, clipboard safety/data operations, notification grouping, uninstall scope, and native Omarchy validation;
 4. Qt `qmllint` with temporary import links to the installed Omarchy `qs.Commons` and `qs.Ui` modules.
+
+`dependency-audit` is a static policy check for sudo, X11, replacement-bar,
+name-based kill, and curl-pipe-shell regressions. `performance-test` is a
+deterministic config projection/JSON round-trip budget check; it is not a
+frame-rate certification. `hardware-test` consumes a fixture and explicitly
+reports `realHardwareValidated: false`. `version-check` verifies that the
+manifest, companion descriptor, README, changelog, and release tag agree.
 
 The runtime service coalesces Quick Settings into one state probe and only starts
 Wi-Fi, Bluetooth, and audio enumeration when their pickers are opened. Device
@@ -33,9 +45,10 @@ The QML code is designed for the following manual matrix when hardware is availa
 | Outputs | one monitor, multiple monitors, portrait and landscape |
 | Scale | 1.0x through 2.0x fractional scaling |
 | Apps | GTK, Qt, Electron, terminal, browser, fullscreen client, drawing application |
-| Lifecycle | disable, safe-mode, update check, rollback, uninstall with and without settings |
-| 0.6 surfaces | responsive Overview/App Grid/Dock, Settings deep links, onboarding migration, accessibility semantics, multi-signal Tablet Mode |
-| 0.6 effects | real layer-rule blur, native toplevel Coverflow, compositor-owned ScreencopyView streams, public-API Wobbly workbuffer renderer, external cube detection |
+| Lifecycle | disable, safe-mode, clean install, update check/dry-run, successful update, health-failure rollback, interrupted journal recovery, rollback inventory, uninstall with and without settings |
+| 0.7 lifecycle | transactional journal, bounded snapshots, config migration refusal, ownership manifest, dry-run/JSON uninstall, symlink refusal, support bundle redaction |
+| 0.6 surfaces retained | responsive Overview/App Grid/Dock, Settings deep links, onboarding migration, accessibility semantics, multi-signal Tablet Mode |
+| 0.6 effects retained | real layer-rule blur, native toplevel Coverflow, compositor-owned ScreencopyView streams, public-API Wobbly workbuffer renderer, external cube detection |
 | Safety | Force Quit protected PID 1/session process, sensitive MIME rejection, no payload command arguments, companion pending-load marker |
 
 ## Acceptance evidence available in this checkout
@@ -52,6 +65,7 @@ The QML code is designed for the following manual matrix when hardware is availa
 - `input/system-state.sh`, `input/wifi-scan.sh`, `input/bluetooth-scan.sh`, and `input/audio-devices.sh` return capability-safe JSON; they do not invent state when a backend is absent.
 - `tests/fixtures/stylus-devices.json` covers touchscreen, generic tablet tools, eraser, no-pressure, serial, and mapped-output input records without requiring hardware.
 - `input/sensor-info.sh` and `omanome sensor-info` distinguish monitor-sensor, iio D-Bus, and manual fallback.
+- `scripts/hardware_test.py`, `scripts/support_bundle.py`, `scripts/dependency_audit.py`, and `scripts/performance_test.py` provide explicit non-certifying probes, redacted support evidence, static dependency policy, and deterministic performance budgets.
 - `hypr/README.md` records why no unpinned compositor `.so` is loaded.
 
 Hardware-specific pressure, tilt, eraser, screen rotation, multi-monitor, and focus/text-input tests require the corresponding device/backend; they should not be represented as passed by static CI. The manual hardware workflow is dispatch-only for that reason.

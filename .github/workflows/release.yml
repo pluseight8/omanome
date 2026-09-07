@@ -1,0 +1,45 @@
+name: Omanome Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Validate and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Validate release metadata
+        env:
+          TAG_VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG_VERSION#v}"
+          python3 scripts/validate_version.py "$VERSION"
+          make check
+          make companion-check
+
+      - name: Build source archive and checksums
+        env:
+          TAG_VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG_VERSION#v}"
+          mkdir -p dist
+          git archive --format=tar.gz --prefix="omanome-${VERSION}/" "$TAG_VERSION" > "dist/omanome-${VERSION}.tar.gz"
+          sha256sum "dist/omanome-${VERSION}.tar.gz" > "dist/omanome-${VERSION}.tar.gz.sha256"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG_VERSION#v}"
+          gh release create "$TAG_VERSION" \
+            "dist/omanome-${VERSION}.tar.gz" \
+            "dist/omanome-${VERSION}.tar.gz.sha256" \
+            --verify-tag --title "Omanome ${VERSION}" --generate-notes

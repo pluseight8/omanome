@@ -2,7 +2,7 @@
 
 Omanome — открытый набор улучшений рабочего стола для актуального Omarchy Quattro на Hyprland. Он добавляет GNOME-подобный интерфейс для touchscreen и стилуса, но остаётся обычным Omarchy Shell Plugin: стандартная верхняя панель не заменяется, второй Quickshell не запускается, GNOME Shell и Mutter не нужны.
 
-Это запускаемая фаза версии 0.6.0. Ядро использует публичные API Omarchy/Quickshell/Hyprland, а дополнительные compositor-возможности подключаются только через явные version-aware companion boundaries. Если настоящего backend нет, функция остаётся явно недоступной, а не подменяется декоративной имитацией.
+Это запускаемая фаза версии 0.7.0. Ядро использует публичные API Omarchy/Quickshell/Hyprland, а дополнительные compositor-возможности подключаются только через явные version-aware companion boundaries. Если настоящего backend нет, функция остаётся явно недоступной, а не подменяется декоративной имитацией.
 
 ## Возможности
 
@@ -39,7 +39,7 @@ Omanome — открытый набор улучшений рабочего ст
 - Real Desktop Cube backend интегрируется через внешний `omarchy-desktop-cube`, если он загружен; Omanome не дублирует его renderer.
 - Wayland-native OSK через `wtype`: English/Russian QWERTY, standard/floating/split/thumb/one-handed left/right, numeric/symbols/emoji/editing и handwriting canvas; есть toolbar, long-press alternates, key popup и configurable repeat.
 - Использование нативного Omarchy notification service для DND, истории и dismiss.
-- CLI для диагностики, включая `stylus-info`, `touch-info`, `sensor-info`, установки из GitHub, safe mode, обновления, rollback и удаления.
+- CLI для диагностики, включая capabilities, hardware-test, redacted support bundle, `stylus-info`, `touch-info`, `sensor-info`, установку из GitHub, safe mode, транзакционные обновления/recovery, rollback и ownership-safe удаление.
 
 ## Установка из GitHub
 
@@ -92,7 +92,12 @@ omanome import-config <file>
 omanome reset [--yes]
 omanome update --check
 omanome update
-omanome rollback
+omanome update --dry-run --json
+omanome rollback --list --json
+omanome recover --json
+omanome capabilities
+omanome hardware-test --fixture tests/fixtures/hardware-tablet.json --json
+omanome diagnostics bundle [output.tar.gz]
 omanome stylus-info
 omanome touch-info
 omanome sensor-info
@@ -105,12 +110,15 @@ omanome uninstall [--purge-settings] [--yes]
 
 `update --check` показывает установленную и последнюю версии репозитория,
 текущий и удалённый commit, канал обновлений и наличие обновления. `update`
-проверяет официальный GitHub origin, создаёт rollback-копию, вызывает штатный
-Omarchy updater и автоматически восстанавливает предыдущую версию, если новая
-не проходит validation. `rollback` восстанавливает последнюю копию.
-`uninstall --yes` удаляет только Omanome, его cache/state и, по выбору,
-settings; Omarchy, стандартная панель, другие плагины, темы и пользовательский
-Hyprland не затрагиваются.
+проверяет официальный GitHub origin, журналирует фазы, создаёт rollback-копию,
+вызывает штатный Omarchy updater и автоматически восстанавливает предыдущую
+версию, если новая не проходит validation. Незавершённый журнал восстанавливается
+перед новым update или uninstall. `rollback --list --json` только показывает
+snapshot. `uninstall --dry-run --json` показывает точные принадлежащие пути;
+ownership manifest и проверки symlink запрещают широкое удаление.
+`uninstall --yes` удаляет только Omanome, companion data, cache, state и, по
+выбору, настройки; Omarchy, стандартная панель, другие плагины, темы и
+пользовательский Hyprland не затрагиваются.
 
 ## Touch и stylus
 
@@ -126,7 +134,7 @@ make check
 
 Подробности: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) и [`docs/TESTING.md`](docs/TESTING.md).
 
-## Границы 0.6 compositor и safety
+## Границы 0.7 compositor, lifecycle и safety
 
 Blur применяется через Hyprland layer-rule IPC к namespace Omanome, а не рисуется как прозрачный прямоугольник. Coverflow работает с реальными Hyprland foreign-toplevel объектами и native activation. Live preview остаётся выключенным, пока активный Quickshell/companion не даст настоящий texture provider. Force Quit сначала вызывает native close выбранного окна и только затем использует выбранный numeric PID; session-процессы защищены, broadcast по имени не используется.
 

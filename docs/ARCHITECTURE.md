@@ -18,6 +18,17 @@ The Omarchy shell creates the service and injects `shell` and `manifest`. The pa
 
 The only global IPC name is `io.omanome.shell`. The service owns configuration migration and persistence at `XDG_CONFIG_HOME/omanome/config.json`. Clipboard state is separate below `XDG_STATE_HOME/omanome`, with images content-addressed by SHA-256. Clipboard capture uses stdin and JSON records; sensitive MIME hints are rejected before persistence, and secrets are never put in process arguments or diagnostic output. Pinning, tags, retention, storage limits, and per-app exclusions are applied by `shell/models/Clipboard.js`.
 
+The CLI updater is a user-owned transaction boundary. It records a JSON journal
+under `XDG_STATE_HOME/omanome/transactions`, creates a bounded rollback snapshot
+before invoking Omarchy's official updater, validates the resulting checkout,
+and restores the snapshot on update or health-check failure. A pending journal is
+recovered before a later update, rollback, or uninstall. Failed replacements are
+kept under `failed-updates` for inspection rather than silently discarded.
+Configuration migration is explicit and atomic: invalid or future schemas are
+not overwritten, while known older schemas migrate into schema 2. The ownership
+manifest records only exact Omanome paths; uninstall refuses mismatches,
+symlinks, and broad roots, and offers a no-write dry-run plan.
+
 ## Public APIs used
 
 - `DesktopEntries.applications` for launcher/dock entries;
