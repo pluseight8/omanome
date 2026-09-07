@@ -151,8 +151,8 @@ def validate(value: Any) -> list[str]:
         elif not isinstance(value[key], dict):
             errors.append(f"section must be an object: {key}")
     updates = value.get("updates")
-    if isinstance(updates, dict) and updates.get("channel", "stable") not in {"stable", "beta", "nightly"}:
-        errors.append("updates.channel must be stable, beta, or nightly")
+    if isinstance(updates, dict) and updates.get("channel", "stable") not in {"stable", "beta", "main", "nightly"}:
+        errors.append("updates.channel must be stable, beta, main, or nightly")
     recovery = value.get("recovery")
     if isinstance(recovery, dict) and not isinstance(recovery.get("maxCrashAttempts", 2), int):
         errors.append("recovery.maxCrashAttempts must be an integer")

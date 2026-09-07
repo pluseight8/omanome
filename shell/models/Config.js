@@ -72,6 +72,7 @@ function migrationStepOneToTwo(source, report) {
   if (source.onboarding === undefined) source.onboarding = { completed: true, skipped: true, version: 1, privacyAcknowledged: false }
   if (!isObject(source.updates)) source.updates = {}
   if (source.updates.channel === undefined) source.updates.channel = "stable"
+  if (["stable", "beta", "main", "nightly"].indexOf(source.updates.channel) < 0) source.updates.channel = "stable"
   if (source.updates.automaticInstall === undefined) source.updates.automaticInstall = false
   if (source.updates.notify === undefined) source.updates.notify = true
   if (source.updates.rollbackRetention === undefined) source.updates.rollbackRetention = 3

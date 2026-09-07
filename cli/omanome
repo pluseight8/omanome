@@ -987,14 +987,28 @@ normalize_repository_url() {
 }
 
 repository_version() {
-  local channel="${1:-stable}" raw version branch url
+  local channel="${1:-stable}" raw version branch ref url
   has curl || return 1
-  branch="$(repository_branch_for_channel "$channel")"
-  url="https://raw.githubusercontent.com/pluseight8/omanome/$branch/manifest.json"
+  if [[ "$channel" == "stable" ]]; then
+    ref="$(repository_release_tag)" || return 1
+  else
+    branch="$(repository_branch_for_channel "$channel")"
+    ref="$branch"
+  fi
+  url="https://raw.githubusercontent.com/pluseight8/omanome/$ref/manifest.json"
   raw="$(curl -fsSL --max-time "$(config_timeout)" "$url" 2>/dev/null)" || return 1
   version="$(printf '%s' "$raw" | jq -r '.version // empty' 2>/dev/null || true)"
   [[ -n "$version" ]] || return 1
   printf '%s\n' "$version"
+}
+
+repository_release_tag() {
+  local raw tag
+  has curl || return 1
+  raw="$(curl -fsSL --max-time "$(config_timeout)" "https://api.github.com/repos/pluseight8/omanome/releases/latest" 2>/dev/null)" || return 1
+  tag="$(printf '%s' "$raw" | jq -r 'select(.draft != true and .prerelease != true) | .tag_name // empty' 2>/dev/null || true)"
+  [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || return 1
+  printf '%s\n' "$tag"
 }
 
 current_update_channel() {
@@ -1002,7 +1016,7 @@ current_update_channel() {
   current="$(config_file)"
   local channel="stable"
   if [[ -f "$current" ]]; then channel="$(jq -r '.updates.channel // "stable"' "$current" 2>/dev/null || printf 'stable')"; fi
-  [[ "$channel" == "stable" || "$channel" == "beta" || "$channel" == "nightly" ]] || channel="stable"
+  [[ "$channel" == "stable" || "$channel" == "beta" || "$channel" == "main" || "$channel" == "nightly" ]] || channel="stable"
   printf '%s\n' "$channel"
 }
 
@@ -1016,6 +1030,7 @@ config_timeout() {
 repository_branch_for_channel() {
   case "${1:-stable}" in
     beta) printf 'beta\n' ;;
+    main) printf 'main\n' ;;
     nightly) printf 'nightly\n' ;;
     *) printf 'main\n' ;;
   esac
@@ -1030,10 +1045,18 @@ installed_commit() {
 }
 
 remote_commit() {
-  local channel="${1:-stable}" commit branch
+  local channel="${1:-stable}" commit branch tag
   has git || return 1
-  branch="$(repository_branch_for_channel "$channel")"
-  commit="$(git ls-remote "$repository_url" "refs/heads/$branch" 2>/dev/null | awk 'NR == 1 { print $1 }')" || return 1
+  if [[ "$channel" == "stable" ]]; then
+    tag="$(repository_release_tag)" || return 1
+    commit="$(git ls-remote "$repository_url" "refs/tags/${tag}^{}" 2>/dev/null | awk 'NR == 1 { print $1 }')" || return 1
+    if [[ -z "$commit" ]]; then
+      commit="$(git ls-remote "$repository_url" "refs/tags/$tag" 2>/dev/null | awk 'NR == 1 { print $1 }')" || return 1
+    fi
+  else
+    branch="$(repository_branch_for_channel "$channel")"
+    commit="$(git ls-remote "$repository_url" "refs/heads/$branch" 2>/dev/null | awk 'NR == 1 { print $1 }')" || return 1
+  fi
   [[ -n "$commit" ]] || return 1
   printf '%s\n' "$commit"
 }
@@ -1045,7 +1068,7 @@ check_update_cmd() {
     [[ "$argument" == --channel=* ]] && requested_channel="${argument#--channel=}"
   done
   local channel="${requested_channel:-$(current_update_channel)}"
-  [[ "$channel" == "stable" || "$channel" == "beta" || "$channel" == "nightly" ]] || { say "unsupported update channel: $channel" >&2; return "$EX_CONFIG"; }
+  [[ "$channel" == "stable" || "$channel" == "beta" || "$channel" == "main" || "$channel" == "nightly" ]] || { say "unsupported update channel: $channel" >&2; return "$EX_CONFIG"; }
   local installed="$(installed_version)" version="unavailable" current="unavailable" remote="unavailable" available="unknown" network="offline"
   if version="$(repository_version "$channel" 2>/dev/null)"; then network="online"; fi
   if [[ -d "$installed_plugin_dir/.git" ]]; then

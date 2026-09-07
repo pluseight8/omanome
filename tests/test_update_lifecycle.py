@@ -47,8 +47,26 @@ class UpdateLifecycleTests(unittest.TestCase):
                 #!/usr/bin/env bash
                 if [[ "$1" == "-C" && "$3" == "remote" ]]; then printf '%s\\n' 'https://github.com/pluseight8/omanome.git'; exit 0; fi
                 if [[ "$1" == "-C" && "$3" == "rev-parse" ]]; then printf '%s\\n' 'oldcommit'; exit 0; fi
-                if [[ "$1" != "-C" ]]; then printf '%s refs/heads/main\\n' 'newcommit'; exit 0; fi
+                if [[ "$1" != "-C" ]]; then
+                  printf '%s\\n' "$*" >>"${OMANOME_GIT_ARGS_LOG}"
+                  printf '%s %s\\n' 'newcommit' "${2:-refs/heads/main}"
+                  exit 0
+                fi
                 exit 1
+                """
+            ),
+            encoding="utf-8",
+        )
+        (fake_bin / "curl").write_text(
+            textwrap.dedent(
+                """
+                #!/usr/bin/env bash
+                url="${@: -1}"
+                case "$url" in
+                  */repos/pluseight8/omanome/releases/latest) printf '%s\\n' '{"tag_name":"v0.9.0","draft":false,"prerelease":false}' ;;
+                  */omanome/v0.9.0/manifest.json) printf '%s\\n' '{"version":"0.9.0"}' ;;
+                  *) exit 1 ;;
+                esac
                 """
             ),
             encoding="utf-8",
@@ -72,7 +90,7 @@ class UpdateLifecycleTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        for path in (fake_bin / "git", fake_bin / "omarchy"):
+        for path in (fake_bin / "git", fake_bin / "curl", fake_bin / "omarchy"):
             path.chmod(path.stat().st_mode | stat.S_IXUSR)
         env = os.environ.copy()
         env.update(
@@ -81,6 +99,7 @@ class UpdateLifecycleTests(unittest.TestCase):
                 "XDG_CONFIG_HOME": str(config_home),
                 "XDG_STATE_HOME": str(state_home),
                 "XDG_CACHE_HOME": str(cache_home),
+                "OMANOME_GIT_ARGS_LOG": str(root / "git-args.log"),
                 "PATH": f"{fake_bin}:{env['PATH']}",
             }
         )
@@ -110,6 +129,19 @@ class UpdateLifecycleTests(unittest.TestCase):
             history = list((pathlib.Path(temporary) / "state" / "omanome" / "transactions" / "history").glob("*.json"))
             self.assertEqual(len(history), 1)
             self.assertEqual(json.loads(history[0].read_text(encoding="utf-8"))["phase"], "committed")
+
+    def test_stable_channel_uses_release_tag_not_main(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            _, env = self.make_fixture(root)
+            result = subprocess.run([str(CLI), "update", "--check", "--json"], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["channel"], "stable")
+            self.assertEqual(payload["latestVersion"], "0.9.0")
+            args_log = (root / "git-args.log").read_text(encoding="utf-8")
+            self.assertIn("refs/tags/v0.9.0^{}", args_log)
+            self.assertNotIn("refs/heads/main", args_log)
 
 
 if __name__ == "__main__":

@@ -29,6 +29,12 @@ is also read-only apart from normal command diagnostics. A real update creates a
 snapshot and journal before calling Omarchy. If the update command or health
 check fails, the prior checkout is restored and the failed state is retained.
 
+The default `stable` channel resolves the latest non-prerelease GitHub Release
+tag and never follows arbitrary commits on `main`. `beta` follows the `beta`
+branch, while `main` is the explicit development channel; `nightly` remains a
+legacy branch channel for existing configurations. No channel installs updates
+automatically: the user must run `omanome update` explicitly.
+
 If a session stops during an update, run:
 
 ```sh

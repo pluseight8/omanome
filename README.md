@@ -133,6 +133,10 @@ omanome uninstall [--purge-settings] [--yes]
 
 `update --check` reports the installed and latest repository versions, current
 and remote commits, update channel, and whether an update is available.
+The default `stable` channel resolves the latest non-prerelease GitHub Release
+tag; it does not follow arbitrary commits on `main`. `beta` follows the beta
+branch, and `main` is an explicit development channel. Updates are never
+installed without an explicit `omanome update` command.
 `update` verifies that the installed checkout points at the official GitHub
 origin, journals each phase, creates a user-owned rollback copy, then calls
 Omarchy's standard plugin updater. It validates the installed checkout before
