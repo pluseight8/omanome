@@ -271,7 +271,10 @@ logs_cmd() {
 }
 
 reload_cmd() {
-  has omarchy-shell || die "omarchy-shell is not installed"
+  if ! has omarchy-shell; then
+    say "omarchy-shell is unavailable; plugin reload was skipped" >&2
+    return "$EX_NETWORK"
+  fi
   omarchy-shell shell rescanPlugins
 }
 
