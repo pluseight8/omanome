@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: check validate test qmllint integration companion-check hardware-test dependency-audit performance-test version-check
+.PHONY: check validate test qmllint integration companion-check hardware-test dependency-audit performance-test performance-check version-check
 
 check: validate test qmllint
 
@@ -8,7 +8,7 @@ validate:
 	python3 scripts/validate.py
 	python3 scripts/validate_version.py
 	python3 scripts/config_tool.py validate config/defaults.json
-	python3 -m py_compile scripts/config_tool.py scripts/dependency_audit.py scripts/hardware_test.py scripts/performance_test.py scripts/support_bundle.py scripts/validate.py scripts/validate_version.py
+	python3 -m py_compile scripts/config_tool.py scripts/dependency_audit.py scripts/hardware_test.py scripts/performance_check.py scripts/performance_test.py scripts/process_snapshot.py scripts/support_bundle.py scripts/validate.py scripts/validate_version.py
 	bash -n cli/omanome input/clipboard-capture.sh input/system-state.sh input/wifi-scan.sh input/bluetooth-scan.sh input/rotation-monitor.sh input/sensor-info.sh input/companion-info.sh input/effects-info.sh input/force-quit.sh input/audio-devices.sh
 
 test:
@@ -44,6 +44,9 @@ dependency-audit:
 
 performance-test:
 	python3 scripts/performance_test.py --json
+
+performance-check:
+	python3 scripts/performance_check.py --json
 
 version-check:
 	python3 scripts/validate_version.py 0.7.0

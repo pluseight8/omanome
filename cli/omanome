@@ -28,6 +28,8 @@ companion_lifecycle_file="$companion_state_dir/lifecycle.json"
 companion_lifecycle_log="$companion_state_dir/lifecycle.log"
 companion_backup_dir="$companion_state_dir/artifacts"
 config_tool="$repo_dir/scripts/config_tool.py"
+process_snapshot="$repo_dir/scripts/process_snapshot.py"
+performance_check="$repo_dir/scripts/performance_check.py"
 transaction_dir="$omanome_state_dir/transactions"
 transaction_file="$transaction_dir/current.json"
 transaction_history_dir="$transaction_dir/history"
@@ -83,7 +85,10 @@ Commands:
   capabilities           Print merged capability probes as stable JSON
   hardware-test          Run non-destructive hardware probes (fixture supported)
   diagnostics bundle     Create a redacted support bundle
-  benchmark              Print lightweight runtime/render diagnostics
+  processes [--json]     Print only explicitly Omanome-owned processes
+  benchmark [--watch]    Print runtime CPU/RAM/process diagnostics
+  profiler               Watch the same owner-only performance snapshot
+  performance reset      Reset local performance counters/state
   devices                Print Hyprland's device inventory
 EOF
 }
@@ -1431,19 +1436,58 @@ diagnostics_cmd() {
 }
 
 benchmark_cmd() {
+  local watch=0 json=0
+  for argument in "$@"; do
+    [[ "$argument" == "--watch" ]] && watch=1
+    [[ "$argument" == "--json" ]] && json=1
+  done
+  if [[ "$watch" -eq 1 ]]; then
+    local watch_args=("--watch" "--interval" "1" "--sample-ms" "100")
+    [[ "$json" -eq 1 ]] && watch_args+=("--json")
+    exec python3 "$process_snapshot" "${watch_args[@]}"
+  fi
   local layers="unavailable"
   local clients="unavailable"
   if has hyprctl; then
     layers="$(hyprctl layers 2>/dev/null | awk '/namespace:/ { count++ } END { print count + 0 }')"
     clients="$(hyprctl clients -j 2>/dev/null | jq 'length' 2>/dev/null || printf 'unavailable')"
   fi
+  local ownership='{}'
+  ownership="$(python3 "$process_snapshot" --json --sample-ms 100 2>/dev/null || printf '{}')"
+  jq -e . >/dev/null 2>&1 <<<"$ownership" || ownership='{}'
   jq -n \
     --arg version "$(manifest_value version)" \
     --arg quickshell "$(quickshell --version 2>/dev/null | head -n 1 || printf 'unavailable')" \
     --arg hyprland "$(hyprctl version 2>/dev/null | head -n 1 || printf 'unavailable')" \
     --arg layers "$layers" \
     --arg clients "$clients" \
-    '{version:$version,quickshell:$quickshell,hyprland:$hyprland,layerCount:($layers|tonumber? // null),clientCount:($clients|tonumber? // null),method:"snapshot only; no per-frame polling"}'
+    --argjson ownership "$ownership" \
+    '{schemaVersion:1,version:$version,quickshell:$quickshell,hyprland:$hyprland,layerCount:($layers|tonumber? // null),clientCount:($clients|tonumber? // null),ownerOnly:$ownership,method:"snapshot only; no per-frame polling; foreign processes excluded by explicit ownership marker"}'
+}
+
+processes_cmd() {
+  local json=0
+  for argument in "$@"; do [[ "$argument" == "--json" ]] && json=1; done
+  if [[ "$json" -eq 1 ]]; then
+    python3 "$process_snapshot" --json --sample-ms 100
+  else
+    python3 "$process_snapshot" --sample-ms 100
+  fi
+}
+
+profiler_cmd() {
+  python3 "$process_snapshot" --watch --interval 1 --sample-ms 100 "${@:-}"
+}
+
+performance_cmd() {
+  local operation="${1:-snapshot}"
+  shift || true
+  case "$operation" in
+    reset) python3 "$process_snapshot" --reset --json "$@" ;;
+    check) python3 "$performance_check" --json "$@" ;;
+    snapshot|benchmark) benchmark_cmd "$@" ;;
+    *) usage >&2; die "unknown performance operation: $operation" ;;
+  esac
 }
 
 version_cmd() { manifest_value version; }
@@ -1476,7 +1520,10 @@ case "$command_name" in
   capabilities) capabilities_cmd "$@" ;;
   hardware-test) hardware_test_cmd "$@" ;;
   diagnostics) diagnostics_cmd "$@" ;;
+  processes) processes_cmd "$@" ;;
   benchmark) benchmark_cmd "$@" ;;
+  profiler) profiler_cmd "$@" ;;
+  performance) performance_cmd "$@" ;;
   companion)
     companion_command="${1:-status}"
     shift || true

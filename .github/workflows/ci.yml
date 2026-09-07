@@ -29,6 +29,7 @@ jobs:
           make hardware-test
           make dependency-audit
           make performance-test
+          make performance-check
           make version-check
 
       - name: Verify safety invariants
@@ -68,3 +69,16 @@ jobs:
           else
             echo 'Hyprland development headers are not installed on this runner; build remains an explicit local/manual gate.'
           fi
+
+  performance-safety:
+    name: Performance safety
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Run static performance gate and owner-only process fixture
+        run: |
+          make performance-check
+          python3 -m unittest tests.test_performance_safety -v
+          python3 scripts/process_snapshot.py --json --sample-ms 0
