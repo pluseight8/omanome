@@ -160,8 +160,12 @@ Item {
       delegate: Item {
         id: windowCard
         required property var modelData
+        required property int index
         width: grid.cellWidth - Style.space(12)
         height: grid.cellHeight - Style.space(12)
+        property var captureSource: root.foreign(modelData)
+        property string previewKey: "overview:" + String(modelData && (modelData.address || modelData.title) || index)
+        property bool previewWanted: root.service && root.service.previewBudgetAllows("overview", index) && captureSource && typeof captureSource.activate === "function"
         Drag.active: cardDrag.active
         Drag.source: windowCard
         Drag.keys: ["omanome-window"]
@@ -178,6 +182,40 @@ Item {
             spacing: Style.space(7)
             Text { text: root.appId(modelData); color: Color.accent; font.pixelSize: Style.font.caption; elide: Text.ElideRight; width: parent.width }
             Text { text: root.title(modelData); color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true; elide: Text.ElideRight; width: parent.width }
+
+            Item {
+              width: parent.width
+              height: Style.space(48)
+
+              Rectangle {
+                anchors.fill: parent
+                radius: Style.space(8)
+                color: Util.alpha(Color.foreground, 0.05)
+              }
+
+              ScreencopyView {
+                id: previewView
+                anchors.fill: parent
+                captureSource: windowCard.previewWanted ? windowCard.captureSource : null
+                live: windowCard.previewWanted
+                paintCursor: false
+                constraintSize: Qt.size(width, height)
+                visible: hasContent
+                onHasContentChanged: if (root.service) root.service.reportLivePreview(windowCard.previewKey, hasContent)
+                onStopped: if (root.service) root.service.reportLivePreview(windowCard.previewKey, false)
+              }
+
+              Text {
+                anchors.centerIn: parent
+                visible: !previewView.hasContent
+                text: windowCard.previewWanted ? "Waiting for live stream…" : "Live preview"
+                color: Color.muted
+                font.pixelSize: Style.font.caption
+              }
+
+              Component.onDestruction: if (root.service) root.service.reportLivePreview(windowCard.previewKey, false)
+            }
+
             Text { text: "Hyprland foreign-toplevel · workspace " + root.workspaceId(modelData); color: Color.muted; font.pixelSize: Style.font.caption }
             Row {
               spacing: Style.space(5)

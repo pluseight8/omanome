@@ -54,7 +54,12 @@ Item {
   // one-shot wtype is installed.
   property bool inputBackendAvailable: false
   property var companionState: CompanionModel.normalize({})
-  property var effectBackend: ({ hyprlandAvailable: false, backend: "hyprland-layer-rule", layerRulesAvailable: false, livePreviewAvailable: false, livePreviewReason: "not probed", external: { desktopCube: false, desktopCubeBackend: "none" } })
+  property var effectBackend: ({ hyprlandAvailable: false, backend: "hyprland-layer-rule", layerRulesAvailable: false, livePreviewAvailable: false, livePreviewBackend: "quickshell-screencopy", livePreviewProtocol: "hyprland-toplevel-export-v1", livePreviewReason: "not probed", external: { desktopCube: false, desktopCubeBackend: "none" } })
+  // ScreencopyView reports compositor-owned frames asynchronously. Keeping a
+  // keyed registry lets the shell expose a truthful capability without a
+  // timer, screenshot file, or per-frame IPC poll.
+  property var livePreviewReports: ({})
+  property var livePreviewState: ({ available: false, backend: "quickshell-screencopy", protocol: "hyprland-toplevel-export-v1", activeStreams: 0, reason: "waiting for compositor-owned ScreencopyView content" })
   property var effectCapabilities: EffectsModel.capabilityState({}, {})
   property var performanceState: PerformanceModel.snapshot({}, {})
   property var forceQuitState: ({ active: false, phase: "idle", target: null, message: "" })
@@ -117,6 +122,55 @@ Item {
 
   function refreshEffectBackend() {
     if (!effectsInfoProcess.running) effectsInfoProcess.running = true
+  }
+
+  function previewRequested() {
+    if (root.cfg("altTab.livePreview", "auto") === "never" || root.safeMode === true) return false
+    if (root.systemState.batteryState === "discharging" && root.cfg("performance.disableOnBattery", true) === true) return false
+    return true
+  }
+
+  function previewBudgetAllows(surface, ordinal) {
+    if (!root.previewRequested()) return false
+    var context = root.performanceContext()
+    if (context.fullscreen && context.disableOnFullscreen) return false
+    var limit = Math.max(1, Math.min(5, Math.floor(Number(root.cfg("altTab.previewStreams", 3)))))
+    if (context.batterySaver) limit = 1
+    if (String(surface || "") === "dock") limit = Math.min(limit, 2)
+    if (String(surface || "") === "overview") limit = Math.min(limit, 3)
+    return Number(ordinal) >= 0 && Number(ordinal) < limit
+  }
+
+  function reportLivePreview(key, available) {
+    var id = String(key || "")
+    if (!id) return
+    var reports = {}
+    for (var existing in root.livePreviewReports) reports[existing] = root.livePreviewReports[existing]
+    var value = available === true
+    if (reports[id] === value) return
+    reports[id] = value
+    var active = 0
+    var any = false
+    for (var report in reports) {
+      if (reports[report] === true) { active++; any = true }
+    }
+    root.livePreviewReports = reports
+    root.livePreviewState = {
+      available: any,
+      backend: "quickshell-screencopy",
+      protocol: "hyprland-toplevel-export-v1",
+      activeStreams: active,
+      reason: any ? "compositor-owned live stream" : "waiting for compositor-owned ScreencopyView content"
+    }
+    var backend = {}
+    for (var field in root.effectBackend) backend[field] = root.effectBackend[field]
+    backend.livePreviewAvailable = any
+    backend.livePreviewBackend = root.livePreviewState.backend
+    backend.livePreviewProtocol = root.livePreviewState.protocol
+    backend.livePreviewReason = root.livePreviewState.reason
+    root.effectBackend = backend
+    root.stateRevision++
+    root.stateUpdated()
   }
 
   function activeClient() {
@@ -310,7 +364,13 @@ Item {
       root.lastError = "Effect backend probe returned invalid state"
       return
     }
-    root.effectBackend = parsed
+    var backend = {}
+    for (var field in parsed) backend[field] = parsed[field]
+    backend.livePreviewAvailable = root.livePreviewState.available === true
+    backend.livePreviewBackend = root.livePreviewState.backend
+    backend.livePreviewProtocol = root.livePreviewState.protocol
+    backend.livePreviewReason = root.livePreviewState.reason
+    root.effectBackend = backend
     root.companionState = CompanionModel.normalize(parsed.companion || {})
     root.effectCapabilities = EffectsModel.capabilityState(root.companionState.capabilities, parsed.external || {})
     if (parsed.hyprlandAvailable === true) root.hyprlandAvailable = true
@@ -828,7 +888,7 @@ Item {
 
   function statusObject() {
     return {
-      version: root.manifest ? String(root.manifest.version || "0.4.0") : "0.4.0",
+      version: root.manifest ? String(root.manifest.version || "0.5.0") : "0.5.0",
       quickshell: String(Quickshell.env("QUICKSHELL_VERSION") || "host-provided"),
       service: "ready",
       safeMode: root.safeMode,
@@ -864,21 +924,24 @@ Item {
       clipboardEntries: root.clipboardHistory.length,
       effects: {
         blur: root.effectBackend.layerRulesAvailable === true,
-        livePreview: root.effectBackend.livePreviewAvailable === true,
+        livePreview: root.livePreviewState.available === true,
         wobblyWindows: root.effectCapabilities.wobblyWindows === true,
         desktopCube: root.effectCapabilities.desktopCube === true,
         desktopCubeBackend: String(root.effectCapabilities.desktopCubeBackend || "none"),
         companion: root.companionState,
         backend: root.effectBackend.backend || "none",
-        reason: root.effectBackend.livePreviewReason || root.companionState.reason || "Effect backend unavailable"
+        reason: root.livePreviewState.reason || root.companionState.reason || "Effect backend unavailable"
       },
       wobbly: root.wobblyState(),
       cube: root.cubeState(),
       forceQuit: root.forceQuitState,
       performance: root.performanceState,
       preview: {
-        available: root.effectBackend.livePreviewAvailable === true,
-        reason: root.effectBackend.livePreviewReason || "No compositor texture provider"
+        available: root.livePreviewState.available === true,
+        backend: root.livePreviewState.backend,
+        protocol: root.livePreviewState.protocol,
+        activeStreams: root.livePreviewState.activeStreams,
+        reason: root.livePreviewState.reason
       }
     }
   }

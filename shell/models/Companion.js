@@ -27,7 +27,7 @@ function normalize(snapshot) {
   var abiMatch = boolValue(source.abiMatch) || Boolean(runtimeAbi && buildAbi && runtimeAbi === buildAbi)
   var pluginVersion = stringValue(source.pluginVersion, compatibility.pluginVersion)
   var versionMatch = boolValue(source.versionMatch) || !compatibility.pluginVersion || Boolean(pluginVersion && pluginVersion === stringValue(compatibility.pluginVersion))
-  var compatible = !safeMode && !crashMarker && installed && loaded && protocolVersion === 1 && abiMatch && versionMatch
+  var compatible = !safeMode && !crashMarker && installed && loaded && protocolVersion === 2 && abiMatch && versionMatch
   return {
     installed: installed,
     built: boolValue(source.built),
@@ -53,7 +53,7 @@ function normalize(snapshot) {
 
 function canLoad(snapshot) {
   var state = normalize(snapshot)
-  return state.installed && state.built && !state.safeMode && !state.crashMarker && state.protocolVersion === 1 && state.abiMatch && state.versionMatch
+  return state.installed && state.built && !state.safeMode && !state.crashMarker && state.protocolVersion === 2 && state.abiMatch && state.versionMatch
 }
 
 function effectAvailable(snapshot, name) {

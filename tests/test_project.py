@@ -34,7 +34,7 @@ class OmanomeProjectTests(unittest.TestCase):
 
     def test_manifest_preserves_the_standard_bar(self) -> None:
         manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "0.4.0")
+        self.assertEqual(manifest["version"], "0.5.0")
         self.assertNotIn("bar", manifest["kinds"])
         self.assertEqual(set(manifest["entryPoints"]), {"service", "barWidget", "panel"})
         for entry in manifest["entryPoints"].values():
@@ -237,8 +237,9 @@ class OmanomeProjectTests(unittest.TestCase):
         source = (companion / "omanome-hypr.cpp").read_text(encoding="utf-8")
         metadata = json.loads((companion / "compatibility.json").read_text(encoding="utf-8"))
         cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")
-        self.assertEqual(metadata["protocolVersion"], 1)
-        self.assertEqual(metadata["pluginVersion"], "0.4.0")
+        self.assertEqual(metadata["protocolVersion"], 2)
+        self.assertEqual(metadata["pluginVersion"], "0.5.0")
+        self.assertEqual(metadata["statusIpc"], "hyprctl -j omanome-effects")
         self.assertIn("__hyprland_api_get_hash", source)
         self.assertIn("__hyprland_api_get_client_hash", source)
         self.assertIn("HyprlandAPI::getHyprlandVersion", source)
@@ -251,8 +252,8 @@ class OmanomeProjectTests(unittest.TestCase):
 
         result = self.run_node(
             "const C=require('./shell/models/Companion.js'); "
-            "const good={installed:true,built:true,loaded:true,protocolVersion:1,pluginVersion:'0.4.0'," \
-            "runtime:{abi:'same'},build:{abi:'same'},compatibility:{pluginVersion:'0.4.0'}," \
+            "const good={installed:true,built:true,loaded:true,protocolVersion:2,pluginVersion:'0.5.0'," \
+            "runtime:{abi:'same'},build:{abi:'same'},compatibility:{pluginVersion:'0.5.0'}," \
             "capabilities:{desktopCube:true}}; " \
             "const bad={...good,runtime:{abi:'new'},build:{abi:'old'}}; " \
             "const crashed={...good,crashMarker:true}; "
@@ -301,7 +302,8 @@ class OmanomeProjectTests(unittest.TestCase):
         switcher = (ROOT / "shell/views/Switcher.qml").read_text(encoding="utf-8")
         self.assertIn("keyword layerrule", service)
         self.assertIn("surfaceBlur", service)
-        self.assertIn("previewTexture", switcher)
+        self.assertIn("ScreencopyView", switcher)
+        self.assertIn("hyprland-toplevel-export-v1", switcher)
 
     def test_effects_info_and_alt_tab_are_capability_gated(self) -> None:
         effects_info = ROOT / "input/effects-info.sh"
@@ -320,7 +322,7 @@ class OmanomeProjectTests(unittest.TestCase):
             "{appId:'two',title:'Two',workspace:{id:1},monitor:{name:'HDMI-A-1'}}]; "
             "const rows=A.selectable(windows,{style:'coverflow',groupByApp:true,scope:'current-workspace'},"
             "{workspaceId:2,monitorName:'HDMI-A-1'}); "
-            "console.log(JSON.stringify({count:rows.length,groupSize:rows[0].count,preview:A.previewState({livePreview:'auto'},windows),"
+            "console.log(JSON.stringify({count:rows.length,groupSize:rows[0].count,preview:A.previewState({livePreview:'auto'},windows,{available:false,reason:'probe'}),"
             "visual:A.visual(1,0,3,{style:'coverflow',angle:28}),next:A.moveIndex(2,1,3)}));"
         )
         self.assertEqual(result["count"], 1)

@@ -1,8 +1,15 @@
 {
-  "protocolVersion": 1,
-  "pluginVersion": "0.4.0",
+  "protocolVersion": 2,
+  "pluginVersion": "0.5.0",
   "pluginName": "omanome-hypr",
   "requiredApiCheck": "exact-hyprland-api-hash",
+  "statusIpc": "hyprctl -j omanome-effects",
+  "rendererBoundary": "hyprland-public-IWindowTransformer",
+  "lifecycle": {
+    "coreIndependent": true,
+    "failClosed": true,
+    "userOwnedArtifact": true
+  },
   "capabilities": {
     "blur": false,
     "livePreview": false,

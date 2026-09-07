@@ -243,6 +243,9 @@ Item {
                 required property int index
                 property string dockId: modelData.id
                 property bool isFavorite: root.service.isFavoriteApp(dockId)
+                property var captureSource: modelData.window
+                property string previewKey: "dock:" + dockId
+                property bool previewWanted: root.service && root.service.previewBudgetAllows("dock", index) && captureSource && typeof captureSource.activate === "function"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.minimumWidth: root.position === "left" || root.position === "right" ? Style.space(60) : Style.space(root.dockConfig.minIconSize)
@@ -261,8 +264,22 @@ Item {
                   border.width: tile.modelData.multiple ? 2 : 0
                   border.color: Color.accent
 
+                  ScreencopyView {
+                    id: previewView
+                    anchors.fill: parent
+                    captureSource: tile.previewWanted ? tile.captureSource : null
+                    live: tile.previewWanted
+                    paintCursor: false
+                    constraintSize: Qt.size(width, height)
+                    visible: hasContent
+                    opacity: 0.82
+                    onHasContentChanged: if (root.service) root.service.reportLivePreview(tile.previewKey, hasContent)
+                    onStopped: if (root.service) root.service.reportLivePreview(tile.previewKey, false)
+                  }
+
                   Image {
                     anchors.centerIn: parent
+                    visible: !previewView.hasContent
                     width: Style.space(root.dockConfig.iconSize - 10)
                     height: width
                     source: root.service.iconPath(tile.modelData.app ? tile.modelData.app.icon : "application-x-executable")
@@ -278,6 +295,8 @@ Item {
                     color: Color.accent
                     font.pixelSize: Style.font.caption
                   }
+
+                  Component.onDestruction: if (root.service) root.service.reportLivePreview(tile.previewKey, false)
                 }
 
                 ActionButton {

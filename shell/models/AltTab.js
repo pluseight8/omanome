@@ -45,6 +45,15 @@ function previewTexture(window) {
   return { available: false, property: "", value: null }
 }
 
+// Quickshell's HyprlandToplevel exposes the compositor-owned Wayland
+// Toplevel object as `wayland`. ScreencopyView consumes that QObject directly;
+// no screenshot path or image URL is accepted here.
+function captureSource(window) {
+  var item = foreign(window)
+  if (!item || typeof item !== "object") return null
+  return typeof item.activate === "function" ? item : null
+}
+
 function hasLivePreview(windows) {
   var list = Array.isArray(windows) ? windows : []
   for (var i = 0; i < list.length; i++) if (previewTexture(list[i]).available) return true
@@ -67,6 +76,7 @@ function normalize(config) {
     selectedScale: Math.max(1.0, Math.min(1.2, Number(source.selectedScale || 1.0))),
     sideOpacity: Math.max(0.1, Math.min(1.0, Number(source.sideOpacity || 0.68))),
     livePreview: String(source.livePreview || "auto"),
+    previewStreams: Math.max(1, Math.min(5, Math.floor(Number(source.previewStreams || 3)))),
     touchSwipe: source.touchSwipe !== false,
     touchFling: source.touchFling !== false,
     stylusPreciseSelection: source.stylusPreciseSelection !== false
@@ -119,11 +129,12 @@ function visual(index, selectedIndex, count, config) {
   return { distance: distance, rotation: rotation, scale: scale, opacity: side ? 1.0 : options.sideOpacity, z: 100 - Math.abs(distance), selected: side }
 }
 
-function previewState(config, windows) {
+function previewState(config, windows, runtime) {
   var options = normalize(config)
-  var available = hasLivePreview(windows)
+  var state = object(runtime)
+  var available = state.available === true
   var requested = options.livePreview !== "never"
-  return { requested: requested, available: available, enabled: requested && available, reason: available ? "native texture property" : "Quickshell Toplevel has no texture provider" }
+  return { requested: requested, available: available, enabled: requested && available, reason: available ? String(state.backend || "hyprland-toplevel-export-v1") : String(state.reason || "waiting for compositor-owned ScreencopyView content") }
 }
 
 function moveIndex(index, delta, count) {
@@ -131,5 +142,5 @@ function moveIndex(index, delta, count) {
   return (Number(index) + Number(delta) + count) % count
 }
 
-var api = { foreign: foreign, appId: appId, title: title, workspaceId: workspaceId, monitorName: monitorName, windowKey: windowKey, previewTexture: previewTexture, hasLivePreview: hasLivePreview, normalize: normalize, selectable: selectable, windowOf: windowOf, visual: visual, previewState: previewState, moveIndex: moveIndex }
+var api = { foreign: foreign, appId: appId, title: title, workspaceId: workspaceId, monitorName: monitorName, windowKey: windowKey, previewTexture: previewTexture, captureSource: captureSource, hasLivePreview: hasLivePreview, normalize: normalize, selectable: selectable, windowOf: windowOf, visual: visual, previewState: previewState, moveIndex: moveIndex }
 if (typeof module !== "undefined") module.exports = api

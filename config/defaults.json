@@ -231,6 +231,7 @@
     "showTitle": true,
     "showMetadata": true,
     "livePreview": "auto",
+    "previewStreams": 3,
     "touchSwipe": true,
     "touchFling": true,
     "stylusPreciseSelection": true,

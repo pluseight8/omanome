@@ -26,8 +26,11 @@ if command -v hyprctl >/dev/null 2>&1; then
 fi
 
 loaded=0
+plugin_status='{}'
 if command -v hyprctl >/dev/null 2>&1 && hyprctl plugins list 2>/dev/null | grep -Fq 'omanome-hypr'; then
   loaded=1
+  plugin_status="$(hyprctl -j omanome-effects 2>/dev/null || true)"
+  if ! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$plugin_status"; then plugin_status='{}'; fi
 fi
 
 built=0
@@ -58,7 +61,7 @@ fi
 reason="companion unavailable"
 if [[ "$crash_marker" == true ]]; then reason="previous load did not complete; explicit disable or rebuild is required"
 elif [[ "$safe_mode" == true ]]; then reason="Omanome safe mode is active"
-elif [[ "$loaded" -eq 1 && "$abi_match" -eq 1 ]]; then reason="compatible and loaded"
+elif [[ "$loaded" -eq 1 && "$abi_match" -eq 1 && "$(jq -r '.protocolVersion // 0' <<<"$plugin_status")" == "$protocol" ]]; then reason="compatible and loaded"
 elif [[ "$loaded" -eq 1 ]]; then reason="loaded state could not be matched to the current ABI"
 elif [[ "$built" -eq 1 ]]; then reason="installed but not loaded"
 elif ! command -v hyprctl >/dev/null 2>&1; then reason="Hyprland IPC unavailable"
@@ -73,8 +76,9 @@ jq -n \
   --argjson crashMarker "$crash_marker" \
   --argjson safeMode "$safe_mode" \
   --argjson protocolVersion "$protocol" \
+  --argjson pluginStatus "$plugin_status" \
   --argjson installed "$(json_bool "$installed")" \
   --argjson built "$(json_bool "$built")" \
   --argjson loaded "$(json_bool "$loaded")" \
   --argjson abiMatch "$(json_bool "$abi_match")" \
-  '{protocolVersion:$protocolVersion,pluginVersion:$pluginVersion,installed:$installed,built:$built,loaded:$loaded,abiMatch:$abiMatch,crashMarker:$crashMarker,safeMode:$safeMode,reason:$reason,runtime:{version:$runtimeVersion,abi:$runtimeAbi},build:{abi:$buildAbi},capabilities:{blur:false,livePreview:false,wobblyWindows:false,desktopCube:false}}'
+  '{protocolVersion:$protocolVersion,pluginVersion:$pluginVersion,installed:$installed,built:$built,loaded:$loaded,abiMatch:$abiMatch,crashMarker:$crashMarker,safeMode:$safeMode,reason:$reason,runtime:{version:$runtimeVersion,abi:$runtimeAbi},build:{abi:$buildAbi},status:$pluginStatus,capabilities:($pluginStatus.capabilities // {blur:false,livePreview:false,wobblyWindows:false,desktopCube:false})}'

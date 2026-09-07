@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Probe only compositor contracts.  This script never infers a blur or preview
-# from a translucent QML rectangle: blur is available only when Hyprland's
-# layer-rule IPC is reachable, and live preview stays false unless a real
-# texture provider is supplied by the active Quickshell/companion API.
+# Probe only compositor contracts. This script never infers an effect from a
+# translucent QML rectangle or a screenshot file. Live preview is implemented
+# by Quickshell ScreencopyView and is reported as usable only after the running
+# shell observes compositor-owned content from hyprland-toplevel-export-v1.
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_dir="$(cd -- "$script_dir/.." && pwd -P)"
 
@@ -42,4 +42,4 @@ jq -cn \
   --argjson omanomeLoaded "$omanome_loaded" \
   --argjson desktopCubeLoaded "$desktop_cube_loaded" \
   --argjson companion "$companion" \
-  '{hyprlandAvailable:$hyprlandAvailable,runtime:{version:$runtimeVersion,abi:$runtimeAbi},backend:"hyprland-layer-rule",layerRulesAvailable:$layerRulesAvailable,livePreviewAvailable:false,livePreviewReason:"Quickshell Toplevel has no native texture provider",plugins:{omanomeHyprLoaded:$omanomeLoaded,desktopCubeLoaded:$desktopCubeLoaded},external:{desktopCube:$desktopCubeLoaded,desktopCubeBackend:(if $desktopCubeLoaded then "omarchy-desktop-cube" else "none" end)},companion:$companion}'
+  '{hyprlandAvailable:$hyprlandAvailable,runtime:{version:$runtimeVersion,abi:$runtimeAbi},backend:"hyprland-layer-rule",layerRulesAvailable:$layerRulesAvailable,livePreviewAvailable:false,livePreviewBackend:"quickshell-screencopy",livePreviewProtocol:"hyprland-toplevel-export-v1",livePreviewReason:"waiting for Quickshell ScreencopyView hasContent runtime probe",plugins:{omanomeHyprLoaded:$omanomeLoaded,desktopCubeLoaded:$desktopCubeLoaded},external:{desktopCube:$desktopCubeLoaded,desktopCubeBackend:(if $desktopCubeLoaded then "omarchy-desktop-cube" else "none" end)},companion:$companion}'
