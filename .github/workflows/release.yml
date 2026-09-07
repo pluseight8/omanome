@@ -47,14 +47,20 @@ jobs:
 
   release:
     name: Validate and publish release
+    needs: [promote-0-7]
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_run' && needs.promote-0-7.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Check out tagged source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && 'v0.7.0' || github.ref }}
 
       - name: Validate release metadata
         env:
-          TAG_VERSION: ${{ github.ref_name }}
+          TAG_VERSION: ${{ github.event_name == 'workflow_run' && 'v0.7.0' || github.ref_name }}
         run: |
           VERSION="${TAG_VERSION#v}"
           python3 scripts/validate_version.py "$VERSION"
@@ -68,7 +74,7 @@ jobs:
 
       - name: Build source archive and checksums
         env:
-          TAG_VERSION: ${{ github.ref_name }}
+          TAG_VERSION: ${{ github.event_name == 'workflow_run' && 'v0.7.0' || github.ref_name }}
         run: |
           VERSION="${TAG_VERSION#v}"
           mkdir -p dist
@@ -78,7 +84,7 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_VERSION: ${{ github.ref_name }}
+          TAG_VERSION: ${{ github.event_name == 'workflow_run' && 'v0.7.0' || github.ref_name }}
         run: |
           VERSION="${TAG_VERSION#v}"
           gh release create "$TAG_VERSION" \
