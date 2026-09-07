@@ -63,8 +63,14 @@ Item {
   property var effectCapabilities: EffectsModel.capabilityState({}, {})
   property var performanceState: PerformanceModel.snapshot({}, {})
   property bool wobblyBackendRequestInFlight: false
-  property bool wobblyBackendSynced: false
+  property bool wobblyBackendSynced: true
+  property bool wobblyBackendDesired: false
+  property bool wobblyBackendFailed: false
   property var wobblyBackendResponse: null
+  property bool wobblyConfigRequestInFlight: false
+  property bool wobblyConfigSynced: false
+  property bool wobblyConfigFailed: false
+  property var wobblyConfigResponse: null
   property var forceQuitState: ({ active: false, phase: "idle", target: null, message: "" })
   property string blurRuleSignature: ""
   property string lastInput: "keyboard"
@@ -128,7 +134,7 @@ Item {
   }
 
   function previewRequested() {
-    if (root.cfg("altTab.livePreview", "auto") === "never" || root.safeMode === true) return false
+    if (root.cfg("effects.enabled", true) === false || root.cfg("altTab.livePreview", "auto") === "never" || root.safeMode === true) return false
     if (root.systemState.batteryState === "discharging" && root.cfg("performance.disableOnBattery", true) === true) return false
     return true
   }
@@ -199,7 +205,7 @@ Item {
       highGpuThreshold: Number(performance.highGpuThreshold || 0.85),
       reducedMotion: root.cfg("general.reduceMotion", false) === true || root.cfg("animations.reducedMotion", false) === true,
       reduceBlurWithMotion: root.cfg("blur.reduceBlurWithMotion", true) !== false,
-      backendAvailable: root.effectBackend.layerRulesAvailable === true && root.safeMode !== true
+      backendAvailable: root.effectBackend.layerRulesAvailable === true && root.safeMode !== true && root.cfg("effects.enabled", true) !== false
     }
   }
 
@@ -228,16 +234,41 @@ Item {
   }
 
   function cubeState() {
-    return CubeModel.state(root.cfg("cube", {}), root.effectCapabilities)
+    var state = CubeModel.state(root.cfg("cube", {}), root.effectCapabilities)
+    if (root.cfg("effects.enabled", true) === false) {
+      state.available = false
+      state.enabled = false
+      state.reason = "advanced compositor effects are disabled"
+    }
+    return state
   }
 
   function wobblyState() {
-    return WobblyModel.state(root.cfg("wobbly", {}), root.effectCapabilities, root.activeClient())
+    var state = WobblyModel.state(root.cfg("wobbly", {}), root.effectCapabilities, root.activeClient())
+    if (state.configured && !root.wobblyPolicyAllows()) {
+      state.enabled = false
+      state.reason = root.cfg("effects.enabled", true) === false ? "advanced compositor effects are disabled" : (root.systemState.batteryState === "discharging" ? "disabled by battery policy" : "disabled for fullscreen")
+    }
+    return state
+  }
+
+  function wobblyPolicyAllows() {
+    if (root.safeMode || root.cfg("effects.enabled", true) === false) return false
+    var effects = root.cfg("effects", {})
+    if (root.systemState.batteryState === "discharging" && effects.disableOnBattery !== false) return false
+    if (root.fullscreenActive() && effects.disableOnFullscreen !== false) return false
+    return true
+  }
+
+  function wobblyDesired() {
+    return root.cfg("wobbly.enabled", false) === true && root.wobblyPolicyAllows()
   }
 
   function requestWobblyBackend(enabled) {
     var wanted = Boolean(enabled)
+    root.wobblyBackendDesired = wanted
     root.wobblyBackendSynced = false
+    root.wobblyBackendFailed = false
     if (!root.hyprlandAvailable || root.companionState.loaded !== true || root.effectCapabilities.wobblyWindows !== true) {
       if (wanted) root.lastError = "Wobbly needs a compatible loaded omanome-hypr renderer"
       return false
@@ -250,6 +281,14 @@ Item {
     return true
   }
 
+  function reconcileWobblyBackend() {
+    if (!root.hyprlandAvailable || root.companionState.loaded !== true || root.effectCapabilities.wobblyWindows !== true) return false
+    var wanted = root.wobblyDesired()
+    if (root.wobblyBackendSynced && root.wobblyBackendDesired === wanted) return true
+    if (root.wobblyBackendFailed && root.wobblyBackendDesired === wanted) return false
+    return root.requestWobblyBackend(wanted)
+  }
+
   function updateWobblyBackendResponse(raw) {
     root.wobblyBackendResponse = root.parseJson(raw, null)
   }
@@ -259,10 +298,63 @@ Item {
     if (exitCode !== 0 || !response || response.error) {
       root.lastError = response && response.error ? String(response.error) : "Wobbly compositor command failed"
       root.wobblyBackendSynced = false
+      root.wobblyBackendFailed = true
     } else {
       root.wobblyBackendSynced = true
+      root.wobblyBackendFailed = false
     }
     root.wobblyBackendRequestInFlight = false
+    root.refreshEffectBackend()
+    root.stateRevision++
+    root.stateUpdated()
+  }
+
+  function wobblyConfigArguments() {
+    function bounded(value, minimum, maximum, fallback) {
+      var number = Number(value)
+      if (!isFinite(number)) number = fallback
+      return Math.max(minimum, Math.min(maximum, number))
+    }
+    var grid = Math.round(bounded(root.cfg("wobbly.gridResolution", 8), 2, 32, 8))
+    var maxVertices = Math.round(bounded(root.cfg("wobbly.maxVertices", 1024), 4, 4096, 1024))
+    return [
+      "grid=" + grid,
+      "maxVertices=" + maxVertices,
+      "stiffness=" + bounded(root.cfg("wobbly.stiffness", 0.72), 0.01, 32, 0.72).toFixed(4),
+      "friction=" + bounded(root.cfg("wobbly.friction", 0.78), 0, 32, 0.78).toFixed(4),
+      "damping=" + bounded(root.cfg("wobbly.damping", 0.62), 0, 32, 0.62).toFixed(4),
+      "mass=" + bounded(root.cfg("wobbly.mass", 1.0), 0.05, 32, 1.0).toFixed(4),
+      "maxDeformation=" + bounded(root.cfg("wobbly.maxDeformation", 0.035), 0, 0.25, 0.035).toFixed(4),
+      "velocityInfluence=" + bounded(root.cfg("wobbly.velocityInfluence", 0.45), 0, 4, 0.45).toFixed(4)
+    ]
+  }
+
+  function requestWobblyConfig() {
+    if (!root.hyprlandAvailable || root.companionState.loaded !== true || root.effectCapabilities.wobblyWindows !== true) return false
+    if (wobblyConfigProcess.running) wobblyConfigProcess.running = false
+    root.wobblyConfigResponse = null
+    root.wobblyConfigRequestInFlight = true
+    root.wobblyConfigFailed = false
+    wobblyConfigProcess.command = ["hyprctl", "-j", "omanome-effects", "wobbly", "config"].concat(root.wobblyConfigArguments())
+    wobblyConfigProcess.running = true
+    return true
+  }
+
+  function updateWobblyConfigResponse(raw) {
+    root.wobblyConfigResponse = root.parseJson(raw, null)
+  }
+
+  function finishWobblyConfig(exitCode) {
+    var response = root.wobblyConfigResponse
+    if (exitCode !== 0 || !response || response.error) {
+      root.lastError = response && response.error ? String(response.error) : "Wobbly compositor configuration failed"
+      root.wobblyConfigSynced = false
+      root.wobblyConfigFailed = true
+    } else {
+      root.wobblyConfigSynced = true
+      root.wobblyConfigFailed = false
+    }
+    root.wobblyConfigRequestInFlight = false
     root.refreshEffectBackend()
     root.stateRevision++
     root.stateUpdated()
@@ -410,8 +502,9 @@ Item {
     root.companionState = CompanionModel.normalize(parsed.companion || {})
     root.effectCapabilities = EffectsModel.capabilityState(root.companionState.capabilities, parsed.external || {})
     if (parsed.hyprlandAvailable === true) root.hyprlandAvailable = true
-    if (root.cfg("wobbly.enabled", false) === true && root.effectCapabilities.wobblyWindows === true && !root.wobblyBackendSynced && !root.wobblyBackendRequestInFlight)
-      root.requestWobblyBackend(true)
+    root.reconcileWobblyBackend()
+    if (root.effectCapabilities.wobblyWindows === true && !root.wobblyConfigSynced && !root.wobblyConfigFailed && !root.wobblyConfigRequestInFlight)
+      wobblyConfigDebounce.restart()
     root.performanceState = PerformanceModel.snapshot(root.cfg("performance", {}), root.performanceContext())
     root.applyBlurRules()
     root.stateRevision++
@@ -460,7 +553,16 @@ Item {
     if (String(path).indexOf("touch.") === 0) root.applyTouchIntegration()
     if (String(path).indexOf("rotation.") === 0) root.refreshRotationBackend()
     if (String(path).indexOf("notifications.enabled") === 0) root.refreshIntegrations()
-    if (String(path) === "wobbly.enabled") root.requestWobblyBackend(Boolean(value))
+    if (String(path) === "wobbly.enabled") {
+      root.wobblyBackendFailed = false
+      root.requestWobblyBackend(root.wobblyDesired())
+    } else if (String(path).indexOf("wobbly.") === 0) {
+      root.wobblyConfigSynced = false
+      root.wobblyConfigFailed = false
+      wobblyConfigDebounce.restart()
+    }
+    if (String(path).indexOf("effects.") === 0 || String(path).indexOf("performance.") === 0 || String(path).indexOf("general.reduceMotion") === 0)
+      root.reconcileWobblyBackend()
     if (String(path).indexOf("blur.") === 0 || String(path).indexOf("performance.") === 0 || String(path).indexOf("effects.") === 0 || String(path).indexOf("applicationRules.") === 0 || String(path).indexOf("animations.") === 0) {
       root.performanceState = PerformanceModel.snapshot(root.cfg("performance", {}), root.performanceContext())
       root.applyBlurRules()
@@ -476,6 +578,10 @@ Item {
     root.detectedMode = root.computeMode()
     root.refreshRotationBackend()
     root.blurRuleSignature = ""
+    root.wobblyBackendFailed = false
+    root.requestWobblyBackend(false)
+    root.wobblyConfigSynced = false
+    root.wobblyConfigFailed = false
     root.applyBlurRules()
     root.stateRevision++
     root.stateUpdated()
@@ -506,6 +612,8 @@ Item {
     root.config = next
     root.saveConfig()
     root.detectedMode = root.computeMode()
+    root.wobblyBackendFailed = false
+    root.reconcileWobblyBackend()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -554,6 +662,7 @@ Item {
     root.quickState = QuickSettingsModel.stateFromSystem(next)
     root.refreshRotationBackend()
     root.performanceState = PerformanceModel.snapshot(root.cfg("performance", {}), root.performanceContext())
+    root.reconcileWobblyBackend()
     root.applyBlurRules()
     root.stateRevision++
     root.stateUpdated()
@@ -920,6 +1029,7 @@ Item {
     root.clients = parseJson(raw, [])
     if (root.hyprlandAvailable) root.applyTouchIntegration()
     root.performanceState = PerformanceModel.snapshot(root.cfg("performance", {}), root.performanceContext())
+    root.reconcileWobblyBackend()
     root.applyBlurRules()
     root.stateRevision++
     root.stateUpdated()
@@ -1433,6 +1543,19 @@ Item {
     id: wobblyControlProcess
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateWobblyBackendResponse(text) }
     onExited: function(exitCode) { root.finishWobblyBackend(exitCode) }
+  }
+
+  Timer {
+    id: wobblyConfigDebounce
+    interval: 180
+    repeat: false
+    onTriggered: root.requestWobblyConfig()
+  }
+
+  Process {
+    id: wobblyConfigProcess
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateWobblyConfigResponse(text) }
+    onExited: function(exitCode) { root.finishWobblyConfig(exitCode) }
   }
 
   Process {

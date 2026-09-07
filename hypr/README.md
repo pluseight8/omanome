@@ -28,6 +28,7 @@ omanome companion enable
 hyprctl -j omanome-effects
 hyprctl -j omanome-effects wobbly enable
 hyprctl -j omanome-effects wobbly disable
+hyprctl -j omanome-effects wobbly config grid=8 maxVertices=1024 stiffness=0.72 friction=0.78 damping=0.62 mass=1 maxDeformation=0.035 velocityInfluence=0.45
 ```
 
 No command in this repository invokes `sudo`, edits the Hyprland source, uses
@@ -40,3 +41,9 @@ loaded.
 The core continues to use stable Hyprland IPC for read-only state and normal
 window/workspace actions. It never renders screenshots as fake window content
 and never changes input coordinates to simulate a compositor transform.
+
+The shell Settings page sends the same versioned configuration command after a
+short debounce, so moving a slider does not create a polling loop. The
+advanced-effects master switch, battery policy, and fullscreen policy disable
+the renderer through the same fail-closed `wobbly disable` command; logical
+window/input geometry is never changed by the mesh.

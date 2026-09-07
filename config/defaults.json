@@ -279,6 +279,7 @@
     }
   },
   "effects": {
+    "enabled": true,
     "wobblyWindows": false,
     "desktopCube": false,
     "companionPolicy": "auto",
@@ -323,6 +324,7 @@
     "damping": 0.62,
     "mass": 1.0,
     "gridResolution": 8,
+    "maxVertices": 1024,
     "maxDeformation": 0.035,
     "edgeResistance": 0.82,
     "velocityInfluence": 0.45,

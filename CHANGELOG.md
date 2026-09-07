@@ -8,6 +8,9 @@
 - Adds explicit `wobbly enable|disable` status IPC, QML Settings integration,
   lifecycle-aware companion reporting, and tests for the public renderer
   boundary and unsafe-loader invariants.
+- Adds bounded Wobbly configuration IPC for mesh/physics parameters, a debounced
+  Settings bridge, an advanced-effects master switch, and battery/fullscreen
+  fail-safe policy enforcement.
 - Adds live `ScreencopyView` sources for window previews; previews report
   available only after a compositor-owned stream has content.
 - Keeps Desktop Cube capability-gated to the separately maintained,

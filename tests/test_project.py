@@ -47,6 +47,8 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["schemaVersion"]["const"], 1)
         for key in ("tabletMode", "touch", "stylus", "keyboard", "clipboard", "updates", "animations", "performance", "applicationRules", "wobbly", "cube", "forceQuit"):
             self.assertIn(key, defaults)
+        self.assertTrue(defaults["effects"]["enabled"])
+        self.assertEqual(defaults["wobbly"]["maxVertices"], 1024)
         self.assertEqual(defaults["dock"]["mode"], "floating")
         self.assertIn("favoritesFirst", defaults["launcher"])
         self.assertEqual(defaults["overview"]["workspaceMode"], "dynamic")
@@ -245,6 +247,8 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertIn("__hyprland_api_get_client_hash", source)
         self.assertIn("HyprlandAPI::getHyprlandVersion", source)
         self.assertIn("IWindowTransformer", renderer)
+        self.assertIn("wobbly config key=value ...", source)
+        self.assertIn("configJson()", source)
         self.assertIn("glClearColor(0.F, 0.F, 0.F, 0.F)", renderer)
         self.assertIn("glBlendFuncSeparate", renderer)
         self.assertNotIn("LD_PRELOAD", renderer)
