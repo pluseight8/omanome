@@ -2,6 +2,13 @@
   "schemaVersion": 1,
   "wayland": true,
   "hyprland": true,
+  "display": [{ "name": "eDP-1" }, { "name": "DP-1" }],
+  "keyboard": [{ "type": "keyboard" }],
+  "detachableKeyboard": { "available": true, "transport": "bluetooth" },
+  "multitouch": { "available": true, "maxContacts": 10 },
+  "orientation": { "available": true, "source": "fixture" },
+  "osk": { "available": true, "autoShow": true },
+  "multiMonitor": { "available": true },
   "devices": {
     "touch": [{ "type": "touchscreen" }],
     "tablets": [{ "type": "tablet-tool", "capabilities": ["pressure", "proximity"] }]
