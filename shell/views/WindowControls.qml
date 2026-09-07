@@ -52,7 +52,7 @@ Item {
         id: controlsWindow
         required property var modelData
         screen: modelData
-        visible: root.activeWindow !== null && root.belongsTo(modelData) && (root.service.cfg("windowControls.show", "tablet") !== "tablet" || root.service.detectedMode !== "desktop")
+        visible: root.activeWindow !== null && root.belongsTo(modelData) && root.service.tabletProfile.windowControls === true && (root.service.cfg("windowControls.show", "tablet") !== "tablet" || root.service.detectedMode !== "desktop")
         anchors { top: true; bottom: true; left: true; right: true }
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore

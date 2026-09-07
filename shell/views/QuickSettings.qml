@@ -13,6 +13,16 @@ Item {
   property bool audioExpanded: false
   property string wifiPassword: ""
 
+  DesignTokens {
+    id: tokens
+    service: root.service
+    viewportWidth: root.width
+    viewportHeight: root.height
+  }
+
+  readonly property bool portrait: tokens.orientation === "portrait"
+  readonly property int tileColumns: portrait ? 2 : Math.max(2, Math.min(4, Number(root.service && root.service.responsiveState ? root.service.responsiveState.gridColumns : 4)))
+
   function system() {
     return root.service ? root.service.systemState : {}
   }
@@ -52,8 +62,8 @@ Item {
 
   ColumnLayout {
     anchors.fill: parent
-    anchors.margins: Style.space(22)
-    spacing: Style.space(14)
+    anchors.margins: tokens.space(22)
+    spacing: tokens.space(14)
 
     SectionHeader {
       Layout.fillWidth: true
@@ -63,17 +73,17 @@ Item {
 
     GridLayout {
       Layout.fillWidth: true
-      columns: root.width > Style.space(760) ? 4 : 2
-      columnSpacing: Style.space(10)
-      rowSpacing: Style.space(10)
+      columns: root.tileColumns
+      columnSpacing: tokens.space(10)
+      rowSpacing: tokens.space(10)
 
       Repeater {
         model: root.tiles()
         delegate: ActionButton {
           required property var modelData
           Layout.fillWidth: true
-          Layout.minimumHeight: Style.space(64)
-          minimumHeight: Style.space(64)
+          Layout.minimumHeight: tokens.target(64)
+          minimumHeight: tokens.target(64)
           text: modelData.label
           icon: modelData.icon
           usable: root.usable(modelData.key)

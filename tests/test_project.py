@@ -60,11 +60,14 @@ class OmanomeProjectTests(unittest.TestCase):
             "console.log(JSON.stringify({tablet:T.decide({touchscreen:true,stylus:false,physicalKeyboard:false,orientation:'portrait',lastInput:'keyboard'},{mode:'automatic',tabletMode:{enabled:true}}), "
             "hybrid:T.decide({touchscreen:true,stylus:false,physicalKeyboard:true,orientation:'landscape',lastInput:'keyboard'},{mode:'automatic',tabletMode:{enabled:true}}), "
             "switch:T.decide({touchscreen:true,tabletSwitchAvailable:true,tabletSwitchActive:true},{mode:'automatic',tabletMode:{enabled:true}}), "
+            "profile:T.profile('tablet',{tabletMode:{touchTarget:52,dockPreference:'adaptive'},keyboard:{autoShow:true},dock:{position:'bottom'}},{orientation:'portrait'}), "
             "fresh:fresh.onboarding,legacy:legacy.onboarding}));"
         )
         self.assertEqual(result["tablet"]["mode"], "tablet")
         self.assertEqual(result["hybrid"]["mode"], "hybrid")
         self.assertEqual(result["switch"]["mode"], "tablet")
+        self.assertEqual(result["profile"]["dockPosition"], "left")
+        self.assertTrue(result["profile"]["oskAutoShow"])
         self.assertFalse(result["fresh"]["completed"])
         self.assertTrue(result["legacy"]["completed"])
 

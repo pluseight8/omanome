@@ -30,8 +30,11 @@ Item {
   }
 
   readonly property var dockConfig: root.service ? DockModel.config(root.service.config) : DockModel.config({})
-  readonly property string position: root.dockConfig.position
+  readonly property string position: root.service && root.service.tabletProfile ? String(root.service.tabletProfile.dockPosition || root.dockConfig.position) : root.dockConfig.position
   readonly property string mode: root.dockConfig.mode
+  readonly property real effectiveIconSize: root.service && root.service.tabletProfile && root.service.tabletProfile.tabletLike
+                                      ? Math.max(Number(root.dockConfig.iconSize), Number(root.service.tabletProfile.touchTarget || 48))
+                                      : Number(root.dockConfig.iconSize)
 
   function normalizedId(value) { return DockModel.normalizeId(value) }
 
@@ -186,7 +189,7 @@ Item {
     var screenWidth = Number(screen && screen.width || 0)
     var screenHeight = Number(screen && screen.height || 0)
     if (!width || !height || !screenWidth || !screenHeight) return false
-    var dockSize = tokens.space(root.dockConfig.iconSize + root.service.cfg("dock.padding", 10) * 2 + root.service.cfg("dock.margin", 18))
+    var dockSize = tokens.space(root.effectiveIconSize + root.service.cfg("dock.padding", 10) * 2 + root.service.cfg("dock.margin", 18))
     if (root.position === "bottom") return y + height >= screenHeight - dockSize
     if (root.position === "top") return y <= dockSize
     if (root.position === "left") return x <= dockSize
@@ -312,8 +315,8 @@ Item {
                 Layout.fillHeight: true
                 Layout.minimumWidth: root.position === "left" || root.position === "right" ? Style.space(60) : Style.space(root.dockConfig.minIconSize)
                 Layout.minimumHeight: root.position === "bottom" || root.position === "top" ? Style.space(root.dockConfig.minIconSize) : Style.space(60)
-                implicitWidth: Style.space(root.dockConfig.iconSize)
-                implicitHeight: Style.space(root.dockConfig.iconSize)
+                implicitWidth: tokens.space(root.effectiveIconSize)
+                implicitHeight: tokens.space(root.effectiveIconSize)
                 Drag.active: handleDrag.active
                 Drag.source: tile
                 Drag.keys: ["omanome-dock"]
@@ -342,7 +345,7 @@ Item {
                   Image {
                     anchors.centerIn: parent
                     visible: !previewView.hasContent
-                    width: Style.space(root.dockConfig.iconSize - 10)
+                    width: tokens.space(root.effectiveIconSize - 10)
                     height: width
                     source: root.service.iconPath(tile.modelData.app ? tile.modelData.app.icon : "application-x-executable")
                     sourceSize.width: width * 2

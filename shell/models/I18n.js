@@ -358,6 +358,10 @@ ru.skip = "Пропустить"
 ru.next = "Далее"
 ru.finish = "Готово"
 ru.openSettings = "Открыть настройки"
+en.modeReason = "Mode reason"
+en.oskReady = "OSK adaptive"
+ru.modeReason = "Причина режима"
+ru.oskReady = "Адаптивная OSK"
 
 function text(locale, key, fallback) {
   var table = String(locale || "").toLowerCase().indexOf("ru") === 0 ? ru : en

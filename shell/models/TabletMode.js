@@ -71,6 +71,7 @@ function profile(mode, config, responsive) {
   var dockPreference = String(tablet.dockPreference || "adaptive")
   var dockPosition = String(dock.position || "bottom")
   if (dockPreference === "side" || (dockPreference === "adaptive" && portrait)) dockPosition = "left"
+  if (dockPreference === "right") dockPosition = "right"
   if (dockPreference === "bottom") dockPosition = "bottom"
   return {
     mode: current,
