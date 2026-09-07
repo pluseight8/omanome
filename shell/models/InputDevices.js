@@ -82,6 +82,19 @@ function durablePart(source, names) {
   return ""
 }
 
+// Device identities can contain a USB serial or a Bluetooth address. Keep the
+// identity deterministic for mapping persistence, but never expose those raw
+// values in shell state or diagnostics.
+function opaquePart(value) {
+  var source = string(value)
+  var hash = 2166136261
+  for (var i = 0; i < source.length; i++) {
+    hash ^= source.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return ("00000000" + (hash >>> 0).toString(16)).slice(-8)
+}
+
 // Stable identity deliberately prefers hardware/path characteristics. The
 // display name is only a last-resort component and is never the sole key.
 function stableId(item, hint) {
@@ -94,7 +107,12 @@ function stableId(item, hint) {
   var uniq = durablePart(source, ["uniq", "uniqueId", "unique_id", "address", "syspath"])
   var name = durablePart(source, ["name", "device", "identifier", "ID_MODEL"])
   var caps = Object.keys(capabilities(source)).sort().join(",")
-  var durable = [vendor, product, serial, path, uniq].filter(function(value) { return value !== "" })
+  var durable = []
+  if (vendor) durable.push("vendor-" + vendor)
+  if (product) durable.push("product-" + product)
+  if (serial) durable.push("serial-h-" + opaquePart(serial))
+  if (path) durable.push("path-" + path)
+  if (uniq) durable.push("uniq-h-" + opaquePart(uniq))
   if (durable.length === 0) durable = [name || "unnamed", caps || role]
   return "input:" + role + ":" + durable.join("/")
 }
@@ -225,17 +243,52 @@ function eventDevice(event) {
   return normalize(item, source.role, source.subsystem || "udev")
 }
 
+function eventSource(event) {
+  var source = object(event)
+  var item = object(source.device)
+  return Object.keys(item).length === 0 ? source : item
+}
+
+function matchesEventDevice(existing, normalized, raw, roleHint) {
+  var current = object(existing)
+  var source = object(raw)
+  if (current.id && current.id === normalized.id) return true
+  var path = durablePart(source, ["devpath", "devPath", "path", "phys", "devicePath", "ID_PATH"])
+  if (path && current.path && path === current.path && (!roleHint || current.role === normalized.role)) return true
+  var vendor = durablePart(source, ["vendorId", "vendor_id", "vendor", "idVendor", "ID_VENDOR_ID"])
+  var product = durablePart(source, ["productId", "product_id", "product", "idProduct", "ID_MODEL_ID"])
+  if (vendor && product && current.vendorId === vendor && current.productId === product && current.role === normalized.role) return true
+  return false
+}
+
+function mergeDevice(previous, next) {
+  var old = object(previous)
+  var fresh = object(next)
+  var result = {}
+  for (var key in old) result[key] = old[key]
+  for (var field in fresh) {
+    var value = fresh[field]
+    if (value !== "" && value !== undefined && value !== null) result[field] = value
+  }
+  result.id = old.id || fresh.id
+  result.present = fresh.present !== false
+  return result
+}
+
 function applyEvent(previous, event) {
   var old = object(previous)
   var source = object(event)
   var current = array(old.devices).slice()
   var item = eventDevice(source)
+  var raw = eventSource(source)
   var action = token(source.action || source.event || "change")
   var index = -1
-  for (var i = 0; i < current.length; i++) if (current[i] && current[i].id === item.id) { index = i; break }
+  for (var i = 0; i < current.length; i++) {
+    if (current[i] && matchesEventDevice(current[i], item, raw, source.role)) { index = i; break }
+  }
   if (action === "remove" || action === "delete") {
     if (index >= 0) current.splice(index, 1)
-  } else if (index >= 0) current[index] = item
+  } else if (index >= 0) current[index] = mergeDevice(current[index], item)
   else current.push(item)
   return {
     schemaVersion: 1,

@@ -598,6 +598,10 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertIn('"hyprctl", "--batch"', service)
         self.assertIn("rotationTargetMonitors", service)
         self.assertIn("rotationRollbackBatch", service)
+        self.assertIn("rotationLifecycleAllowed", service)
+        self.assertIn("abortRotation", service)
+        self.assertIn("rotationMonitorName", service)
+        self.assertIn("rollbackConfirmed", service)
         for output in ("eDP-1", "DP-1", "HDMI-A-1"):
             self.assertNotIn(output, service)
 

@@ -5,6 +5,11 @@
 var MAX_STROKES = 64
 var MAX_POINTS_PER_STROKE = 2048
 var MAX_TOTAL_POINTS = 8192
+var TABLET_EVENT_KINDS = [
+  "tablet-added", "tablet-ready", "tablet-removed", "tool-added", "tool-ready", "tool-removed",
+  "tool-type", "tool-capability", "pad-added", "proximity-in", "proximity-out", "tip-down", "tip-up",
+  "motion", "pressure", "tilt", "distance", "rotation", "slider", "wheel", "button", "frame"
+]
 
 function object(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {}
@@ -30,9 +35,12 @@ function timestamp(value, fallback) {
   return result > 0 ? Math.floor(result) : Math.floor(number(fallback, 0))
 }
 
-function normalizeEvent(event) {
+function normalizeEvent(event, fallbackNow) {
   var source = object(event)
   var kind = String(source.event || source.action || "").toLowerCase()
+  var fallback = number(fallbackNow, Date.now())
+  if (fallback <= 0) fallback = Date.now()
+  var sequence = number(source.sequence, 0)
   return {
     kind: kind,
     x: clamp(source.x, -1000000, 1000000, 0),
@@ -47,8 +55,25 @@ function normalizeEvent(event) {
     eraser: bool(source.eraser),
     button: clamp(source.button, 0, 65535, 0),
     pressed: bool(source.pressed),
-    time: timestamp(source.time || source.timestamp, Date.now())
+    time: timestamp(source.time !== undefined ? source.time : source.timestamp, fallback),
+    sequence: sequence > 0 ? Math.floor(sequence) : 0,
+    session: String(source.session || "").slice(0, 128)
   }
+}
+
+function knownEvent(kind) {
+  return TABLET_EVENT_KINDS.indexOf(String(kind || "")) >= 0
+}
+
+function clearInteraction(state) {
+  state.proximity = false
+  state.contact = false
+  state.eraser = false
+  state.lastSample = null
+  state.currentStroke = []
+  state.lastButton = 0
+  state.buttonPressed = false
+  return state
 }
 
 function emptyState() {
@@ -64,6 +89,10 @@ function emptyState() {
     capabilities: { pressure: false, tilt: false, distance: false, rotation: false, buttons: false },
     lastEvent: "",
     lastSample: null,
+    session: "",
+    eventSequence: 0,
+    lastButton: 0,
+    buttonPressed: false,
     strokes: [],
     currentStroke: [],
     totalPoints: 0,
@@ -126,24 +155,65 @@ function applyEvent(previous, rawEvent, now) {
   var event = object(rawEvent)
   if (String(event.type || "") !== "tablet.event") return old
 
-  var sample = normalizeEvent(event)
+  var sample = normalizeEvent(event, now)
+  if (!knownEvent(sample.kind)) return old
+  if (sample.session && old.session && sample.session !== old.session) {
+    var fresh = emptyState()
+    fresh.backend = old.backend
+    fresh.available = old.available
+    fresh.capabilities = old.capabilities
+    old = fresh
+  }
+  if (sample.sequence > 0 && Number(old.eventSequence || 0) > 0 && sample.sequence <= Number(old.eventSequence || 0)) return old
+
+  var interaction = ["proximity-in", "proximity-out", "tip-down", "tip-up", "motion", "pressure", "tilt", "distance", "rotation"].indexOf(sample.kind) >= 0
+  if (sample.kind === "proximity-in" && old.proximity === true) return old
+  if (sample.kind === "proximity-out" && old.proximity !== true && old.contact !== true) return old
+  if (sample.kind === "tip-down" && old.contact === true) return old
+  if (sample.kind === "tip-up" && old.contact !== true) return old
+  if (interaction && ["motion", "pressure", "tilt", "distance", "rotation"].indexOf(sample.kind) >= 0 && old.proximity !== true && old.contact !== true && event.proximity === undefined && event.contact === undefined) return old
+
   var next = Object.assign({}, old)
   next.backend = "native-wayland-tablet-v2"
   next.available = true
   next.revision = Number(old.revision || 0) + 1
   next.lastEvent = sample.kind
+  next.session = sample.session || old.session || ""
+  next.eventSequence = sample.sequence > 0 ? sample.sequence : Number(old.eventSequence || 0)
   next.capabilities = capabilityState({
-    pressure: event.pressure !== undefined || sample.kind === "pressure" || event.pressure === true,
+    pressure: event.pressure !== undefined || sample.kind === "pressure" || event.pressure === true || (sample.kind === "tool-capability" && Number(event.capability) === 2),
     tilt: sample.kind === "tilt" || event.tilt === true,
-    distance: sample.kind === "distance" || event.distance === true,
+    distance: sample.kind === "distance" || event.distance === true || (sample.kind === "tool-capability" && Number(event.capability) === 3),
     rotation: sample.kind === "rotation" || event.rotation === true,
     buttons: sample.kind === "button" || event.buttons === true
   }, old.capabilities)
+  if (sample.kind === "tool-capability") {
+    var capability = Number(event.capability)
+    next.capabilities.tilt = next.capabilities.tilt || capability === 1
+    next.capabilities.pressure = next.capabilities.pressure || capability === 2
+    next.capabilities.distance = next.capabilities.distance || capability === 3
+    next.capabilities.rotation = next.capabilities.rotation || capability === 4
+  }
 
-  if (sample.kind === "tablet-added") next.tabletCount = Math.max(0, Number(event.tabletCount || old.tabletCount || 0))
-  if (sample.kind === "tablet-removed") next.tabletCount = Math.max(0, Number(event.tabletCount || 0))
-  if (sample.kind === "tool-added") next.toolCount = Math.max(0, Number(event.toolCount || old.toolCount || 0))
-  if (sample.kind === "tool-removed") next.toolCount = Math.max(0, Number(event.toolCount || 0))
+  if (sample.kind === "tablet-added") {
+    next.tabletCount = Math.max(0, Number(event.tabletCount !== undefined ? event.tabletCount : old.tabletCount + 1))
+    next.available = true
+  }
+  if (sample.kind === "tablet-removed") {
+    next.tabletCount = Math.max(0, Number(event.tabletCount !== undefined ? event.tabletCount : 0))
+    next.toolCount = 0
+    next.available = false
+    clearInteraction(next)
+  }
+  if (sample.kind === "tool-added") {
+    next.toolCount = Math.max(0, Number(event.toolCount !== undefined ? event.toolCount : old.toolCount + 1))
+    next.available = true
+  }
+  if (sample.kind === "tool-removed") {
+    next.toolCount = Math.max(0, Number(event.toolCount !== undefined ? event.toolCount : 0))
+    next.available = next.tabletCount > 0 || next.toolCount > 0
+    clearInteraction(next)
+  }
   if (sample.kind === "proximity-in") {
     next.proximity = true
     next.eraser = sample.eraser
@@ -161,13 +231,19 @@ function applyEvent(previous, rawEvent, now) {
     if (next.currentStroke.length > 0) next.strokes = next.strokes.concat([next.currentStroke])
     next.currentStroke = []
   } else if (sample.kind === "motion" || sample.kind === "pressure" || sample.kind === "tilt" || sample.kind === "distance" || sample.kind === "rotation") {
-    next.proximity = event.proximity !== undefined ? sample.proximity : next.proximity
-    next.contact = event.contact !== undefined ? sample.contact : next.contact
+    if (event.proximity !== undefined) next.proximity = sample.proximity
+    if (event.contact !== undefined) next.contact = sample.contact
     if (next.contact || next.currentStroke.length > 0) {
       var active = next.currentStroke.concat([point(sample)])
       next.currentStroke = active.slice(-MAX_POINTS_PER_STROKE)
     }
   }
+  if (sample.kind === "tool-type") next.eraser = sample.eraser
+  if (sample.kind === "button") {
+    next.lastButton = sample.button
+    next.buttonPressed = sample.pressed
+  }
+  if (sample.kind === "proximity-out") next.lastButton = 0
   if (sample.kind === "frame") next.lastSample = old.lastSample
   else if (["motion", "pressure", "tilt", "distance", "rotation", "tip-down", "tip-up"].indexOf(sample.kind) >= 0)
     next.lastSample = point(sample)

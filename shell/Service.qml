@@ -176,6 +176,9 @@ Item {
   property int queuedRotationTransform: -1
   property var rotationRollback: ({ touch: 0, tablet: 0, monitors: [] })
   property var rotationTargets: []
+  property bool rotationAbortRequested: false
+  property string rotationAbortReason: ""
+  property bool rotationRollbackConfirmed: false
 
   signal stateUpdated()
   signal configUpdated(string path)
@@ -1646,12 +1649,19 @@ Item {
     return outputs.slice(0, 1)
   }
 
+  function rotationMonitorName(value) {
+    var name = String(value || "").trim()
+    // Hyprland connector names are token-like. Reject unsafe names instead
+    // of stripping characters and accidentally targeting a different output.
+    return /^[A-Za-z0-9_.:-]+$/.test(name) ? name : ""
+  }
+
   function rotationMonitorState(monitors) {
     var result = []
     var list = Array.isArray(monitors) ? monitors : []
     for (var i = 0; i < list.length; i++) {
       var item = list[i] || {}
-      var name = String(item.name || "")
+      var name = root.rotationMonitorName(item.name)
       if (!name) continue
       var transform = Number(item.transform)
       if (!isFinite(transform) || transform < 0 || transform > 3) transform = root.rotationTransform
@@ -1662,14 +1672,15 @@ Item {
 
   function rotationBatch(value, monitorStates) {
     var commands = []
+    var transform = Math.max(0, Math.min(3, Math.floor(Number(value))))
     if (root.cfg("rotation.transformTouch", true))
-      commands.push("keyword input:touchdevice:transform " + String(value))
+      commands.push("keyword input:touchdevice:transform " + String(transform))
     if (root.cfg("rotation.transformStylus", true))
-      commands.push("keyword input:tablet:transform " + String(value))
+      commands.push("keyword input:tablet:transform " + String(transform))
     var list = Array.isArray(monitorStates) ? monitorStates : []
     for (var i = 0; i < list.length; i++) {
-      var name = String(list[i] && list[i].name || "").replace(/[;,]/g, "")
-      if (name) commands.push("keyword monitor " + name + ",transform," + String(value))
+      var name = root.rotationMonitorName(list[i] && list[i].name)
+      if (name) commands.push("keyword monitor " + name + ",transform," + String(transform))
     }
     return commands.join(";")
   }
@@ -1677,41 +1688,77 @@ Item {
   function rotationRollbackBatch() {
     var previous = root.rotationRollback || {}
     var commands = []
+    var touch = Number(previous.touch)
+    var tablet = Number(previous.tablet)
+    if (!isFinite(touch) || touch < 0 || touch > 3) touch = 0
+    if (!isFinite(tablet) || tablet < 0 || tablet > 3) tablet = 0
     if (root.cfg("rotation.transformTouch", true))
-      commands.push("keyword input:touchdevice:transform " + String(Number(previous.touch) || 0))
+      commands.push("keyword input:touchdevice:transform " + String(Math.floor(touch)))
     if (root.cfg("rotation.transformStylus", true))
-      commands.push("keyword input:tablet:transform " + String(Number(previous.tablet) || 0))
+      commands.push("keyword input:tablet:transform " + String(Math.floor(tablet)))
     var monitors = Array.isArray(previous.monitors) ? previous.monitors : []
     for (var i = 0; i < monitors.length; i++) {
       var item = monitors[i] || {}
-      var name = String(item.name || "").replace(/[;,]/g, "")
-      if (name) commands.push("keyword monitor " + name + ",transform," + String(Number(item.transform) || 0))
+      var name = root.rotationMonitorName(item.name)
+      var transform = Number(item.transform)
+      if (!isFinite(transform) || transform < 0 || transform > 3) transform = 0
+      if (name) commands.push("keyword monitor " + name + ",transform," + String(Math.floor(transform)))
     }
     return commands.join(";")
   }
 
-  function finishRotation(success) {
+  function rotationLifecycleAllowed() {
+    var lifecycle = root.lifecycleState || {}
+    return !root.shuttingDown && lifecycle.phase !== "suspended" && lifecycle.locked !== true
+  }
+
+  function finishRotation(success, rollbackConfirmed, reason) {
     if (success) {
       root.rotationTransform = root.pendingRotationTransform
       root.lastError = ""
     } else {
-      root.rotationTransform = Number(root.rotationRollback.previous) || root.rotationTransform
-      root.lastError = "Rotation transform failed; previous monitor and input transforms were restored"
+      var previous = Number(root.rotationRollback.previous)
+      if (isFinite(previous) && previous >= 0 && previous <= 3) root.rotationTransform = Math.floor(previous)
+      root.rotationRollbackConfirmed = rollbackConfirmed === true
+      root.lastError = root.rotationRollbackConfirmed
+        ? (reason ? String(reason) + "; previous monitor and input transforms were restored" : "Rotation failed; previous monitor and input transforms were restored")
+        : (reason || "Rotation failed; previous monitor and input transforms could not be confirmed")
     }
     root.pendingRotationTransform = -1
     root.rotationTargets = []
+    root.rotationAbortRequested = false
+    root.rotationAbortReason = ""
     root.stateRevision++
     root.stateUpdated()
-    if (root.queuedRotationTransform >= 0) {
+    if (success && root.queuedRotationTransform >= 0 && root.rotationLifecycleAllowed()) {
       var queued = root.queuedRotationTransform
       root.queuedRotationTransform = -1
       Qt.callLater(function() { root.applyRotation(queued) })
+    } else root.queuedRotationTransform = -1
+  }
+
+  function abortRotation(reason) {
+    var message = String(reason || "Rotation transaction cancelled")
+    root.queuedRotationTransform = -1
+    if (rotationApplyProcess.running || rotationRollbackProcess.running) {
+      root.rotationAbortRequested = true
+      root.rotationAbortReason = message
+      if (rotationApplyProcess.running) rotationApplyProcess.running = false
+      if (rotationRollbackProcess.running) rotationRollbackProcess.running = false
+      return true
     }
+    if (root.pendingRotationTransform >= 0) {
+      root.finishRotation(false, false, message)
+      return true
+    }
+    return false
   }
 
   function applyRotation(transform) {
-    if (!root.hyprlandAvailable || !root.systemState.rotationAvailable) return false
-    var value = Math.max(0, Math.min(3, Math.floor(Number(transform))))
+    if (!root.rotationLifecycleAllowed() || !root.hyprlandAvailable || !root.systemState.rotationAvailable) return false
+    var requested = Number(transform)
+    if (!isFinite(requested)) requested = root.rotationTransform
+    var value = Math.max(0, Math.min(3, Math.floor(requested)))
     if (rotationApplyProcess.running || rotationRollbackProcess.running) {
       root.queuedRotationTransform = value
       return false
@@ -1732,6 +1779,9 @@ Item {
     }
     root.rotationTargets = states.map(function(item) { return item.name })
     root.pendingRotationTransform = value
+    root.rotationRollbackConfirmed = false
+    root.rotationAbortRequested = false
+    root.rotationAbortReason = ""
     rotationApplyProcess.command = ["hyprctl", "--batch", command]
     rotationApplyProcess.running = true
     return true
@@ -1908,6 +1958,7 @@ Item {
       root.stopNativeInputBackend("suspended")
       root.cancelFallbackInput()
       if (rotationProcess.running) rotationProcess.running = false
+      root.abortRotation("Rotation was cancelled for suspend")
       root.sessionMonitorReason = "suspended"
     } else if (transition.state.phase === "active") {
       root.sessionMonitorReason = transition.state.locked ? "active-locked" : "active"
@@ -1927,7 +1978,12 @@ Item {
   }
 
   function updateMonitors(raw) {
-    root.monitors = parseJson(raw, [])
+    var parsed = parseJson(raw, [])
+    var nextMonitors = Array.isArray(parsed) ? parsed : []
+    var availableNames = nextMonitors.map(function(item) { return root.rotationMonitorName(item && item.name) }).filter(function(name) { return name !== "" })
+    var missingTarget = root.rotationTargets.some(function(name) { return availableNames.indexOf(root.rotationMonitorName(name)) < 0 })
+    if (missingTarget) root.abortRotation("Rotation was cancelled because a target monitor disappeared")
+    root.monitors = nextMonitors
     root.updateInputMapping()
     root.updateResponsiveContext()
     root.stateRevision++
@@ -2010,6 +2066,8 @@ Item {
         dbus: root.systemState.rotationDbusAvailable === true,
         accelerometer: root.systemState.rotationAccelerometerAvailable === true,
         targets: root.rotationTargets.slice(),
+        transactionPending: root.pendingRotationTransform >= 0,
+        rollbackConfirmed: root.rotationRollbackConfirmed,
         orientation: root.orientation,
         locked: root.cfg("rotation.lock", false) === true
       },
@@ -2996,7 +3054,10 @@ Item {
     onExited: function(exitCode) {
       root.processStopped("rotation-apply", rotationApplyProcess, exitCode)
       if (root.shuttingDown) return
-      if (exitCode === 0) {
+      var aborted = root.rotationAbortRequested
+      var abortReason = root.rotationAbortReason
+      root.rotationAbortRequested = false
+      if (exitCode === 0 && !aborted) {
         root.finishRotation(true)
         return
       }
@@ -3005,7 +3066,7 @@ Item {
         rotationRollbackProcess.command = ["hyprctl", "--batch", rollback]
         rotationRollbackProcess.running = true
       } else {
-        root.finishRotation(false)
+        root.finishRotation(false, false, abortReason)
       }
     }
   }
@@ -3016,7 +3077,8 @@ Item {
     onStarted: root.processStarted("rotation-rollback", rotationRollbackProcess, "rotation rollback", false, "rollback")
     onExited: function(exitCode) {
       root.processStopped("rotation-rollback", rotationRollbackProcess, exitCode)
-      root.finishRotation(false)
+      var reason = root.rotationAbortReason
+      root.finishRotation(false, exitCode === 0, reason)
     }
   }
 

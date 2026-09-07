@@ -4,7 +4,8 @@
   "transport": "newline-delimited-json",
   "correlation": {
     "session": "required opaque helper-instance token on every emitted event",
-    "requestId": "shell-assigned numeric command correlation on ACK-capable commands"
+    "requestId": "shell-assigned numeric command correlation on ACK-capable commands",
+    "tabletSequence": "monotonic helper-local sequence on every tablet.event; stale or duplicate sequences are ignored"
   },
   "limits": {
     "maxCommandBytes": 16384,

@@ -69,6 +69,7 @@ type SharedEmitter = Arc<Mutex<Emitter>>;
 struct Emitter {
     stdout: io::BufWriter<io::Stdout>,
     session: String,
+    tablet_sequence: u64,
 }
 
 impl Emitter {
@@ -76,6 +77,7 @@ impl Emitter {
         Self {
             stdout: io::BufWriter::new(io::stdout()),
             session: session.into(),
+            tablet_sequence: 0,
         }
     }
 
@@ -86,6 +88,10 @@ impl Emitter {
             // The shell uses this opaque token to discard late lines from an
             // older helper after a compositor/backend restart.
             object.insert("session".into(), Value::String(self.session.clone()));
+            if object.get("type").and_then(Value::as_str) == Some("tablet.event") {
+                self.tablet_sequence = self.tablet_sequence.saturating_add(1);
+                object.insert("sequence".into(), json!(self.tablet_sequence));
+            }
         }
         let _ = serde_json::to_writer(&mut self.stdout, &value);
         let _ = self.stdout.write_all(b"\n");

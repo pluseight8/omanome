@@ -178,6 +178,42 @@ class InputProtocolContractTests(unittest.TestCase):
         self.assertLessEqual(self.stylus_input.count("MAX_TOTAL_POINTS"), 6)
         self.assertIn("rollback-required", self.mapping)
 
+    def test_stylus_ordering_disconnect_and_partial_hotplug_are_safe(self) -> None:
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        expression = (
+            "const S=require('./shell/models/StylusInput.js'); const D=require('./shell/models/InputDevices.js'); "
+            "let state=S.emptyState(); "
+            "for (const e of [{event:'tablet-added',tabletCount:1,sequence:1,session:'a'}," 
+            "{event:'tool-added',toolCount:1,sequence:2,session:'a'}," 
+            "{event:'proximity-in',proximity:true,sequence:3,session:'a'}," 
+            "{event:'tip-down',contact:true,sequence:4,session:'a'}," 
+            "{event:'motion',x:1,y:2,contact:true,proximity:true,sequence:5,session:'a'}," 
+            "{event:'tip-up',contact:false,sequence:6,session:'a'}," 
+            "{event:'proximity-out',proximity:false,sequence:7,session:'a'}]) state=S.applyEvent(state,{type:'tablet.event',...e},1000); "
+            "let duplicate=S.applyEvent(state,{type:'tablet.event',event:'tip-up',sequence:8,session:'a'},1001); "
+            "let stale=S.applyEvent(state,{type:'tablet.event',event:'motion',contact:true,proximity:true,sequence:6,session:'a'},1002); "
+            "let toolRemoved=S.applyEvent(state,{type:'tablet.event',event:'tool-removed',toolCount:0,sequence:9,session:'a'},1003); "
+            "let removed=S.applyEvent(toolRemoved,{type:'tablet.event',event:'tablet-removed',tabletCount:0,sequence:10,session:'a'},1004); "
+            "let restarted=S.applyEvent(removed,{type:'tablet.event',event:'tablet-added',tabletCount:1,sequence:1,session:'b'},1005); "
+            "let snapshot=D.stateFromSnapshot({devices:[{name:'Pen',type:'tablet-tool',vendorId:'1',productId:'2',serial:'PRIVATE-SERIAL',path:'usb-1-2'}]},D.emptyState()); "
+            "let partial=D.applyEvent(snapshot,{type:'device.event',action:'remove',subsystem:'input',device:{path:'usb-1-2',type:'tablet-tool'}}); "
+            "console.log(JSON.stringify({duplicate:duplicate.revision===state.revision,stale:stale.revision===state.revision,removed:removed.available===false&&removed.proximity===false&&removed.contact===false,restarted:restarted.eventSequence===1&&restarted.session==='b',deviceCount:partial.devices.length,privateId:snapshot.devices[0].id.indexOf('PRIVATE-SERIAL')<0}));"
+        )
+        result = subprocess.run([node, "-e", expression], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["duplicate"])
+        self.assertTrue(payload["stale"])
+        self.assertTrue(payload["removed"])
+        self.assertTrue(payload["restarted"])
+        self.assertEqual(payload["deviceCount"], 0)
+        self.assertTrue(payload["privateId"])
+        self.assertIn("eventSequence", self.stylus_input)
+        self.assertIn("tablet_sequence", (ROOT / "input/omanome-input/src/main.rs").read_text(encoding="utf-8"))
+        self.assertEqual(self.contract["tablet"]["hardwareSerials"], "redacted")
+
     def test_suspend_resume_and_sensor_debounce_are_event_driven(self) -> None:
         node = shutil.which("node")
         if not node:
