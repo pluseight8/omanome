@@ -5,7 +5,8 @@ function defaults() {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     general: { mode: "automatic", profile: "Desktop", language: "system", reduceMotion: false, largeUi: false, inputDebounceMs: 320 },
     appearance: { theme: "follow-omarchy", accent: "follow-omarchy", radius: 18, opacity: 0.96, density: "comfortable" },
-    tabletMode: { enabled: true, touchTarget: 48, autoFromTouch: true, autoFromStylus: true, physicalKeyboardExit: true, transitionDuration: 180, dockPreference: "adaptive", windowControls: "touch", gestures: true },
+    tabletMode: { enabled: true, touchTarget: 48, autoFromTouch: true, autoFromStylus: true, physicalKeyboardExit: true, transitionDuration: 180, dockPreference: "adaptive", windowControls: "touch", gestures: true, posture: { auto: true, debounceMs: 320, minimumDwellMs: 900, laptopSuppressAutoShow: true, autoRotateInLaptop: false } },
+    input: { schemaVersion: 1, nativeBackend: "auto", allowWtypeFallback: true, suppressOskOnPhysicalKeyboard: true, suppressOskOnDetachableKeyboard: true, suppressOskOnBluetoothKeyboard: true, deviceHotplug: true, safeModeDisableNative: false },
     onboarding: { completed: false, skipped: false, version: 1, privacyAcknowledged: false },
     accessibility: { touchTargetSize: "default", textScale: 1.0, highContrast: false, reducedMotion: false, reduceTransparency: false, screenReaderHints: true },
     touch: { enabled: true, edgeWidth: 36, threshold: 96, velocity: 0.35, inertia: true, invert: false, threeFingerAction: "workspace", fourFingerAction: "overview", conflictPolicy: "disable-fullscreen", disableOnFullscreen: true, fullscreenAllowList: [], fullscreenDenyList: [], adaptiveTargetMode: "automatic" },
@@ -95,6 +96,27 @@ function migrationStepOneToTwo(source, report) {
   report.applied.push("1->2")
 }
 
+function normalizeInputConfig(source, report) {
+  var changed = false
+  if (!isObject(source.input)) source.input = {}
+  if (source.input.schemaVersion === undefined) { source.input.schemaVersion = 1; changed = true }
+  if (source.input.nativeBackend === undefined) { source.input.nativeBackend = "auto"; changed = true }
+  if (source.input.allowWtypeFallback === undefined) { source.input.allowWtypeFallback = true; changed = true }
+  if (source.input.suppressOskOnPhysicalKeyboard === undefined) { source.input.suppressOskOnPhysicalKeyboard = true; changed = true }
+  if (source.input.suppressOskOnDetachableKeyboard === undefined) { source.input.suppressOskOnDetachableKeyboard = true; changed = true }
+  if (source.input.suppressOskOnBluetoothKeyboard === undefined) { source.input.suppressOskOnBluetoothKeyboard = true; changed = true }
+  if (source.input.deviceHotplug === undefined) { source.input.deviceHotplug = true; changed = true }
+  if (source.input.safeModeDisableNative === undefined) { source.input.safeModeDisableNative = false; changed = true }
+  if (!isObject(source.tabletMode)) source.tabletMode = {}
+  if (!isObject(source.tabletMode.posture)) source.tabletMode.posture = {}
+  if (source.tabletMode.posture.auto === undefined) { source.tabletMode.posture.auto = true; changed = true }
+  if (source.tabletMode.posture.debounceMs === undefined) { source.tabletMode.posture.debounceMs = 320; changed = true }
+  if (source.tabletMode.posture.minimumDwellMs === undefined) { source.tabletMode.posture.minimumDwellMs = 900; changed = true }
+  if (source.tabletMode.posture.laptopSuppressAutoShow === undefined) { source.tabletMode.posture.laptopSuppressAutoShow = true; changed = true }
+  if (source.tabletMode.posture.autoRotateInLaptop === undefined) { source.tabletMode.posture.autoRotateInLaptop = false; changed = true }
+  if (changed && report && report.applied.indexOf("input-v1") < 0) report.applied.push("input-v1")
+}
+
 function migrateDetailed(raw) {
   if (!isObject(raw)) return { ok: false, reason: "invalid-root", config: null, applied: [] }
   var source = clone(raw)
@@ -111,6 +133,7 @@ function migrateDetailed(raw) {
     source.performance.mode = source.performance.qualityPreset
     report.applied.push("performance-mode-from-quality-preset")
   }
+  normalizeInputConfig(source, report)
   return { ok: true, config: merge(defaults(), source), from: version, to: CURRENT_SCHEMA_VERSION, applied: report.applied, migrated: report.applied.length > 0 }
 }
 

@@ -71,6 +71,7 @@ Commands:
   recover                Recover an interrupted update transaction
   uninstall [--purge-settings] [--yes]
   version                Print Omanome version
+  input-info             Print native input protocol and fallback diagnostics
   stylus-info            Print capability inventory without changing input
   touch-info             Print touchscreen inventory without changing input
   sensor-info            Print rotation sensor backend diagnostics
@@ -1373,6 +1374,58 @@ devices_cmd() {
   hyprctl devices -j | jq .
 }
 
+input_info_cmd() {
+  local native_path="${OMANOME_INPUT_BIN:-}" native_version="" native_protocol="" probe='{}' devices='{}'
+  local -a candidates=()
+  [[ -n "$native_path" ]] && candidates+=("$native_path")
+  candidates+=("$repo_dir/input/omanome-input/omanome-input" "$repo_dir/input/omanome-input/target/release/omanome-input" "$repo_dir/input/omanome-input/target/debug/omanome-input")
+  if [[ -z "$native_path" ]]; then
+    for native_path in "${candidates[@]}"; do
+      if [[ -x "$native_path" ]]; then break; fi
+      native_path=""
+    done
+  fi
+  if [[ -n "$native_path" && -x "$native_path" ]]; then
+    native_version="$($native_path --version 2>/dev/null | head -n 1 || true)"
+    native_protocol="$($native_path --protocol 2>/dev/null | head -n 1 || true)"
+    if [[ -n "${WAYLAND_DISPLAY:-}" ]] && has timeout; then
+      local runtime_output caps status
+      runtime_output="$(timeout --signal=TERM 3 "$native_path" </dev/null 2>/dev/null || true)"
+      caps="$(jq -c 'select(.type == "input.capabilities")' <<<"$runtime_output" | tail -n 1 || true)"
+      status="$(jq -c 'select(.type == "input.status")' <<<"$runtime_output" | tail -n 1 || true)"
+      if [[ -n "$caps" ]]; then
+        local status_json='{}'
+        [[ -n "$status" ]] && status_json="$status"
+        probe="$(jq -n --argjson capabilities "$caps" --argjson status "$status_json" '{status:"runtime-probed",capabilities:$capabilities,status:$status}')"
+      else
+        probe='{"status":"runtime-unavailable","reason":"native helper did not expose a Wayland capability record"}'
+      fi
+    else
+      probe='{"status":"not-run","reason":"Wayland session unavailable"}'
+    fi
+  else
+    native_path=""
+    probe='{"status":"not-built","reason":"native helper binary is not installed or built"}'
+  fi
+  if has hyprctl; then devices="$(hyprctl devices -j 2>/dev/null || printf '{}')"; fi
+  jq -e . >/dev/null 2>&1 <<<"$devices" || devices='{}'
+  local keyboard_count touchscreen_count stylus_count
+  keyboard_count="$(jq '[.keyboards // [] | .[] | select(((.type // "") | ascii_downcase) as $type | ($type != "consumer-control" and $type != "power-button"))] | length' <<<"$devices")"
+  touchscreen_count="$(jq '[.touch // .touchDevices // .touchdevices // []] | length' <<<"$devices")"
+  stylus_count="$(jq '[.tablets // .tabletTools // .tablettools // []] | length' <<<"$devices")"
+  jq -n \
+    --arg version "$(manifest_value version)" \
+    --arg protocol "${native_protocol:-omanome-input protocol unavailable}" \
+    --arg nativeVersion "${native_version:-native helper metadata unavailable}" \
+    --arg path "${native_path:-unavailable}" \
+    --argjson probe "$probe" \
+    --argjson wtype "$(if has wtype; then printf true; else printf false; fi)" \
+    --argjson keyboardCount "${keyboard_count:-0}" \
+    --argjson touchscreenCount "${touchscreen_count:-0}" \
+    --argjson stylusCount "${stylus_count:-0}" \
+    '{schemaVersion:1,version:$version,nativeBackend:{status:(if $path == "unavailable" then "unavailable" else "built" end),path:$path,version:$nativeVersion,protocol:$protocol,probe:$probe},protocolSupport:{seat:($probe.capabilities.seat // "runtime-probe"),virtualKeyboard:($probe.capabilities.virtualKeyboard // "runtime-probe"),textInput:($probe.capabilities.textInput // "runtime-probe"),inputMethod:($probe.capabilities.inputMethod // "runtime-probe"),keymap:($probe.capabilities.keymap // "runtime-probe")},osk:{ui:"available",autoShow:($probe.capabilities.inputMethod == "v2"),reason:(if $probe.capabilities.inputMethod == "v2" then "native text focus events" else "requires compositor text-input/input-method support" end)},physicalKeyboard:{count:$keyboardCount,detected:($keyboardCount > 0)},touchscreen:{count:$touchscreenCount},stylus:{count:$stylusCount},fallback:{wtype:$wtype,policy:"explicit-only",processPerKey:false},privacy:{typedTextLogged:false,surroundingTextPersisted:false}}'
+}
+
 stylus_info_cmd() {
   has hyprctl || die "hyprctl is not installed"
   hyprctl devices -j | jq '{tablets: (.tablets // .tabletTools // []), touchDevices: (.touch // .touchDevices // [])}'
@@ -1520,6 +1573,7 @@ case "$command_name" in
   recover) recover_cmd "$@" ;;
   uninstall) uninstall_cmd "$@" ;;
   devices) devices_cmd "$@" ;;
+  input-info) input_info_cmd "$@" ;;
   stylus-info) stylus_info_cmd "$@" ;;
   touch-info) touch_info_cmd "$@" ;;
   sensor-info) sensor_info_cmd "$@" ;;

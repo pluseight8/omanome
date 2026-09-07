@@ -15,6 +15,7 @@ import "models/I18n.js" as I18n
 import "models/QuickSettings.js" as QuickSettingsModel
 import "models/Stylus.js" as StylusModel
 import "models/Touch.js" as TouchModel
+import "models/InputDevices.js" as InputDevicesModel
 import "models/Responsive.js" as ResponsiveModel
 import "models/Input.js" as InputModel
 import "models/OskPolicy.js" as OskPolicy
@@ -84,6 +85,9 @@ Item {
   property bool hasPhysicalKeyboard: false
   property bool hasDetachableKeyboard: false
   property bool hasBluetoothKeyboard: false
+  property var inputDeviceState: InputDevicesModel.emptyState()
+  property bool inputDeviceMonitorAvailable: false
+  property string inputDeviceMonitorReason: "not-started"
   property bool tabletSwitchAvailable: false
   property bool tabletSwitchActive: false
   property bool hyprlandAvailable: false
@@ -132,6 +136,7 @@ Item {
   property double inputCandidateSince: 0
   property var responsiveState: ResponsiveModel.context(1280, 720, 1, "keyboard", "desktop", {})
   property var tabletModeState: ({ mode: "desktop", reason: "not probed", signals: {} })
+  property var postureState: ({ current: "", candidate: "", candidateSince: 0, lastChangedAt: 0, reason: "not-evaluated" })
   property var tabletProfile: ({ mode: "desktop", tabletLike: false, touchTarget: 44, dockPosition: "bottom", oskAutoShow: false, windowControls: false, gestures: false, quickSettingsDensity: "comfortable", launcherDensity: "compact" })
   property string detectedMode: "desktop"
   property string lastError: ""
@@ -181,6 +186,7 @@ Item {
     root.captureScript = root.sourcePath("input/clipboard-capture.sh")
     forceQuitTermProcess.command = ["bash", root.sourcePath("input/force-quit.sh")]
     forceQuitKillProcess.command = ["bash", root.sourcePath("input/force-quit.sh")]
+    deviceMonitorProcess.command = ["bash", root.sourcePath("input/device-monitor.sh")]
   }
 
   function inputBackendCandidates() {
@@ -203,6 +209,10 @@ Item {
   }
 
   function startInputBackendProbe() {
+    if (root.safeMode || root.cfg("input.nativeBackend", "auto") === "disabled" || root.cfg("input.safeModeDisableNative", false) === true) {
+      root.inputBackendReason = "native-backend-disabled-by-policy"
+      return false
+    }
     if (inputBackendProbe.running) return false
     var candidates = root.inputBackendCandidates()
     if (candidates.length === 0) return false
@@ -254,7 +264,12 @@ Item {
       bluetoothKeyboard: root.hasBluetoothKeyboard,
       lastInput: root.lastInput,
       mode: root.detectedMode,
-      touchscreen: root.hasTouchscreen
+      posture: String(root.postureState.current || ""),
+      touchscreen: root.hasTouchscreen,
+      laptopSuppressAutoShow: root.cfg("tabletMode.posture.laptopSuppressAutoShow", true) === true,
+      suppressOnPhysicalKeyboard: root.cfg("input.suppressOskOnPhysicalKeyboard", true) === true,
+      suppressOnDetachableKeyboard: root.cfg("input.suppressOskOnDetachableKeyboard", true) === true,
+      suppressOnBluetoothKeyboard: root.cfg("input.suppressOskOnBluetoothKeyboard", true) === true
     }
   }
 
@@ -1059,6 +1074,7 @@ Item {
     }
     root._loadingConfig = false
     root.configReady = true
+    root.startDeviceMonitor()
     if (root.cfg("clipboard.privateMode", false) || root.cfg("privacy.clipboardPrivate", false))
       root.stopClipboardWatchers()
     else
@@ -1096,6 +1112,12 @@ Item {
       root.reconcileOskPolicy()
     if (String(path).indexOf("touch.") === 0) root.applyTouchIntegration()
     if (String(path).indexOf("rotation.") === 0) root.refreshRotationBackend()
+    if (String(path).indexOf("input.") === 0) {
+      if (String(path) === "input.deviceHotplug" && root.cfg("input.deviceHotplug", true) !== true && deviceMonitorProcess.running)
+        deviceMonitorProcess.running = false
+      else if (root.cfg("input.deviceHotplug", true) === true) root.startDeviceMonitor()
+      if (String(path) === "input.nativeBackend" || String(path) === "input.safeModeDisableNative") root.startInputBackendProbe()
+    }
     if (String(path).indexOf("notifications.enabled") === 0) root.refreshIntegrations()
     if (String(path) === "wobbly.enabled") {
       root.wobblyBackendFailed = false
@@ -1164,17 +1186,21 @@ Item {
   }
 
   function computeMode() {
-    var decision = TabletModeModel.decide({
-      touchscreen: root.hasTouchscreen,
-      stylus: root.hasStylus && root.cfg("stylus.enabled", true) === true,
-      physicalKeyboard: root.hasPhysicalKeyboard,
-      tabletSwitchAvailable: root.tabletSwitchAvailable,
-      tabletSwitchActive: root.tabletSwitchActive,
-      orientation: root.orientation,
-      lastInput: root.lastInput
-    }, { mode: root.cfg("general.mode", "automatic"), tabletMode: root.cfg("tabletMode", {}) })
-    root.tabletModeState = decision
-    return decision.mode
+    var signals = InputDevicesModel.postureSignals(root.devices, root.inputDeviceState, root.lastInput)
+    signals.stylus = root.hasStylus && root.cfg("stylus.enabled", true) === true
+    signals.orientation = root.orientation
+    // TabletModeModel.decide remains the deterministic baseline; transition()
+    // adds debounce/dwell without hiding the underlying reason.
+    var transition = TabletModeModel.transition(signals, { mode: root.cfg("general.mode", "automatic"), tabletMode: root.cfg("tabletMode", {}) }, root.postureState, Date.now())
+    root.postureState = transition.state
+    root.tabletModeState = transition.decision
+    if (transition.pending) {
+      postureTransition.interval = Math.max(20, Number(transition.delayMs || 80))
+      postureTransition.restart()
+    } else {
+      postureTransition.stop()
+    }
+    return transition.state.current || transition.decision.mode
   }
 
   function focusedMonitor() {
@@ -1587,6 +1613,7 @@ Item {
   function updateDevices(raw) {
     var parsed = parseJson(raw, {})
     root.devices = parsed
+    root.inputDeviceState = InputDevicesModel.stateFromSnapshot(parsed, root.inputDeviceState)
     var touches = []
     var styluses = []
     var groups = [
@@ -1605,7 +1632,7 @@ Item {
         if (StylusModel.isStylus(item, groups[g].role)) styluses.push(item)
       }
     }
-    root.hasTouchscreen = touches.length > 0
+    root.hasTouchscreen = touches.length > 0 || root.inputDeviceState.devices.some(function(item) { return item.role === "touchscreen" })
     root.stylusDevices = styluses
     root.hasStylus = styluses.length > 0
     root.keyboardDevices = StylusModel.classifyKeyboards(parsed.keyboards)
@@ -1636,6 +1663,25 @@ Item {
     root.reconcileOskPolicy()
     root.stateRevision++
     root.stateUpdated()
+  }
+
+  function updateDeviceEvent(raw) {
+    var parsed = parseJson(raw, null)
+    if (!parsed || String(parsed.type || "") !== "device.event") return
+    root.inputDeviceState = InputDevicesModel.applyEvent(root.inputDeviceState, parsed)
+    root.inputDeviceMonitorAvailable = true
+    root.inputDeviceMonitorReason = "udev-event-stream"
+    deviceRefreshDebounce.restart()
+    root.stateRevision++
+    root.stateUpdated()
+  }
+
+  function startDeviceMonitor() {
+    if (!root.configReady || root.safeMode || root.cfg("input.deviceHotplug", true) !== true || deviceMonitorProcess.running) return false
+    if (!root.sourcePath("input/device-monitor.sh")) return false
+    deviceMonitorProcess.command = ["bash", root.sourcePath("input/device-monitor.sh")]
+    deviceMonitorProcess.running = true
+    return true
   }
 
   function updateMonitors(raw) {
@@ -1674,6 +1720,16 @@ Item {
       bluetoothKeyboard: root.hasBluetoothKeyboard,
       tabletMode: { switchAvailable: root.tabletSwitchAvailable, switchActive: root.tabletSwitchActive, reason: root.tabletModeState.reason, profile: root.tabletProfile },
       physicalKeyboardCount: root.keyboardDevices.length,
+      inputDevices: {
+        backend: root.inputDeviceState.backend,
+        revision: Number(root.inputDeviceState.revision || 0),
+        count: root.inputDeviceState.devices.length,
+        hotplug: root.inputDeviceMonitorAvailable,
+        hotplugReason: root.inputDeviceMonitorReason,
+        lastEvent: root.inputDeviceState.hotplug,
+        mapping: root.inputDeviceState.devices.map(function(item) { return { id: item.id, role: item.role, output: item.output || "automatic" } })
+      },
+      posture: InputDevicesModel.explain(root.tabletModeState.signals || {}, root.detectedMode),
       touch: {
         workspaceSwipe: TouchModel.workspaceSwipeEnabled(root.cfg("touch", {}), root.clients),
         fullscreenConflict: TouchModel.shouldDisableWorkspaceSwipe(root.clients, root.cfg("touch", {})),
@@ -1752,7 +1808,7 @@ Item {
       quickshell: String(Quickshell.env("QUICKSHELL_VERSION") || "host-provided"),
       wayland: String(Quickshell.env("WAYLAND_DISPLAY") || "unavailable"),
       mode: root.detectedMode,
-      input: { last: root.lastInput, pending: root.inputCandidate, touchscreen: root.hasTouchscreen, stylus: root.hasStylus, physicalKeyboard: root.hasPhysicalKeyboard, detachableKeyboard: root.hasDetachableKeyboard, bluetoothKeyboard: root.hasBluetoothKeyboard },
+      input: { last: root.lastInput, pending: root.inputCandidate, touchscreen: root.hasTouchscreen, stylus: root.hasStylus, physicalKeyboard: root.hasPhysicalKeyboard, detachableKeyboard: root.hasDetachableKeyboard, bluetoothKeyboard: root.hasBluetoothKeyboard, deviceBackend: root.inputDeviceState.backend, hotplug: root.inputDeviceMonitorAvailable },
       tabletMode: { mode: root.detectedMode, reason: root.tabletModeState.reason, switchAvailable: root.tabletSwitchAvailable, switchActive: root.tabletSwitchActive, profile: root.tabletProfile },
       onboarding: { completed: root.cfg("onboarding.completed", false) === true, skipped: root.cfg("onboarding.skipped", false) === true, version: Number(root.cfg("onboarding.version", 1)) },
       devices: { monitors: root.monitors.length, stylus: root.stylusDevices.length, keyboards: root.keyboardDevices.length },
@@ -2444,6 +2500,45 @@ Item {
   }
 
   Process {
+    id: deviceMonitorProcess
+    environment: root.ownedEnvironment("device-hotplug")
+    stdout: SplitParser { onRead: function(line) { root.updateDeviceEvent(line) } }
+    stderr: SplitParser { onRead: function(line) { root.inputDeviceMonitorReason = "udev-monitor-diagnostic" } }
+    onStarted: {
+      root.processStarted("device-hotplug", deviceMonitorProcess, "event-driven input/display hotplug", true, "none")
+      root.inputDeviceMonitorReason = "connecting"
+    }
+    onExited: function(exitCode) {
+      root.processStopped("device-hotplug", deviceMonitorProcess, exitCode)
+      root.inputDeviceMonitorAvailable = false
+      root.inputDeviceMonitorReason = exitCode === 127 ? "udev-unavailable" : "udev-monitor-exited"
+    }
+  }
+
+  Timer {
+    id: deviceRefreshDebounce
+    interval: 240
+    repeat: false
+    onTriggered: root.refreshDevices()
+  }
+
+  Timer {
+    id: postureTransition
+    interval: 320
+    repeat: false
+    onTriggered: {
+      var before = root.detectedMode
+      root.detectedMode = root.computeMode()
+      root.updateResponsiveContext()
+      root.reconcileOskPolicy()
+      if (before !== root.detectedMode) {
+        root.stateRevision++
+        root.stateUpdated()
+      }
+    }
+  }
+
+  Process {
     id: monitorsProcess
     command: ["hyprctl", "monitors", "-j"]
     environment: root.ownedEnvironment("monitors")
@@ -2940,5 +3035,6 @@ Item {
     root.refreshEffectBackend()
     wtypeCheck.running = true
     root.startInputBackendProbe()
+    root.startDeviceMonitor()
   }
 }

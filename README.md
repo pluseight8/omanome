@@ -39,6 +39,7 @@ This repository is the runnable 0.8.0 phase. It uses public Omarchy/Quickshell/H
 - Notification center grouping, timestamps, actions, touch/stylus swipe dismissal, per-app mute, and clear-group/all controls backed by Omarchy's native notification service.
 - Optional compositor capability boundary: the companion provides a real bounded Wobbly mesh through Hyprland's public `IWindowTransformer` API when the exact ABI and GL renderer checks pass; Omanome integrates the real `omarchy-desktop-cube` API when loaded.
 - A Wayland-native OSK surface driven by `wtype` (`virtual-keyboard-v1`), with English/Russian QWERTY, standard/floating/split/thumb/left-right one-handed layouts, numeric/symbols/emoji/editing layers, toolbar, key popup, long-press alternates, repeat settings, and a local handwriting canvas.
+- A persistent native `omanome-input` transport with bounded JSON IPC, xkbcommon EN/RU state, event-driven input/display hotplug, capability-based keyboard identity, detachable/Bluetooth classification, and explainable posture hysteresis. `omanome input-info` reports the actual native protocol and explicit fallback state.
 - Integration with Omarchy's native notification service for DND, popups, history, and dismissal.
 - Diagnostics and lifecycle commands: status, doctor, logs, enable/disable, safe mode, devices, stylus-info, touch-info, sensor-info, capabilities, hardware-test, redacted support bundles, GitHub install/update checks, transactional rollback/recovery, and ownership-safe uninstall.
 
@@ -113,6 +114,7 @@ omanome update --dry-run --json
 omanome rollback --list --json
 omanome recover --json
 omanome capabilities
+omanome input-info
 omanome hardware-test --fixture tests/fixtures/hardware-tablet.json --json
 omanome diagnostics bundle [output.tar.gz]
 omanome stylus-info

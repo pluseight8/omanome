@@ -23,6 +23,8 @@ class InputProtocolContractTests(unittest.TestCase):
         cls.service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
         cls.osk = (ROOT / "shell/views/Osk.qml").read_text(encoding="utf-8")
         cls.osk_policy = (ROOT / "shell/models/OskPolicy.js").read_text(encoding="utf-8")
+        cls.devices = (ROOT / "shell/models/InputDevices.js").read_text(encoding="utf-8")
+        cls.tablet_mode = (ROOT / "shell/models/TabletMode.js").read_text(encoding="utf-8")
 
     def test_protocol_is_versioned_and_bounded(self) -> None:
         self.assertEqual(self.contract["protocol"], "omanome-input")
@@ -90,6 +92,39 @@ class InputProtocolContractTests(unittest.TestCase):
         self.assertTrue(payload["second"])
         self.assertFalse(payload["visible"])
         self.assertIn("secure field", self.osk)
+
+    def test_device_identity_hotplug_and_posture_are_bounded(self) -> None:
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        expression = (
+            "const D=require('./shell/models/InputDevices.js'); "
+            "const T=require('./shell/models/TabletMode.js'); "
+            "let snapshot={keyboards:[{name:'BT keyboard',vendorId:'1',productId:'2',transport:'bluetooth',detachable:true,type:'keyboard'}]," 
+            "touch:[{name:'panel',vendorId:'3',productId:'4',type:'touchscreen'}],posture:'laptop',tabletSwitch:{available:true,active:false}}; "
+            "let state=D.stateFromSnapshot(snapshot,D.emptyState()); "
+            "let event={type:'device.event',action:'remove',subsystem:'input',device:{name:'BT keyboard',vendorId:'1',productId:'2',transport:'bluetooth',detachable:true,type:'keyboard'}}; "
+            "let removed=D.applyEvent(state,event); "
+            "let signals=D.postureSignals(snapshot,removed,'keyboard'); "
+            "let first=T.transition(signals,{mode:'automatic',tabletMode:{enabled:true,posture:{debounceMs:320,minimumDwellMs:900}}},{current:'desktop',candidate:'',candidateSince:0,lastChangedAt:1000},1100); "
+            "console.log(JSON.stringify({ids:state.devices.map(x=>x.id),removed:removed.devices.length,keyboard:signals.physicalKeyboard,mode:T.decide(signals,{mode:'automatic',tabletMode:{enabled:true}}).mode, pending:first.pending, lines:D.explain(signals,'hybrid').lines}));"
+        )
+        result = subprocess.run([node, "-e", expression], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(len(payload["ids"]), 2)
+        self.assertEqual(payload["removed"], 1)
+        self.assertFalse(payload["keyboard"])
+        self.assertEqual(payload["mode"], "hybrid")
+        self.assertTrue(payload["pending"])
+        self.assertTrue(any("posture: laptop" in line for line in payload["lines"]))
+
+    def test_hotplug_monitor_is_event_driven_and_not_text_capable(self) -> None:
+        monitor = (ROOT / "input/device-monitor.sh").read_text(encoding="utf-8")
+        self.assertIn("udevadm monitor", monitor)
+        self.assertIn("--property", monitor)
+        self.assertNotIn("wtype", monitor)
+        self.assertIn("device.event", monitor)
 
 
 if __name__ == "__main__":

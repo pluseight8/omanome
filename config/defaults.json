@@ -24,7 +24,24 @@
     "transitionDuration": 180,
     "dockPreference": "adaptive",
     "windowControls": "touch",
-    "gestures": true
+    "gestures": true,
+    "posture": {
+      "auto": true,
+      "debounceMs": 320,
+      "minimumDwellMs": 900,
+      "laptopSuppressAutoShow": true,
+      "autoRotateInLaptop": false
+    }
+  },
+  "input": {
+    "schemaVersion": 1,
+    "nativeBackend": "auto",
+    "allowWtypeFallback": true,
+    "suppressOskOnPhysicalKeyboard": true,
+    "suppressOskOnDetachableKeyboard": true,
+    "suppressOskOnBluetoothKeyboard": true,
+    "deviceHotplug": true,
+    "safeModeDisableNative": false
   },
   "onboarding": {
     "completed": false,

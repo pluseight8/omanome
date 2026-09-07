@@ -9,6 +9,19 @@
     "general": { "type": "object" },
     "appearance": { "type": "object" },
     "tabletMode": { "type": "object" },
+    "input": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "nativeBackend": { "enum": ["auto", "native", "fallback", "disabled"] },
+        "allowWtypeFallback": { "type": "boolean" },
+        "suppressOskOnPhysicalKeyboard": { "type": "boolean" },
+        "suppressOskOnDetachableKeyboard": { "type": "boolean" },
+        "suppressOskOnBluetoothKeyboard": { "type": "boolean" },
+        "deviceHotplug": { "type": "boolean" },
+        "safeModeDisableNative": { "type": "boolean" }
+      }
+    },
     "onboarding": { "type": "object" },
     "accessibility": { "type": "object" },
     "touch": { "type": "object" },

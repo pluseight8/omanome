@@ -11,9 +11,13 @@ function desired(source) {
   if (item.autoShow !== true) return { visible: false, reason: "auto-show-disabled" }
   if (item.textFocus !== true) return { visible: false, reason: "text-focus-unavailable" }
   if (item.secure === true && item.securePolicy === "never") return { visible: false, reason: "secure-field-policy" }
-  if (item.physicalKeyboard === true) return { visible: false, reason: "physical-keyboard-present" }
-  if (item.detachableKeyboard === true || item.bluetoothKeyboard === true)
-    return { visible: false, reason: "external-keyboard-present" }
+  if (item.physicalKeyboard === true && item.suppressOnPhysicalKeyboard !== false) return { visible: false, reason: "physical-keyboard-present" }
+  if (item.detachableKeyboard === true && item.suppressOnDetachableKeyboard !== false)
+    return { visible: false, reason: "detachable-keyboard-present" }
+  if (item.bluetoothKeyboard === true && item.suppressOnBluetoothKeyboard !== false)
+    return { visible: false, reason: "bluetooth-keyboard-present" }
+  if (String(item.posture || "").toLowerCase() === "laptop" && item.laptopSuppressAutoShow !== false)
+    return { visible: false, reason: "laptop-posture" }
   if (["touch", "stylus"].indexOf(String(item.lastInput || "")) < 0)
     return { visible: false, reason: "last-input-not-touch" }
   if (item.mode === "desktop" && item.touchscreen !== true && item.lastInput !== "stylus")

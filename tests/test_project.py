@@ -58,7 +58,7 @@ class OmanomeProjectTests(unittest.TestCase):
         schema = json.loads((ROOT / "config/schema.json").read_text(encoding="utf-8"))
         self.assertEqual(defaults["schemaVersion"], 2)
         self.assertEqual(schema["properties"]["schemaVersion"]["const"], 2)
-        for key in ("tabletMode", "onboarding", "accessibility", "touch", "stylus", "keyboard", "clipboard", "updates", "recovery", "diagnostics", "animations", "performance", "applicationRules", "wobbly", "cube", "forceQuit"):
+        for key in ("tabletMode", "input", "onboarding", "accessibility", "touch", "stylus", "keyboard", "clipboard", "updates", "recovery", "diagnostics", "animations", "performance", "applicationRules", "wobbly", "cube", "forceQuit"):
             self.assertIn(key, defaults)
         self.assertTrue(defaults["effects"]["enabled"])
         self.assertEqual(defaults["wobbly"]["maxVertices"], 1024)
@@ -91,6 +91,8 @@ class OmanomeProjectTests(unittest.TestCase):
         panel = (ROOT / "shell/Panel.qml").read_text(encoding="utf-8")
         onboarding = (ROOT / "shell/views/Onboarding.qml").read_text(encoding="utf-8")
         self.assertIn("TabletModeModel.decide", service)
+        self.assertIn("InputDevicesModel", service)
+        self.assertIn("postureTransition", service)
         self.assertIn("needsOnboarding", service)
         self.assertIn('"onboarding"', panel)
         self.assertIn("onboarding.skipped", onboarding)
@@ -345,6 +347,7 @@ class OmanomeProjectTests(unittest.TestCase):
             ROOT / "input/force-quit.sh",
             ROOT / "input/companion-info.sh",
             ROOT / "input/audio-devices.sh",
+            ROOT / "input/device-monitor.sh",
         ):
             result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -380,6 +383,7 @@ class OmanomeProjectTests(unittest.TestCase):
         cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")
         self.assertIn("touch-info", cli)
         self.assertIn("sensor-info", cli)
+        self.assertIn("input-info", cli)
 
     def test_companion_contract_is_optional_and_version_aware(self) -> None:
         companion = ROOT / "hypr/omanome-hypr"

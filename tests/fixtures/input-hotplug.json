@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "devices": [
+    {
+      "name": "Built-in Touchscreen",
+      "type": "touchscreen",
+      "vendorId": "0001",
+      "productId": "0002",
+      "path": "platform-LNX0001:00",
+      "capabilities": { "touchscreen": true }
+    },
+    {
+      "name": "Detachable Keyboard",
+      "type": "keyboard",
+      "vendorId": "0003",
+      "productId": "0004",
+      "path": "usb-1-2",
+      "transport": "bluetooth",
+      "detachable": true,
+      "capabilities": { "keyboard": true }
+    }
+  ],
+  "posture": "laptop",
+  "tabletSwitch": { "available": true, "active": false }
+}

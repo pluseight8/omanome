@@ -38,6 +38,7 @@ Omanome — открытый набор улучшений рабочего ст
 - Wobbly companion выполняет настоящую bounded mesh-деформацию compositor-owned workbuffer через публичный Hyprland `IWindowTransformer`; exact API hash, GL backend, shader/buffer и lifecycle checks остаются обязательными, иначе capability закрывается.
 - Real Desktop Cube backend интегрируется через внешний `omarchy-desktop-cube`, если он загружен; Omanome не дублирует его renderer.
 - Wayland-native OSK через `wtype`: English/Russian QWERTY, standard/floating/split/thumb/one-handed left/right, numeric/symbols/emoji/editing и handwriting canvas; есть toolbar, long-press alternates, key popup и configurable repeat.
+- Постоянный native `omanome-input` transport с bounded JSON IPC, authoritative xkbcommon EN/RU, event-driven hotplug input/display, capability-based identity клавиатур, распознаванием detachable/Bluetooth и explainable posture hysteresis. `omanome input-info` показывает фактические native/fallback capability.
 - Использование нативного Omarchy notification service для DND, истории и dismiss.
 - CLI для диагностики, включая capabilities, hardware-test, redacted support bundle, `stylus-info`, `touch-info`, `sensor-info`, установку из GitHub, safe mode, транзакционные обновления/recovery, rollback и ownership-safe удаление.
 
@@ -96,6 +97,7 @@ omanome update --dry-run --json
 omanome rollback --list --json
 omanome recover --json
 omanome capabilities
+omanome input-info
 omanome hardware-test --fixture tests/fixtures/hardware-tablet.json --json
 omanome diagnostics bundle [output.tar.gz]
 omanome stylus-info

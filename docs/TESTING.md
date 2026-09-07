@@ -31,8 +31,10 @@ companion descriptor, README, changelog, and release metadata agree.
 
 The runtime service coalesces Quick Settings into one state probe and only starts
 Wi-Fi, Bluetooth, and audio enumeration when their pickers are opened. Device
-inventory refreshes are periodic but intentionally slow; all subprocess actions
-are argv-based and missing optional commands produce disabled controls.
+inventory uses a slow compatibility snapshot plus one event-driven udev hotplug
+observer; all subprocess actions are argv-based and missing optional commands
+produce disabled controls. `omanome input-info` is the truthful native/fallback
+diagnostic and does not include typed or surrounding text.
 
 The temporary QML import directory is outside the checkout and is removed when the lint target exits, so it cannot make `omarchy plugin validate` reject the repository for containing symlinks.
 
