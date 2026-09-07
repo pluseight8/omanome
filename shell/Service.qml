@@ -17,6 +17,7 @@ import "models/Stylus.js" as StylusModel
 import "models/Touch.js" as TouchModel
 import "models/Responsive.js" as ResponsiveModel
 import "models/Input.js" as InputModel
+import "models/TabletMode.js" as TabletModeModel
 
 // Omanome's one shared service. It is deliberately headless: all visible
 // surfaces are summoned through the existing Omarchy shell host, so Omanome
@@ -49,6 +50,8 @@ Item {
   property bool hasTouchscreen: false
   property bool hasStylus: false
   property bool hasPhysicalKeyboard: false
+  property bool tabletSwitchAvailable: false
+  property bool tabletSwitchActive: false
   property bool hyprlandAvailable: false
   property bool wtypeAvailable: false
   // A persistent virtual-input companion is optional. Keep this explicit so
@@ -81,6 +84,8 @@ Item {
   property string inputCandidate: ""
   property double inputCandidateSince: 0
   property var responsiveState: ResponsiveModel.context(1280, 720, 1, "keyboard", "desktop", {})
+  property var tabletModeState: ({ mode: "desktop", reason: "not probed", signals: {} })
+  property var tabletProfile: ({ mode: "desktop", tabletLike: false, touchTarget: 44, dockPosition: "bottom", oskAutoShow: false, windowControls: false, gestures: false, quickSettingsDensity: "comfortable", launcherDensity: "compact" })
   property string detectedMode: "desktop"
   property string lastError: ""
   property int stateRevision: 0
@@ -630,12 +635,17 @@ Item {
   }
 
   function computeMode() {
-    if (root.cfg("tabletMode.enabled", true) !== true) return "desktop"
-    var requested = String(root.cfg("general.mode", "automatic"))
-    if (requested !== "automatic") return requested
-    if (root.lastInput === "touch" && root.cfg("tabletMode.autoFromTouch", true) === true) return "tablet"
-    if (root.lastInput === "stylus" && root.cfg("tabletMode.autoFromStylus", true) === true && root.cfg("stylus.enabled", true) === true) return "tablet"
-    return root.hasTouchscreen ? "hybrid" : "desktop"
+    var decision = TabletModeModel.decide({
+      touchscreen: root.hasTouchscreen,
+      stylus: root.hasStylus && root.cfg("stylus.enabled", true) === true,
+      physicalKeyboard: root.hasPhysicalKeyboard,
+      tabletSwitchAvailable: root.tabletSwitchAvailable,
+      tabletSwitchActive: root.tabletSwitchActive,
+      orientation: root.orientation,
+      lastInput: root.lastInput
+    }, { mode: root.cfg("general.mode", "automatic"), tabletMode: root.cfg("tabletMode", {}) })
+    root.tabletModeState = decision
+    return decision.mode
   }
 
   function focusedMonitor() {
@@ -657,6 +667,7 @@ Item {
       reduceTransparency: root.cfg("accessibility.reduceTransparency", false) === true,
       highContrast: root.cfg("accessibility.highContrast", false) === true
     })
+    root.tabletProfile = TabletModeModel.profile(root.detectedMode, root.config, root.responsiveState)
   }
 
   function recordInput(kind) {
@@ -1072,6 +1083,24 @@ Item {
     root.hasStylus = styluses.length > 0
     root.keyboardDevices = StylusModel.classifyKeyboards(parsed.keyboards)
     root.hasPhysicalKeyboard = root.keyboardDevices.length > 0
+    var tabletSwitch = parsed.tabletSwitch
+    if (tabletSwitch === undefined) tabletSwitch = parsed.tablet_switch
+    if (tabletSwitch === undefined && parsed.switches && typeof parsed.switches === "object") {
+      tabletSwitch = parsed.switches.tabletMode
+      if (tabletSwitch === undefined) tabletSwitch = parsed.switches.tablet
+    }
+    if (tabletSwitch !== undefined) {
+      if (typeof tabletSwitch === "object") {
+        root.tabletSwitchAvailable = tabletSwitch.available !== false
+        root.tabletSwitchActive = tabletSwitch.active === true || tabletSwitch.state === "tablet"
+      } else {
+        root.tabletSwitchAvailable = true
+        root.tabletSwitchActive = tabletSwitch === true
+      }
+    } else {
+      root.tabletSwitchAvailable = false
+      root.tabletSwitchActive = false
+    }
     root.detectedMode = root.computeMode()
     root.updateResponsiveContext()
     root.stateRevision++
@@ -1110,6 +1139,7 @@ Item {
       hasStylus: root.hasStylus,
       stylusCount: root.stylusDevices.length,
       physicalKeyboard: root.hasPhysicalKeyboard,
+      tabletMode: { switchAvailable: root.tabletSwitchAvailable, switchActive: root.tabletSwitchActive, reason: root.tabletModeState.reason, profile: root.tabletProfile },
       physicalKeyboardCount: root.keyboardDevices.length,
       touch: {
         workspaceSwipe: TouchModel.workspaceSwipeEnabled(root.cfg("touch", {}), root.clients),
@@ -1174,6 +1204,8 @@ Item {
       wayland: String(Quickshell.env("WAYLAND_DISPLAY") || "unavailable"),
       mode: root.detectedMode,
       input: { last: root.lastInput, pending: root.inputCandidate, touchscreen: root.hasTouchscreen, stylus: root.hasStylus, physicalKeyboard: root.hasPhysicalKeyboard },
+      tabletMode: { mode: root.detectedMode, reason: root.tabletModeState.reason, switchAvailable: root.tabletSwitchAvailable, switchActive: root.tabletSwitchActive, profile: root.tabletProfile },
+      onboarding: { completed: root.cfg("onboarding.completed", false) === true, skipped: root.cfg("onboarding.skipped", false) === true, version: Number(root.cfg("onboarding.version", 1)) },
       devices: { monitors: root.monitors.length, stylus: root.stylusDevices.length, keyboards: root.keyboardDevices.length },
       rotation: { available: root.systemState.rotationAvailable === true, sensor: root.systemState.rotationSensorAvailable === true, backend: String(root.systemState.rotationSensorBackend || "manual") },
       companion: { installed: companion.installed === true, built: companion.built === true, loaded: companion.loaded === true, compatible: companion.compatible === true, crashMarker: companion.crashMarker === true, abiMatch: companion.abiMatch === true },
@@ -1203,6 +1235,10 @@ Item {
     root.doctorRunning = true
     doctorProcess.running = true
     return true
+  }
+
+  function needsOnboarding() {
+    return root.configReady && root.cfg("onboarding.completed", false) !== true && root.cfg("onboarding.skipped", false) !== true
   }
 
   function open(view) {

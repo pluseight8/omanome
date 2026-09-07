@@ -9,6 +9,7 @@
     "general": { "type": "object" },
     "appearance": { "type": "object" },
     "tabletMode": { "type": "object" },
+    "onboarding": { "type": "object" },
     "accessibility": { "type": "object" },
     "touch": { "type": "object" },
     "stylus": { "type": "object" },

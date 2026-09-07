@@ -45,13 +45,37 @@ class OmanomeProjectTests(unittest.TestCase):
         schema = json.loads((ROOT / "config/schema.json").read_text(encoding="utf-8"))
         self.assertEqual(defaults["schemaVersion"], 1)
         self.assertEqual(schema["properties"]["schemaVersion"]["const"], 1)
-        for key in ("tabletMode", "accessibility", "touch", "stylus", "keyboard", "clipboard", "updates", "animations", "performance", "applicationRules", "wobbly", "cube", "forceQuit"):
+        for key in ("tabletMode", "onboarding", "accessibility", "touch", "stylus", "keyboard", "clipboard", "updates", "animations", "performance", "applicationRules", "wobbly", "cube", "forceQuit"):
             self.assertIn(key, defaults)
         self.assertTrue(defaults["effects"]["enabled"])
         self.assertEqual(defaults["wobbly"]["maxVertices"], 1024)
         self.assertEqual(defaults["dock"]["mode"], "floating")
         self.assertIn("favoritesFirst", defaults["launcher"])
         self.assertEqual(defaults["overview"]["workspaceMode"], "dynamic")
+
+    def test_tablet_mode_uses_multiple_signals_and_upgrade_skips_onboarding(self) -> None:
+        result = self.run_node(
+            "const T=require('./shell/models/TabletMode.js'); const C=require('./shell/models/Config.js'); "
+            "const fresh=C.defaults(); const legacy=C.migrate({schemaVersion:1,general:{mode:'automatic'},touch:{enabled:true}}); "
+            "console.log(JSON.stringify({tablet:T.decide({touchscreen:true,stylus:false,physicalKeyboard:false,orientation:'portrait',lastInput:'keyboard'},{mode:'automatic',tabletMode:{enabled:true}}), "
+            "hybrid:T.decide({touchscreen:true,stylus:false,physicalKeyboard:true,orientation:'landscape',lastInput:'keyboard'},{mode:'automatic',tabletMode:{enabled:true}}), "
+            "switch:T.decide({touchscreen:true,tabletSwitchAvailable:true,tabletSwitchActive:true},{mode:'automatic',tabletMode:{enabled:true}}), "
+            "fresh:fresh.onboarding,legacy:legacy.onboarding}));"
+        )
+        self.assertEqual(result["tablet"]["mode"], "tablet")
+        self.assertEqual(result["hybrid"]["mode"], "hybrid")
+        self.assertEqual(result["switch"]["mode"], "tablet")
+        self.assertFalse(result["fresh"]["completed"])
+        self.assertTrue(result["legacy"]["completed"])
+
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        panel = (ROOT / "shell/Panel.qml").read_text(encoding="utf-8")
+        onboarding = (ROOT / "shell/views/Onboarding.qml").read_text(encoding="utf-8")
+        self.assertIn("TabletModeModel.decide", service)
+        self.assertIn("needsOnboarding", service)
+        self.assertIn('"onboarding"', panel)
+        self.assertIn("onboarding.skipped", onboarding)
+        self.assertIn("onboarding.completed", onboarding)
 
     def test_responsive_context_uses_logical_size_and_input_density(self) -> None:
         result = self.run_node(

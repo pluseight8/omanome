@@ -21,7 +21,16 @@
     "autoFromTouch": true,
     "autoFromStylus": true,
     "physicalKeyboardExit": true,
-    "transitionDuration": 180
+    "transitionDuration": 180,
+    "dockPreference": "adaptive",
+    "windowControls": "touch",
+    "gestures": true
+  },
+  "onboarding": {
+    "completed": false,
+    "skipped": false,
+    "version": 1,
+    "privacyAcknowledged": false
   },
   "accessibility": {
     "touchTargetSize": "default",
