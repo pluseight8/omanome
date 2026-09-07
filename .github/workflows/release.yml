@@ -3,11 +3,46 @@ name: Omanome Release
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_run:
+    workflows: ["Omanome CI"]
+    types: [completed]
 
 permissions:
   contents: write
 
 jobs:
+  promote-0-7:
+    name: Tag the verified 0.7.0 main commit
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the green CI commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Create the release tag once
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GREEN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          VERSION="$(python3 -c 'import json; print(json.load(open("manifest.json", encoding="utf-8"))["version"])')"
+          test "$VERSION" = "0.7.0"
+          if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null 2>&1; then
+            echo "v${VERSION} already exists; no tag mutation needed"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${VERSION}" "$GREEN_SHA" -m "Omanome ${VERSION}"
+          git push origin "v${VERSION}"
+
   release:
     name: Validate and publish release
     runs-on: ubuntu-latest
