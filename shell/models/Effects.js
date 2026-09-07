@@ -66,7 +66,8 @@ function effectiveBlur(config, surface, context) {
   var source = object(context)
   var result = surfaceConfig(config, surface)
   var quality = qualityName(result.quality)
-  if (source.batterySaver === true) quality = "battery-saver"
+  if (source.performanceMode === "battery-saver" || source.batterySaver === true) quality = "battery-saver"
+  else if (source.performanceMode === "performance") quality = "performance"
   else if (source.fullscreen === true && source.disableOnFullscreen !== false) quality = "battery-saver"
   else if (source.gpuLoad !== undefined && source.gpuLoad >= Number(source.highGpuThreshold || 0.85)) quality = "performance"
   if (quality !== result.quality) {

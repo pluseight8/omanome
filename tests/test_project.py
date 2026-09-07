@@ -52,6 +52,7 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertEqual(defaults["dock"]["mode"], "floating")
         self.assertIn("favoritesFirst", defaults["launcher"])
         self.assertEqual(defaults["overview"]["workspaceMode"], "dynamic")
+        self.assertEqual(defaults["performance"]["mode"], "balanced")
 
     def test_tablet_mode_uses_multiple_signals_and_upgrade_skips_onboarding(self) -> None:
         result = self.run_node(
@@ -61,6 +62,7 @@ class OmanomeProjectTests(unittest.TestCase):
             "hybrid:T.decide({touchscreen:true,stylus:false,physicalKeyboard:true,orientation:'landscape',lastInput:'keyboard'},{mode:'automatic',tabletMode:{enabled:true}}), "
             "switch:T.decide({touchscreen:true,tabletSwitchAvailable:true,tabletSwitchActive:true},{mode:'automatic',tabletMode:{enabled:true}}), "
             "profile:T.profile('tablet',{tabletMode:{touchTarget:52,dockPreference:'adaptive'},keyboard:{autoShow:true},dock:{position:'bottom'}},{orientation:'portrait'}), "
+            "legacyMode:C.migrate({schemaVersion:2,performance:{qualityPreset:'performance'}}).performance.mode, "
             "fresh:fresh.onboarding,legacy:legacy.onboarding}));"
         )
         self.assertEqual(result["tablet"]["mode"], "tablet")
@@ -70,6 +72,7 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertTrue(result["profile"]["oskAutoShow"])
         self.assertFalse(result["fresh"]["completed"])
         self.assertTrue(result["legacy"]["completed"])
+        self.assertEqual(result["legacyMode"], "performance")
 
         service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
         panel = (ROOT / "shell/Panel.qml").read_text(encoding="utf-8")
@@ -434,9 +437,10 @@ class OmanomeProjectTests(unittest.TestCase):
             "const rule=R.decision([{id:'game',appId:'steam',fullscreen:true,disableBlur:true,disableWobbly:true}],{appId:'steam',fullscreen:1},{inputKind:'touch'}); "
             "const motion=A.transition({enabled:true,preset:'Smooth'},180,true); "
             "const performance=P.snapshot({qualityPreset:'balanced',adaptiveQuality:true,highGpuThreshold:0.85},{gpuLoad:0.92}); "
+            "const battery=P.snapshot({mode:'balanced',disableOnBattery:true},{batterySaver:true}); "
             "const caps=E.capabilityState({desktopCube:false},{desktopCube:true,desktopCubeBackend:'omarchy-desktop-cube'}); "
             "const rules=E.layerRules({enabled:true,quality:'balanced',surfaces:{dock:{enabled:true}}},{backend:'hyprland-layer-rule',layerRulesAvailable:true},{backendAvailable:true}); "
-            "console.log(JSON.stringify({blur,rule,motion,performance,caps,rules}));"
+            "console.log(JSON.stringify({blur,rule,motion,performance,battery,caps,rules}));"
         )
         self.assertEqual(result["blur"]["quality"], "battery-saver")
         self.assertEqual(result["blur"]["passes"], 0)
@@ -444,6 +448,9 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertTrue(result["rule"]["disableBlur"])
         self.assertTrue(result["motion"]["duration"] <= 80)
         self.assertEqual(result["performance"]["quality"], "performance")
+        self.assertEqual(result["performance"]["requestedMode"], "balanced")
+        self.assertEqual(result["battery"]["mode"], "battery-saver")
+        self.assertFalse(result["battery"]["effectsEnabled"])
         self.assertEqual(result["caps"]["desktopCubeBackend"], "omarchy-desktop-cube")
         self.assertTrue(any(item["rule"] == "blur,namespace:omanome-dock" for item in result["rules"]))
 

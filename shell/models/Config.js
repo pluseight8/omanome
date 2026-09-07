@@ -22,7 +22,7 @@ function defaults() {
     blur: { enabled: true, backend: "hyprland-layer-rule", quality: "balanced", batteryQuality: "battery-saver", fullscreenQuality: "battery-saver", highGpuQuality: "performance", highGpuThreshold: 0.85, reduceBlurWithMotion: true, dock: true, overview: true, launcher: true, quickSettings: true, notificationCenter: true, clipboard: true, osk: true, settings: true, radius: 18, passes: 2, opacity: 0.9, brightness: 0.85, saturation: 1.1, noise: 0.02, vibrancy: 0.06, tint: "", border: true, shadow: true, surfaces: { dock: { enabled: true }, overview: { enabled: true }, launcher: { enabled: true }, quickSettings: { enabled: true }, notifications: { enabled: true }, clipboard: { enabled: true }, altTab: { enabled: true }, osk: { enabled: true }, settings: { enabled: true }, windowControls: { enabled: true }, annotation: { enabled: true } } },
     effects: { enabled: true, wobblyWindows: false, desktopCube: false, companionPolicy: "auto", existingCubeBackend: "detect", disableOnBattery: true, disableOnFullscreen: true, performanceMode: "balanced" },
     animations: { enabled: true, preset: "GNOME", speedMultiplier: 1.0, durationScale: 1.0, easing: "standard", springStrength: 0.65, reducedMotion: false, overview: true, dockHoverZoom: true, dockHoverScale: 1.2, dockReveal: true, notificationEntry: true },
-    performance: { qualityPreset: "balanced", adaptiveQuality: true, highGpuThreshold: 0.85, gpuLoadSource: "backend-only", disableOnBattery: true, disableOnFullscreen: true, fullscreenPolicy: "battery-saver", autoDisableOnFrameBudget: false },
+    performance: { mode: "balanced", qualityPreset: "balanced", adaptiveQuality: true, highGpuThreshold: 0.85, gpuLoadSource: "backend-only", disableOnBattery: true, disableOnFullscreen: true, fullscreenPolicy: "battery-saver", autoDisableOnFrameBudget: false },
     applicationRules: { enabled: true, rules: [] },
     wobbly: { enabled: false, profile: "subtle", stiffness: 0.72, friction: 0.78, damping: 0.62, mass: 1.0, gridResolution: 8, maxVertices: 1024, maxDeformation: 0.035, edgeResistance: 0.82, velocityInfluence: 0.45, snapStrength: 0.7, onMove: true, onResize: true, onMaximize: true, onOpen: false, onClose: false, excludeFullscreen: true, excludeGames: true, excludeSteam: true, excludeVr: true, excludeDrawingApps: true, excludeMaximized: true, allowXwayland: false, excludedApps: [] },
     cube: { enabled: false, backend: "detect", monitorMode: "active-monitor", perspective: 0.82, fieldOfView: 62, radius: 1.0, faceSpacing: 0.0, background: "wallpaper", opacity: 1.0, zoom: 1.0, parallax: 0.5, reflection: false, caps: true, wrapAround: false, animationDuration: 420, easing: "spring", touchInteractive: true, touchpadOverride: false, mouseDrag: true, stylusDrag: true },
@@ -86,6 +86,11 @@ function migrationStepOneToTwo(source, report) {
   if (source.diagnostics.supportBundleRetention === undefined) source.diagnostics.supportBundleRetention = 3
   if (source.diagnostics.redactPaths === undefined) source.diagnostics.redactPaths = true
   if (source.diagnostics.includeSystemCommands === undefined) source.diagnostics.includeSystemCommands = true
+  if (!isObject(source.performance)) source.performance = {}
+  if (source.performance.mode === undefined && source.performance.qualityPreset !== undefined) {
+    source.performance.mode = source.performance.qualityPreset
+    report.applied.push("performance-mode-from-quality-preset")
+  }
   source.schemaVersion = 2
   report.applied.push("1->2")
 }
@@ -101,6 +106,11 @@ function migrateDetailed(raw) {
   var report = { ok: true, from: version, to: CURRENT_SCHEMA_VERSION, applied: [] }
   if (version < 1) migrationStepZeroToOne(source, report)
   if (source.schemaVersion < 2) migrationStepOneToTwo(source, report)
+  if (!isObject(source.performance)) source.performance = {}
+  if (source.performance.mode === undefined && source.performance.qualityPreset !== undefined) {
+    source.performance.mode = source.performance.qualityPreset
+    report.applied.push("performance-mode-from-quality-preset")
+  }
   return { ok: true, config: merge(defaults(), source), from: version, to: CURRENT_SCHEMA_VERSION, applied: report.applied, migrated: report.applied.length > 0 }
 }
 

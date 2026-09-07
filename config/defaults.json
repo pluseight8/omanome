@@ -328,6 +328,7 @@
     "notificationEntry": true
   },
   "performance": {
+    "mode": "balanced",
     "qualityPreset": "balanced",
     "adaptiveQuality": true,
     "highGpuThreshold": 0.85,

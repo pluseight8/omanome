@@ -376,6 +376,8 @@ Item {
     var context = root.performanceContext()
     if (context.fullscreen && context.disableOnFullscreen) return false
     var limit = Math.max(1, Math.min(5, Math.floor(Number(root.cfg("altTab.previewStreams", 3)))))
+    if (root.performanceState && Number(root.performanceState.previewStreams) > 0)
+      limit = Math.min(limit, Number(root.performanceState.previewStreams))
     if (context.batterySaver) limit = 1
     if (String(surface || "") === "dock") limit = Math.min(limit, 2)
     if (String(surface || "") === "overview") limit = Math.min(limit, 3)
@@ -430,15 +432,18 @@ Item {
     var performance = root.cfg("performance", {})
     var batteryState = String(root.systemState.batteryState || "unknown").toLowerCase()
     var batterySaver = performance.disableOnBattery !== false && batteryState === "discharging"
-    return {
+    var context = {
       batterySaver: batterySaver,
       fullscreen: root.fullscreenActive(),
       disableOnFullscreen: performance.disableOnFullscreen !== false,
       highGpuThreshold: Number(performance.highGpuThreshold || 0.85),
       reducedMotion: root.cfg("general.reduceMotion", false) === true || root.cfg("animations.reducedMotion", false) === true,
       reduceBlurWithMotion: root.cfg("blur.reduceBlurWithMotion", true) !== false,
+      safeMode: root.safeMode === true,
       backendAvailable: root.effectBackend.layerRulesAvailable === true && root.safeMode !== true && root.cfg("effects.enabled", true) !== false
     }
+    context.performanceMode = PerformanceModel.mode(performance, context)
+    return context
   }
 
   function appRuleDecision() {

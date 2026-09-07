@@ -25,7 +25,20 @@
     "blur": { "type": "object" },
     "effects": { "type": "object" },
     "animations": { "type": "object" },
-    "performance": { "type": "object" },
+    "performance": {
+      "type": "object",
+      "properties": {
+        "mode": { "enum": ["balanced", "performance", "battery-saver"] },
+        "qualityPreset": { "enum": ["quality", "balanced", "performance", "battery-saver"] },
+        "adaptiveQuality": { "type": "boolean" },
+        "highGpuThreshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "gpuLoadSource": { "type": "string" },
+        "disableOnBattery": { "type": "boolean" },
+        "disableOnFullscreen": { "type": "boolean" },
+        "fullscreenPolicy": { "enum": ["balanced", "performance", "battery-saver"] },
+        "autoDisableOnFrameBudget": { "type": "boolean" }
+      }
+    },
     "applicationRules": { "type": "object" },
     "wobbly": { "type": "object" },
     "cube": { "type": "object" },
