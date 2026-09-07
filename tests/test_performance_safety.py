@@ -24,6 +24,7 @@ class PerformanceSafetyTests(unittest.TestCase):
         report = json.loads(result.stdout)
         self.assertTrue(report["passed"])
         self.assertTrue(report["ownership"]["processNameMatching"] is False)
+        self.assertNotIn("missing-owner-marker", {item["rule"] for item in report["findings"]})
 
     def test_process_snapshot_excludes_unmarked_lua_processes(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

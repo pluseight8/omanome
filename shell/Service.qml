@@ -18,6 +18,7 @@ import "models/Touch.js" as TouchModel
 import "models/Responsive.js" as ResponsiveModel
 import "models/Input.js" as InputModel
 import "models/TabletMode.js" as TabletModeModel
+import "models/ProcessPolicy.js" as ProcessPolicy
 
 // Omanome's one shared service. It is deliberately headless: all visible
 // surfaces are summoned through the existing Omarchy shell host, so Omanome
@@ -34,7 +35,16 @@ Item {
   readonly property string stateDir: stateHome + "/omanome"
   readonly property string configPath: configDir + "/config.json"
   readonly property string clipboardPath: stateDir + "/clipboard.json"
+  readonly property string processOwner: "io.omanome.shell"
+  readonly property string processRegistryPath: stateDir + "/processes.json"
   property string pluginRoot: ""
+  property bool directoriesReady: false
+  property bool processRegistryReady: false
+  property var ownedProcesses: []
+  property var processRestartHistory: ({})
+  property var processCounters: ({ spawnedTotal: 0, eventsReceived: 0, failedExits: 0, configWrites: 0, helperRestarts: 0, coalescedRequests: 0 })
+  property var clipboardRestartState: ({ consecutiveFailures: 0, startedAt: 0, blocked: false })
+  readonly property var clipboardRestartPolicy: ({ initialDelayMs: 1000, maxDelayMs: 30000, maxConsecutiveFailures: 5, stableAfterMs: 30000 })
 
   property var config: Config.defaults()
   property bool configReady: false
@@ -147,6 +157,140 @@ Item {
     root.captureScript = root.sourcePath("input/clipboard-capture.sh")
     forceQuitTermProcess.command = ["bash", root.sourcePath("input/force-quit.sh")]
     forceQuitKillProcess.command = ["bash", root.sourcePath("input/force-quit.sh")]
+  }
+
+  function ownedEnvironment(component) {
+    return {
+      OMANOME_OWNER: root.processOwner,
+      OMANOME_COMPONENT: String(component || "unknown"),
+      OMANOME_SHELL_PID: String(Quickshell.processId || "")
+    }
+  }
+
+  function updateProcessCounter(name, delta) {
+    var next = {}
+    for (var key in root.processCounters) next[key] = root.processCounters[key]
+    next[String(name)] = Number(next[String(name)] || 0) + Number(delta || 0)
+    root.processCounters = next
+  }
+
+  function processRegistryEntry(component, pid) {
+    var list = Array.isArray(root.ownedProcesses) ? root.ownedProcesses : []
+    for (var i = 0; i < list.length; i++) {
+      if (String(list[i].component || "") === String(component || "") && Number(list[i].pid || 0) === Number(pid || 0)) return list[i]
+    }
+    return null
+  }
+
+  function scheduleProcessRegistryWrite() {
+    if (root.processRegistryReady && root.directoriesReady) processRegistryWriteDebounce.restart()
+  }
+
+  function loadProcessRegistry(raw) {
+    var parsed = root.parseJson(raw, {})
+    var next = []
+    if (parsed && typeof parsed === "object" && (!parsed.owner || String(parsed.owner) === root.processOwner)) {
+      var entries = Array.isArray(parsed.processes) ? parsed.processes : []
+      for (var i = 0; i < entries.length; i++) {
+        var item = entries[i]
+        if (!item || Number(item.pid || 0) <= 0 || !item.component) continue
+        next.push(item)
+      }
+      var counters = parsed.counters && typeof parsed.counters === "object" ? parsed.counters : {}
+      var mergedCounters = {}
+      for (var key in root.processCounters) mergedCounters[key] = Number(counters[key] || root.processCounters[key] || 0)
+      root.processCounters = mergedCounters
+    }
+    root.ownedProcesses = next
+    root.processRegistryReady = true
+    root.scheduleProcessRegistryWrite()
+  }
+
+  function persistProcessRegistry() {
+    if (!root.processRegistryReady || !root.directoriesReady) return
+    processRegistryFile.setText(JSON.stringify({
+      schemaVersion: 1,
+      owner: root.processOwner,
+      shellPid: String(Quickshell.processId || ""),
+      updatedAt: new Date().toISOString(),
+      processes: root.ownedProcesses,
+      counters: root.processCounters
+    }, null, 2) + "\n")
+  }
+
+  function processStarted(component, process, purpose, persistent, restartPolicy) {
+    var pid = Number(process && process.processId || 0)
+    if (pid <= 0) return
+    var name = String(component || "unknown")
+    var history = {}
+    for (var key in root.processRestartHistory) history[key] = root.processRestartHistory[key]
+    var entry = {
+      pid: pid,
+      component: name,
+      purpose: String(purpose || "unspecified"),
+      command: ProcessPolicy.redactedCommand(process.command),
+      startedAt: new Date().toISOString(),
+      shellPid: String(Quickshell.processId || ""),
+      restartCount: Number(history[name] || 0),
+      restartPolicy: String(restartPolicy || "none"),
+      persistent: persistent === true,
+      owner: root.processOwner
+    }
+    var next = []
+    var replaced = false
+    for (var i = 0; i < root.ownedProcesses.length; i++) {
+      var existing = root.ownedProcesses[i]
+      if (String(existing.component || "") === name && Number(existing.pid || 0) === pid) {
+        next.push(entry)
+        replaced = true
+      } else next.push(existing)
+    }
+    if (!replaced) next.push(entry)
+    root.ownedProcesses = next
+    root.updateProcessCounter("spawnedTotal", 1)
+    root.scheduleProcessRegistryWrite()
+  }
+
+  function processStopped(component, process, exitCode) {
+    var name = String(component || "unknown")
+    var pid = Number(process && process.processId || 0)
+    var next = []
+    for (var i = 0; i < root.ownedProcesses.length; i++) {
+      var entry = root.ownedProcesses[i]
+      var sameComponent = String(entry.component || "") === name
+      var samePid = pid > 0 ? Number(entry.pid || 0) === pid : sameComponent
+      if (!sameComponent || !samePid) next.push(entry)
+    }
+    root.ownedProcesses = next
+    root.updateProcessCounter("eventsReceived", 1)
+    if (Number(exitCode || 0) !== 0) {
+      root.updateProcessCounter("failedExits", 1)
+      var history = {}
+      for (var key in root.processRestartHistory) history[key] = root.processRestartHistory[key]
+      history[name] = Number(history[name] || 0) + 1
+      root.processRestartHistory = history
+    }
+    root.scheduleProcessRegistryWrite()
+  }
+
+  function clipboardWatcherExited(component, exitCode) {
+    root.processStopped(component, component === "clipboard-text" ? textWatch : imageWatch, exitCode)
+    if (!root.clipboardWatching) return
+    var now = Date.now()
+    var decision = ProcessPolicy.nextRestart(root.clipboardRestartState, now, root.clipboardRestartPolicy)
+    root.clipboardRestartState = {
+      consecutiveFailures: decision.consecutiveFailures,
+      startedAt: 0,
+      blocked: decision.blocked === true
+    }
+    if (!decision.restart) {
+      root.lastError = "Clipboard watcher disabled after repeated failures"
+      root.updateProcessCounter("helperRestarts", 1)
+      return
+    }
+    root.updateProcessCounter("helperRestarts", 1)
+    clipboardRestart.interval = Math.max(1, decision.delayMs)
+    clipboardRestart.restart()
   }
 
   function refreshIntegrations() {
@@ -1193,6 +1337,14 @@ Item {
       configPath: root.configPath,
       config: { schemaVersion: Number(root.config.schemaVersion || Config.CURRENT_SCHEMA_VERSION), loadStatus: root.configLoadStatus, loadError: root.configLoadError, migration: root.configMigration },
       clipboardEntries: root.clipboardHistory.length,
+      processes: {
+        owner: root.processOwner,
+        registryPath: root.processRegistryPath,
+        registryReady: root.processRegistryReady,
+        ownedCount: root.ownedProcesses.length,
+        counters: root.processCounters,
+        clipboardRestart: root.clipboardRestartState
+      },
       effects: {
         blur: root.effectBackend.layerRulesAvailable === true,
         livePreview: root.livePreviewState.available === true,
@@ -1241,6 +1393,7 @@ Item {
       companion: { installed: companion.installed === true, built: companion.built === true, loaded: companion.loaded === true, compatible: companion.compatible === true, crashMarker: companion.crashMarker === true, abiMatch: companion.abiMatch === true },
       effects: { blur: root.effectBackend.layerRulesAvailable === true, livePreview: root.livePreviewState.available === true, wobbly: root.effectCapabilities.wobblyWindows === true, cube: root.effectCapabilities.desktopCube === true },
       osk: { enabled: root.cfg("keyboard.enabled", true) === true, wtype: root.wtypeAvailable, inputBackend: root.inputBackendAvailable },
+      processes: { owner: root.processOwner, registryReady: root.processRegistryReady, ownedCount: root.ownedProcesses.length, counters: root.processCounters },
       config: { schemaVersion: Number(root.config.schemaVersion || Config.CURRENT_SCHEMA_VERSION), path: root.configPath, loadStatus: root.configLoadStatus, loadError: root.configLoadError, migration: root.configMigration },
       responsive: root.responsiveState,
       error: String(root.lastError || "")
@@ -1627,6 +1780,9 @@ Item {
   function startClipboardWatchers() {
     if (!root.configReady || !root.cfg("clipboard.enabled", true) || root.cfg("clipboard.privateMode", false) || root.cfg("privacy.clipboardPrivate", false)) return
     if (!root.captureScript) root.reloadPaths()
+    if (ProcessPolicy.stable(root.clipboardRestartState, Date.now(), root.clipboardRestartPolicy))
+      root.clipboardRestartState = { consecutiveFailures: 0, startedAt: 0, blocked: false }
+    if (root.clipboardRestartState.blocked === true) return
     root.clipboardWatching = true
     if (!textWatch.running) textWatch.running = true
     if (!imageWatch.running) imageWatch.running = true
@@ -1637,6 +1793,7 @@ Item {
     if (textWatch.running) textWatch.running = false
     if (imageWatch.running) imageWatch.running = false
     clipboardRestart.stop()
+    root.clipboardRestartState = { consecutiveFailures: 0, startedAt: 0, blocked: false }
   }
 
   function quickAction(name) {
@@ -1719,9 +1876,16 @@ Item {
 
   Process {
     id: directoryProcess
+    environment: root.ownedEnvironment("directory")
+    onStarted: root.processStarted("directory", directoryProcess, "create user directories", false, "none")
     onExited: function(exitCode) {
+      root.processStopped("directory", directoryProcess, exitCode)
       if (exitCode !== 0) root.lastError = "Could not create Omanome user directories"
-      else initialConfigSave.restart()
+      else {
+        root.directoriesReady = true
+        root.scheduleProcessRegistryWrite()
+        initialConfigSave.restart()
+      }
     }
   }
 
@@ -1742,7 +1906,29 @@ Item {
     id: configWriteDebounce
     interval: 180
     repeat: false
-    onTriggered: configFile.setText(JSON.stringify(root.config, null, 2) + "\n")
+    onTriggered: {
+      configFile.setText(JSON.stringify(root.config, null, 2) + "\n")
+      root.updateProcessCounter("configWrites", 1)
+      root.scheduleProcessRegistryWrite()
+    }
+  }
+
+  FileView {
+    id: processRegistryFile
+    path: root.processRegistryPath
+    watchChanges: false
+    atomicWrites: true
+    printErrors: false
+    onLoaded: root.loadProcessRegistry(text())
+    onLoadFailed: root.loadProcessRegistry("")
+  }
+
+  Timer {
+    id: processRegistryWriteDebounce
+    // performance: allow-fast-timer — one-shot coalescing for atomic registry writes.
+    interval: 80
+    repeat: false
+    onTriggered: root.persistProcessRegistry()
   }
 
   FileView {
@@ -1758,8 +1944,11 @@ Item {
   Process {
     id: devicesProcess
     command: ["hyprctl", "devices", "-j"]
+    environment: root.ownedEnvironment("devices")
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateDevices(text) }
+    onStarted: root.processStarted("devices", devicesProcess, "Hyprland device snapshot", false, "none")
     onExited: function(exitCode) {
+      root.processStopped("devices", devicesProcess, exitCode)
       root.hyprlandAvailable = exitCode === 0 || root.hyprlandAvailable
       if (exitCode === 0) root.applyTouchIntegration()
     }
@@ -1768,20 +1957,29 @@ Item {
   Process {
     id: monitorsProcess
     command: ["hyprctl", "monitors", "-j"]
+    environment: root.ownedEnvironment("monitors")
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateMonitors(text) }
+    onStarted: root.processStarted("monitors", monitorsProcess, "Hyprland monitor snapshot", false, "none")
+    onExited: function(exitCode) { root.processStopped("monitors", monitorsProcess, exitCode) }
   }
 
   Process {
     id: clientsProcess
     command: ["hyprctl", "clients", "-j"]
+    environment: root.ownedEnvironment("clients")
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateClients(text) }
+    onStarted: root.processStarted("clients", clientsProcess, "Hyprland client snapshot", false, "none")
+    onExited: function(exitCode) { root.processStopped("clients", clientsProcess, exitCode) }
   }
 
   Process {
     id: systemStateProcess
     command: ["bash", root.sourcePath("input/system-state.sh")]
+    environment: root.ownedEnvironment("system-state")
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateSystemState(text) }
+    onStarted: root.processStarted("system-state", systemStateProcess, "Quick Settings state snapshot", false, "none")
     onExited: function(exitCode) {
+      root.processStopped("system-state", systemStateProcess, exitCode)
       if (exitCode !== 0) root.lastError = "Quick Settings state probe failed"
     }
   }
@@ -1789,16 +1987,24 @@ Item {
   Process {
     id: effectsInfoProcess
     command: ["bash", root.sourcePath("input/effects-info.sh")]
+    environment: root.ownedEnvironment("effects-info")
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateEffectBackend(text) }
+    onStarted: root.processStarted("effects-info", effectsInfoProcess, "effect backend snapshot", false, "none")
     onExited: function(exitCode) {
+      root.processStopped("effects-info", effectsInfoProcess, exitCode)
       if (exitCode !== 0) root.lastError = "Effect backend probe failed"
     }
   }
 
   Process {
     id: wobblyControlProcess
+    environment: root.ownedEnvironment("wobbly-control")
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateWobblyBackendResponse(text) }
-    onExited: function(exitCode) { root.finishWobblyBackend(exitCode) }
+    onStarted: root.processStarted("wobbly-control", wobblyControlProcess, "wobbly backend request", false, "coalesced")
+    onExited: function(exitCode) {
+      root.processStopped("wobbly-control", wobblyControlProcess, exitCode)
+      root.finishWobblyBackend(exitCode)
+    }
   }
 
   Timer {
@@ -1810,22 +2016,33 @@ Item {
 
   Process {
     id: wobblyConfigProcess
+    environment: root.ownedEnvironment("wobbly-config")
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateWobblyConfigResponse(text) }
-    onExited: function(exitCode) { root.finishWobblyConfig(exitCode) }
+    onStarted: root.processStarted("wobbly-config", wobblyConfigProcess, "wobbly configuration request", false, "debounced")
+    onExited: function(exitCode) {
+      root.processStopped("wobbly-config", wobblyConfigProcess, exitCode)
+      root.finishWobblyConfig(exitCode)
+    }
   }
 
   Process {
     id: forceQuitTermProcess
+    environment: root.ownedEnvironment("force-quit-term")
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateForceQuitTerm(text, 0) }
+    onStarted: root.processStarted("force-quit-term", forceQuitTermProcess, "graceful close request", false, "user-action")
     onExited: function(exitCode) {
+      root.processStopped("force-quit-term", forceQuitTermProcess, exitCode)
       if (exitCode !== 0) root.updateForceQuitTerm("", exitCode)
     }
   }
 
   Process {
     id: forceQuitKillProcess
+    environment: root.ownedEnvironment("force-quit-kill")
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateForceQuitKill(text, 0) }
+    onStarted: root.processStarted("force-quit-kill", forceQuitKillProcess, "forced close request", false, "user-action")
     onExited: function(exitCode) {
+      root.processStopped("force-quit-kill", forceQuitKillProcess, exitCode)
       if (exitCode !== 0) root.updateForceQuitKill("", exitCode)
     }
   }
@@ -1833,24 +2050,36 @@ Item {
   Process {
     id: wifiScanProcess
     command: ["bash", root.sourcePath("input/wifi-scan.sh")]
+    environment: root.ownedEnvironment("wifi-scan")
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateWifiScan(text) }
+    onStarted: root.processStarted("wifi-scan", wifiScanProcess, "on-demand Wi-Fi scan", false, "user-action")
+    onExited: function(exitCode) { root.processStopped("wifi-scan", wifiScanProcess, exitCode) }
   }
 
   Process {
     id: bluetoothScanProcess
     command: ["bash", root.sourcePath("input/bluetooth-scan.sh")]
+    environment: root.ownedEnvironment("bluetooth-scan")
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateBluetoothScan(text) }
+    onStarted: root.processStarted("bluetooth-scan", bluetoothScanProcess, "on-demand Bluetooth scan", false, "user-action")
+    onExited: function(exitCode) { root.processStopped("bluetooth-scan", bluetoothScanProcess, exitCode) }
   }
 
   Process {
     id: audioScanProcess
     command: ["bash", root.sourcePath("input/audio-devices.sh")]
+    environment: root.ownedEnvironment("audio-scan")
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateAudioDevices(text) }
+    onStarted: root.processStarted("audio-scan", audioScanProcess, "on-demand audio scan", false, "user-action")
+    onExited: function(exitCode) { root.processStopped("audio-scan", audioScanProcess, exitCode) }
   }
 
   Process {
     id: rotationApplyProcess
+    environment: root.ownedEnvironment("rotation-apply")
+    onStarted: root.processStarted("rotation-apply", rotationApplyProcess, "atomic monitor rotation", false, "rollback")
     onExited: function(exitCode) {
+      root.processStopped("rotation-apply", rotationApplyProcess, exitCode)
       if (exitCode === 0) {
         root.finishRotation(true)
         return
@@ -1867,14 +2096,22 @@ Item {
 
   Process {
     id: rotationRollbackProcess
-    onExited: function() { root.finishRotation(false) }
+    environment: root.ownedEnvironment("rotation-rollback")
+    onStarted: root.processStarted("rotation-rollback", rotationRollbackProcess, "rotation rollback", false, "rollback")
+    onExited: function(exitCode) {
+      root.processStopped("rotation-rollback", rotationRollbackProcess, exitCode)
+      root.finishRotation(false)
+    }
   }
 
   Process {
     id: rotationProcess
     command: ["bash", root.sourcePath("input/rotation-monitor.sh")]
+    environment: root.ownedEnvironment("rotation-monitor")
     stdout: SplitParser { onRead: function(line) { root.updateOrientation(line) } }
+    onStarted: root.processStarted("rotation-monitor", rotationProcess, "event-driven orientation monitor", true, "bounded-backoff")
     onExited: function(exitCode) {
+      root.processStopped("rotation-monitor", rotationProcess, exitCode)
       if (exitCode !== 0 && root.systemState.rotationSensorAvailable) root.lastError = "Rotation sensor backend stopped"
       root.refreshRotationBackend()
     }
@@ -1883,7 +2120,10 @@ Item {
   Process {
     id: nightLightProcess
     command: ["hyprsunset", "--temperature", "4000"]
-    onExited: {
+    environment: root.ownedEnvironment("night-light")
+    onStarted: root.processStarted("night-light", nightLightProcess, "night-light helper", true, "user-action")
+    onExited: function(exitCode) {
+      root.processStopped("night-light", nightLightProcess, exitCode)
       root.refreshSystemState()
     }
   }
@@ -1891,46 +2131,79 @@ Item {
   Process {
     id: wtypeCheck
     command: ["bash", "-c", "command -v wtype >/dev/null 2>&1"]
-    onExited: function(exitCode) { root.wtypeAvailable = exitCode === 0 }
+    environment: root.ownedEnvironment("wtype-check")
+    onStarted: root.processStarted("wtype-check", wtypeCheck, "input backend capability probe", false, "startup")
+    onExited: function(exitCode) {
+      root.processStopped("wtype-check", wtypeCheck, exitCode)
+      root.wtypeAvailable = exitCode === 0
+    }
   }
 
   Process {
     id: textWatch
     command: ["setpriv", "--pdeathsig", "TERM", "wl-paste", "--type", "text", "--watch", root.captureScript, "text"]
+    environment: root.ownedEnvironment("clipboard-text")
     stdout: SplitParser { onRead: function(line) { root.addClipboardJson(line) } }
-    onExited: function() { if (root.clipboardWatching) clipboardRestart.restart() }
+    onStarted: {
+      root.processStarted("clipboard-text", textWatch, "event-driven text clipboard watcher", true, "bounded-backoff")
+      var state = {}
+      for (var key in root.clipboardRestartState) state[key] = root.clipboardRestartState[key]
+      if (!state.startedAt) state.startedAt = Date.now()
+      root.clipboardRestartState = state
+    }
+    onExited: function(exitCode) { root.clipboardWatcherExited("clipboard-text", exitCode) }
   }
 
   Process {
     id: imageWatch
     command: ["setpriv", "--pdeathsig", "TERM", "wl-paste", "--type", "image/png", "--watch", root.captureScript, "image/png"]
+    environment: root.ownedEnvironment("clipboard-image")
     stdout: SplitParser { onRead: function(line) { root.addClipboardJson(line) } }
-    onExited: function() { if (root.clipboardWatching) clipboardRestart.restart() }
+    onStarted: {
+      root.processStarted("clipboard-image", imageWatch, "event-driven image clipboard watcher", true, "bounded-backoff")
+      var state = {}
+      for (var key in root.clipboardRestartState) state[key] = root.clipboardRestartState[key]
+      if (!state.startedAt) state.startedAt = Date.now()
+      root.clipboardRestartState = state
+    }
+    onExited: function(exitCode) { root.clipboardWatcherExited("clipboard-image", exitCode) }
   }
 
   Process {
     id: copyProcess
     property string secret: ""
+    environment: root.ownedEnvironment("clipboard-copy")
     stdinEnabled: true
     onStarted: {
+      root.processStarted("clipboard-copy", copyProcess, "clipboard secret pipe", false, "user-action")
       write(secret)
       secret = ""
     }
+    onExited: function(exitCode) { root.processStopped("clipboard-copy", copyProcess, exitCode) }
   }
 
   Process {
     id: diagnosticsCopyProcess
     property string payload: ""
     command: ["wl-copy", "--type", "text/plain"]
+    environment: root.ownedEnvironment("diagnostics-copy")
     stdinEnabled: true
-    onStarted: { write(payload); payload = "" }
+    onStarted: {
+      root.processStarted("diagnostics-copy", diagnosticsCopyProcess, "diagnostics clipboard copy", false, "user-action")
+      write(payload)
+      payload = ""
+    }
+    onExited: function(exitCode) { root.processStopped("diagnostics-copy", diagnosticsCopyProcess, exitCode) }
   }
 
   Process {
     id: doctorProcess
     command: [root.sourcePath("cli/omanome"), "doctor"]
+    environment: root.ownedEnvironment("doctor")
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.doctorOutput = text }
+    onStarted: root.processStarted("doctor", doctorProcess, "diagnostic doctor command", false, "user-action")
     onExited: function(exitCode) {
+      root.processStopped("doctor", doctorProcess, exitCode)
       root.doctorRunning = false
       if (exitCode !== 0 && root.doctorOutput === "") root.doctorOutput = "doctor unavailable (exit " + exitCode + ")"
       root.stateRevision++
@@ -1940,8 +2213,11 @@ Item {
 
   Process {
     id: updateProcess
+    environment: root.ownedEnvironment("update")
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateOutput = text }
+    onStarted: root.processStarted("update", updateProcess, "update inspection command", false, "user-action")
     onExited: function(exitCode) {
+      root.processStopped("update", updateProcess, exitCode)
       root.updateRunning = false
       if (exitCode !== 0 && root.updateOutput === "") root.updateOutput = "update check unavailable (exit " + exitCode + ")"
       root.stateRevision++
@@ -1951,8 +2227,11 @@ Item {
 
   Process {
     id: rollbackProcess
+    environment: root.ownedEnvironment("rollback")
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.rollbackOutput = text }
+    onStarted: root.processStarted("rollback", rollbackProcess, "rollback inventory command", false, "user-action")
     onExited: function(exitCode) {
+      root.processStopped("rollback", rollbackProcess, exitCode)
       root.rollbackRunning = false
       if (exitCode !== 0 && root.rollbackOutput === "") root.rollbackOutput = "rollback inventory unavailable (exit " + exitCode + ")"
       root.stateRevision++
@@ -1962,8 +2241,11 @@ Item {
 
   Process {
     id: recoveryProcess
+    environment: root.ownedEnvironment("recovery")
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.recoveryOutput = text }
+    onStarted: root.processStarted("recovery", recoveryProcess, "recovery command", false, "user-action")
     onExited: function(exitCode) {
+      root.processStopped("recovery", recoveryProcess, exitCode)
       root.recoveryRunning = false
       if (exitCode !== 0 && root.recoveryOutput === "") root.recoveryOutput = "recovery unavailable (exit " + exitCode + ")"
       root.stateRevision++
@@ -1973,8 +2255,11 @@ Item {
 
   Process {
     id: backupProcess
+    environment: root.ownedEnvironment("backup")
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.backupOutput = text }
+    onStarted: root.processStarted("backup", backupProcess, "config backup command", false, "user-action")
     onExited: function(exitCode) {
+      root.processStopped("backup", backupProcess, exitCode)
       root.backupRunning = false
       if (exitCode !== 0 && root.backupOutput === "") root.backupOutput = "config backup unavailable (exit " + exitCode + ")"
       root.stateRevision++
@@ -1984,8 +2269,11 @@ Item {
 
   Process {
     id: supportBundleProcess
+    environment: root.ownedEnvironment("support-bundle")
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.supportBundleOutput = text }
+    onStarted: root.processStarted("support-bundle", supportBundleProcess, "support bundle command", false, "user-action")
     onExited: function(exitCode) {
+      root.processStopped("support-bundle", supportBundleProcess, exitCode)
       root.supportBundleRunning = false
       if (exitCode !== 0 && root.supportBundleOutput === "") root.supportBundleOutput = "support bundle unavailable (exit " + exitCode + ")"
       root.stateRevision++
@@ -1995,7 +2283,10 @@ Item {
 
   Process {
     id: recorderProcess
-    onExited: {
+    environment: root.ownedEnvironment("recorder")
+    onStarted: root.processStarted("recorder", recorderProcess, "screen recording", true, "user-action")
+    onExited: function(exitCode) {
+      root.processStopped("recorder", recorderProcess, exitCode)
       var next = {}
       for (var existing in root.quickState) next[existing] = root.quickState[existing]
       next.recording = false

@@ -136,9 +136,6 @@ def audit() -> list[Finding]:
         findings.extend(check_timers(path, text))
         findings.extend(check_process_ownership(path, text))
         findings.extend(check_config_writes(path, text))
-    # Ownership metadata is introduced for every QML Process in the first
-    # runtime slice; until then only the explicit unsafe patterns are fatal.
-    findings = [item for item in findings if item.rule != "missing-owner-marker"]
     return findings
 
 
