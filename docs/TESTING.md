@@ -26,7 +26,10 @@ deterministic config projection/JSON round-trip budget check; it is not a
 frame-rate certification. `performance-check` additionally audits unbounded
 loops, fast/process polling, Lua invocations, ownership markers, and hot-path
 config writes. `hardware-test` consumes a fixture and explicitly reports
-`realHardwareValidated: false`. `version-check` verifies that the manifest,
+`realHardwareValidated: false`. The 0.9 fixtures cover native tablet
+pressure/tilt/distance/rotation/eraser/buttons, bounded ink, input/display
+hotplug, suspend/resume, output remap, and rollback; fixture evidence never
+certifies physical hardware. `version-check` verifies that the manifest,
 companion descriptor, README, changelog, and release metadata agree.
 
 The runtime service coalesces Quick Settings into one state probe and only starts
@@ -69,7 +72,8 @@ The QML code is designed for the following manual matrix when hardware is availa
 - `hypr/omanome-hypr/wobbly-physics-test.cpp` runs bounded mesh physics without a desktop session; when matching Hyprland headers are installed, `make companion-check` also compiles the public `IWindowTransformer`/GL renderer.
 - `input/system-state.sh`, `input/wifi-scan.sh`, `input/bluetooth-scan.sh`, and `input/audio-devices.sh` return capability-safe JSON; they do not invent state when a backend is absent.
 - `tests/fixtures/stylus-devices.json` covers touchscreen, generic tablet tools, eraser, no-pressure, serial, and mapped-output input records without requiring hardware.
-- `input/sensor-info.sh` and `omanome sensor-info` distinguish monitor-sensor, iio D-Bus, and manual fallback.
+- `input/sensor-info.sh` and `omanome sensor-info` distinguish monitor-sensor, iio D-Bus, and manual fallback and expose the orientation debounce/dwell policy.
+- `omanome stylus-info` and `omanome touch-info` return capability-safe JSON even when Hyprland or a physical device is absent; they include native protocol and privacy status without typed or surrounding text.
 - `scripts/hardware_test.py`, `scripts/support_bundle.py`, `scripts/dependency_audit.py`, and `scripts/performance_test.py` provide explicit non-certifying probes, redacted support evidence, static dependency policy, and deterministic performance budgets.
 - `hypr/README.md` records why no unpinned compositor `.so` is loaded.
 

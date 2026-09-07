@@ -1427,18 +1427,44 @@ input_info_cmd() {
 }
 
 stylus_info_cmd() {
-  has hyprctl || die "hyprctl is not installed"
-  hyprctl devices -j | jq '{tablets: (.tablets // .tabletTools // []), touchDevices: (.touch // .touchDevices // [])}'
+  local devices='{}' native='{}'
+  if has hyprctl; then
+    devices="$(hyprctl devices -j 2>/dev/null || printf '{}')"
+  fi
+  native="$(input_info_cmd 2>/dev/null || printf '{}')"
+  jq -e . >/dev/null 2>&1 <<<"$devices" || devices='{}'
+  jq -e . >/dev/null 2>&1 <<<"$native" || native='{}'
+  jq -n \
+    --argjson devices "$devices" \
+    --argjson native "$native" \
+    '{schemaVersion:1,nativeBackend:($native.nativeBackend // {status:"unavailable"}),protocolSupport:($native.protocolSupport // {}),stylus:($native.stylus // {count:0}),tablets:($devices.tablets // $devices.tabletTools // $devices.tablettools // []),touchDevices:($devices.touch // $devices.touchDevices // $devices.touchdevices // []),privacy:($native.privacy // {hardwareIdentifiersEmitted:false,typedTextLogged:false,surroundingTextPersisted:false})}'
 }
 
 touch_info_cmd() {
-  has hyprctl || die "hyprctl is not installed"
-  hyprctl devices -j | jq '{touchDevices: (.touch // .touchDevices // .touchdevices // [])}'
+  local devices='{}' native='{}'
+  if has hyprctl; then
+    devices="$(hyprctl devices -j 2>/dev/null || printf '{}')"
+  fi
+  native="$(input_info_cmd 2>/dev/null || printf '{}')"
+  jq -e . >/dev/null 2>&1 <<<"$devices" || devices='{}'
+  jq -e . >/dev/null 2>&1 <<<"$native" || native='{}'
+  jq -n \
+    --argjson devices "$devices" \
+    --argjson native "$native" \
+    '{schemaVersion:1,nativeBackend:($native.nativeBackend // {status:"unavailable"}),protocolSupport:($native.protocolSupport // {}),touchscreen:($native.touchscreen // {count:0}),touchDevices:($devices.touch // $devices.touchDevices // $devices.touchdevices // []),privacy:($native.privacy // {hardwareIdentifiersEmitted:false,typedTextLogged:false,surroundingTextPersisted:false})}'
 }
 
 sensor_info_cmd() {
   [[ -x "$repo_dir/input/sensor-info.sh" ]] || die "sensor-info backend is unavailable"
-  "$repo_dir/input/sensor-info.sh" | jq .
+  local sensor='{}' defaults='{}'
+  sensor="$("$repo_dir/input/sensor-info.sh" 2>/dev/null || printf '{}')"
+  defaults="$(jq -c '.rotation // {}' "$repo_dir/config/defaults.json" 2>/dev/null || printf '{}')"
+  jq -e . >/dev/null 2>&1 <<<"$sensor" || sensor='{}'
+  jq -e . >/dev/null 2>&1 <<<"$defaults" || defaults='{}'
+  jq -n \
+    --argjson sensor "$sensor" \
+    --argjson defaults "$defaults" \
+    '$sensor + {schemaVersion:1,rotationPolicy:{orientationDebounceMs:($defaults.orientationDebounceMs // 550),minimumDwellMs:($defaults.minimumDwellMs // 1000)},privacy:{sensorPayloadLogged:false}}'
 }
 
 effects_cmd() {
@@ -1447,13 +1473,14 @@ effects_cmd() {
 }
 
 capabilities_cmd() {
-  local hardware='{}' effects='{}' sensors='{}' companion='{}' system='{}'
+  local hardware='{}' effects='{}' sensors='{}' companion='{}' system='{}' input='{}'
   hardware="$(python3 "$repo_dir/scripts/hardware_test.py" --json 2>/dev/null || printf '{}')"
   effects="$("$repo_dir/input/effects-info.sh" 2>/dev/null || printf '{}')"
   sensors="$("$repo_dir/input/sensor-info.sh" 2>/dev/null || printf '{}')"
   companion="$("$repo_dir/input/companion-info.sh" 2>/dev/null || printf '{}')"
   system="$("$repo_dir/input/system-state.sh" 2>/dev/null || printf '{}')"
-  for value in hardware effects sensors companion system; do
+  input="$(input_info_cmd 2>/dev/null || printf '{}')"
+  for value in hardware effects sensors companion system input; do
     local json_value="${!value}"
     jq -e . >/dev/null 2>&1 <<<"$json_value" || printf -v "$value" '{}'
   done
@@ -1464,8 +1491,9 @@ capabilities_cmd() {
     --argjson sensors "$sensors" \
     --argjson companion "$companion" \
     --argjson system "$system" \
+    --argjson input "$input" \
     --argjson safeMode "$(if [[ -f "$omanome_config_dir/safe-mode" ]]; then printf true; else printf false; fi)" \
-    '{schemaVersion:1,version:$version,safeMode:$safeMode,hardware:$hardware,effects:$effects,sensors:$sensors,companion:$companion,system:$system,policy:{optionalBackendsFailClosed:true,realHardwareOnly:true}}'
+    '{schemaVersion:1,version:$version,safeMode:$safeMode,hardware:$hardware,input:$input,effects:$effects,sensors:$sensors,companion:$companion,system:$system,policy:{optionalBackendsFailClosed:true,realHardwareOnly:true,privateTextExcluded:true}}'
 }
 
 hardware_test_cmd() {

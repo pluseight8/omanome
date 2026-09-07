@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "wayland": true,
+  "hyprland": true,
+  "stylus": [
+    {
+      "type": "tablet-tool",
+      "toolType": "pen",
+      "capabilities": {
+        "pressure": true,
+        "tiltX": true,
+        "tiltY": true,
+        "distance": true,
+        "rotation": true,
+        "proximity": true,
+        "buttons": true
+      },
+      "buttonCount": 2
+    },
+    {
+      "type": "tablet-tool",
+      "toolType": "eraser",
+      "capabilities": { "pressure": true, "eraser": true }
+    }
+  ],
+  "handwriting": { "ink": true, "recognition": "unavailable", "cloud": false },
+  "events": [
+    { "type": "device.event", "action": "add", "subsystem": "input" },
+    { "type": "tablet.event", "event": "proximity-in" },
+    { "type": "tablet.event", "event": "tip-down", "pressure": 0.2 },
+    { "type": "tablet.event", "event": "motion", "x": 0.4, "y": 0.5, "pressure": 0.7, "tiltX": 12, "tiltY": -8 },
+    { "type": "tablet.event", "event": "tip-up" },
+    { "type": "tablet.event", "event": "proximity-out" },
+    { "type": "device.event", "action": "remove", "subsystem": "input" }
+  ],
+  "hotplug": { "events": [{ "action": "add" }, { "action": "remove" }] },
+  "outputMapping": { "device": "tablet-tool-0", "output": "DP-1" },
+  "rollback": { "reason": "output-disconnected", "restored": true }
+}

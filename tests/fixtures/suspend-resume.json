@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "wayland": true,
+  "hyprland": true,
+  "devices": {
+    "touch": [{ "type": "touchscreen" }],
+    "tablets": [{ "type": "tablet-tool", "capabilities": ["pressure", "proximity"] }]
+  },
+  "events": [
+    { "type": "device.event", "action": "add", "subsystem": "drm" },
+    { "type": "device.event", "action": "remove", "subsystem": "input" }
+  ],
+  "suspendResume": {
+    "events": [
+      { "event": "suspend" },
+      { "event": "resume" }
+    ]
+  },
+  "waylandReconnect": true,
+  "outputMapping": {
+    "device": "tablet-tool-0",
+    "configuredOutput": "eDP-1",
+    "fallbackOutput": "DP-1"
+  },
+  "rollback": { "reason": "rotation-transaction-failed", "restored": true },
+  "handwriting": { "ink": true, "recognition": "unavailable", "cloud": false }
+}

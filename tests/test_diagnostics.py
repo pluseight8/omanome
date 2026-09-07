@@ -78,6 +78,38 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertTrue(payload["capabilities"]["touchscreen"]["available"])
         self.assertTrue(payload["capabilities"]["stylus"]["available"])
 
+    def test_extended_hardware_fixtures_report_capabilities_without_certifying_hardware(self) -> None:
+        cases = (
+            ("stylus-events.json", ("pressure", "tilt", "distance", "rotation", "eraser", "buttons", "proximity")),
+            ("suspend-resume.json", ("pressure", "proximity")),
+        )
+        for filename, features in cases:
+            with self.subTest(filename=filename):
+                result = subprocess.run(
+                    ["python3", str(ROOT / "scripts/hardware_test.py"), "--fixture", str(ROOT / "tests/fixtures" / filename), "--json"],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                payload = json.loads(result.stdout)
+                self.assertFalse(payload["realHardwareValidated"])
+                for feature in features:
+                    self.assertTrue(payload["capabilities"]["stylusFeatures"][feature]["available"])
+                self.assertTrue(payload["capabilities"]["lifecycle"]["hotplug"]["available"])
+                if filename == "suspend-resume.json":
+                    self.assertTrue(payload["capabilities"]["lifecycle"]["suspendResume"]["available"])
+                self.assertFalse(payload["capabilities"]["handwriting"]["cloud"]["available"])
+
+    def test_stylus_and_touch_diagnostics_remain_json_without_hyprland(self) -> None:
+        for operation in ("stylus-info", "touch-info"):
+            with self.subTest(operation=operation):
+                result = subprocess.run([str(CLI), operation], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                payload = json.loads(result.stdout)
+                self.assertEqual(payload["schemaVersion"], 1)
+                self.assertIn("nativeBackend", payload)
+                self.assertIn("privacy", payload)
+
     def test_support_bundle_excludes_personal_config_values(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
