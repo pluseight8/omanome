@@ -31,6 +31,7 @@ use input_method_v2::zwp_input_method_manager_v2::ZwpInputMethodManagerV2;
 use input_method_v2::zwp_input_method_v2::{self, ZwpInputMethodV2};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::io::{self, Write};
 use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
@@ -67,18 +68,25 @@ type SharedEmitter = Arc<Mutex<Emitter>>;
 
 struct Emitter {
     stdout: io::BufWriter<io::Stdout>,
+    session: String,
 }
 
 impl Emitter {
-    fn new() -> Self {
+    fn with_session(session: impl Into<String>) -> Self {
         Self {
             stdout: io::BufWriter::new(io::stdout()),
+            session: session.into(),
         }
     }
 
-    fn send(&mut self, value: Value) {
+    fn send(&mut self, mut value: Value) {
         // Never include command payloads in the output stream. Only structured
         // capability/state metadata and event types are emitted.
+        if let Value::Object(object) = &mut value {
+            // The shell uses this opaque token to discard late lines from an
+            // older helper after a compositor/backend restart.
+            object.insert("session".into(), Value::String(self.session.clone()));
+        }
         let _ = serde_json::to_writer(&mut self.stdout, &value);
         let _ = self.stdout.write_all(b"\n");
         let _ = self.stdout.flush();
@@ -119,6 +127,8 @@ struct Command {
     latched: Option<u32>,
     #[serde(default)]
     locked: Option<u32>,
+    #[serde(default, alias = "requestId")]
+    request_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -303,6 +313,9 @@ struct BackendState {
     layout: String,
     group: u32,
     modifiers: u32,
+    latched_modifiers: u32,
+    locked_modifiers: u32,
+    pressed_keys: HashSet<u32>,
     queue_depth: usize,
 }
 
@@ -337,6 +350,9 @@ impl BackendState {
             layout: "en".into(),
             group: 0,
             modifiers: 0,
+            latched_modifiers: 0,
+            locked_modifiers: 0,
+            pressed_keys: HashSet::new(),
             queue_depth: 0,
         }
     }
@@ -391,6 +407,8 @@ impl BackendState {
             "layout": self.layout,
             "group": self.group,
             "modifiers": self.modifiers,
+            "latchedModifiers": self.latched_modifiers,
+            "lockedModifiers": self.locked_modifiers,
             "inputMethod": if self.input_method_available { "v2" } else { "unavailable" },
             "textInput": if self.text_input_available { "v3" } else { "unavailable" },
             "textFocusProvider": if self.input_method_available { "input-method-v2" } else { "unavailable" },
@@ -415,10 +433,10 @@ impl BackendState {
         emit(&self.emitter, self.status());
     }
 
-    fn emit_ack(&self, command: &str) {
+    fn emit_ack(&self, command: &str, request_id: Option<u64>) {
         emit(
             &self.emitter,
-            json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"input.ack","command":command,"queueDepth":self.queue_depth}),
+            json!({"protocol":PROTOCOL,"version":PROTOCOL_VERSION,"type":"input.ack","command":command,"requestId":request_id,"queueDepth":self.queue_depth}),
         );
     }
 
@@ -432,14 +450,34 @@ impl BackendState {
         self.group = if self.layout == "ru" { 1 } else { 0 };
         if let Some(keyboard) = &self.virtual_keyboard {
             send_keymap(keyboard, self.keymap.as_ref().unwrap())?;
-            keyboard.modifiers(self.modifiers, 0, 0, self.group);
+            keyboard.modifiers(
+                self.modifiers,
+                self.latched_modifiers,
+                self.locked_modifiers,
+                self.group,
+            );
         }
         Ok(())
+    }
+
+    fn reset_keyboard(&mut self) {
+        let released: Vec<u32> = self.pressed_keys.drain().collect();
+        if let Some(keyboard) = &self.virtual_keyboard {
+            for keycode in released {
+                keyboard.key(now_millis(), keycode, KEY_STATE_RELEASED);
+            }
+            keyboard.modifiers(0, 0, 0, 0);
+        }
+        self.modifiers = 0;
+        self.latched_modifiers = 0;
+        self.locked_modifiers = 0;
+        self.group = 0;
     }
 
     fn handle(&mut self, command: Command) -> bool {
         self.queue_depth = self.queue_depth.saturating_sub(1);
         let kind = command.kind.clone();
+        let request_id = command.request_id;
         let keep_running = command.kind != "shutdown";
         match command.kind.as_str() {
             "input.status" => self.emit_status(),
@@ -478,27 +516,30 @@ impl BackendState {
                     .unwrap_or_else(|| modifier_mask(&command.modifiers));
                 let group = command.group.unwrap_or(self.group);
                 self.modifiers = depressed;
+                self.latched_modifiers = command.latched.unwrap_or(0);
+                self.locked_modifiers = command.locked.unwrap_or(0);
                 self.group = group.min(1);
                 if let Some(keyboard) = &self.virtual_keyboard {
                     keyboard.modifiers(
                         depressed,
-                        command.latched.unwrap_or(0),
-                        command.locked.unwrap_or(0),
+                        self.latched_modifiers,
+                        self.locked_modifiers,
                         self.group,
                     );
                 }
                 self.emit_status();
             }
+            "keyboard.reset" => self.reset_keyboard(),
             "text.delete" => {
                 if let Err(error) = self.delete_surrounding(command.before, command.after) {
                     self.error(&error, true);
                 }
             }
             "text.state" => self.emit_status(),
-            "shutdown" => {}
+            "shutdown" => self.reset_keyboard(),
             _ => self.error("unknown-command", false),
         }
-        self.emit_ack(&kind);
+        self.emit_ack(&kind, request_id);
         keep_running
     }
 
@@ -546,12 +587,22 @@ impl BackendState {
                 .find_text_key(&value, group)
                 .ok_or_else(|| "character-not-in-keymap".to_string())?;
             if shifted {
-                keyboard.modifiers(self.modifiers | keymap.shift_mask, 0, 0, group);
+                keyboard.modifiers(
+                    self.modifiers | keymap.shift_mask,
+                    self.latched_modifiers,
+                    self.locked_modifiers,
+                    group,
+                );
             }
             keyboard.key(now_millis(), keycode, KEY_STATE_PRESSED);
             keyboard.key(now_millis(), keycode, KEY_STATE_RELEASED);
             if shifted {
-                keyboard.modifiers(self.modifiers, 0, 0, group);
+                keyboard.modifiers(
+                    self.modifiers,
+                    self.latched_modifiers,
+                    self.locked_modifiers,
+                    group,
+                );
             }
         }
         Ok(())
@@ -565,18 +616,26 @@ impl BackendState {
         if !self.text_active {
             return Err("text-focus-unavailable".into());
         }
-        input_method.delete_surrounding_text(before, after);
+        input_method.delete_surrounding_text(before.min(4096), after.min(4096));
         input_method.commit(self.done_serial);
         Ok(())
     }
 
     fn send_named_key(&mut self, name: &str, state: u32) -> Result<(), String> {
+        if state != KEY_STATE_PRESSED && state != KEY_STATE_RELEASED {
+            return Err("invalid-key-state".into());
+        }
         let keycode = named_keycode(name).ok_or_else(|| "unknown-key".to_string())?;
         let keyboard = self
             .virtual_keyboard
             .as_ref()
             .ok_or_else(|| "native-virtual-keyboard-unavailable".to_string())?;
         keyboard.key(now_millis(), keycode, state);
+        if state == KEY_STATE_PRESSED {
+            self.pressed_keys.insert(keycode);
+        } else {
+            self.pressed_keys.remove(&keycode);
+        }
         Ok(())
     }
 }
@@ -752,7 +811,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let emitter: SharedEmitter = Arc::new(Mutex::new(Emitter::new()));
+    let session = std::env::var("OMANOME_INPUT_SESSION")
+        .ok()
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .unwrap_or_else(|| format!("process-{}-{}", std::process::id(), now_millis()));
+    let emitter: SharedEmitter = Arc::new(Mutex::new(Emitter::with_session(session)));
     let connection = match Connection::connect_to_env() {
         Ok(connection) => connection,
         Err(_) => {
@@ -842,6 +905,7 @@ fn run_ipc_loop(
             let read =
                 unsafe { libc::read(stdin_fd, buffer.as_mut_ptr().cast::<c_void>(), buffer.len()) };
             if read <= 0 {
+                state.reset_keyboard();
                 break;
             }
             input.extend_from_slice(&buffer[..read as usize]);
@@ -1265,7 +1329,8 @@ mod tests {
     fn purpose_and_secure_policy_are_explicit() {
         assert_eq!(purpose_name(PURPOSE_PASSWORD), "password");
         assert_eq!(purpose_name(PURPOSE_TERMINAL), "terminal");
-        let mut state = BackendState::new(Arc::new(Mutex::new(Emitter::new())));
+        let mut state =
+            BackendState::new(Arc::new(Mutex::new(Emitter::with_session("test-session"))));
         assert!(!state.secure_context());
         state.content_hints = CONTENT_HINT_SENSITIVE_DATA;
         assert!(state.secure_context());

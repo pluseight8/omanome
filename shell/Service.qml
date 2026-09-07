@@ -67,6 +67,10 @@ Item {
   property bool oskAutoShown: false
   property var oskPolicyState: ({ visible: false, pending: false, pendingSince: 0, reason: "not-evaluated" })
   property int inputNativePending: 0
+  property int inputRequestCounter: 0
+  property var inputPendingRequests: ({})
+  property int inputBackendSessionCounter: 0
+  property string inputBackendSession: ""
   property var inputRestartState: ({ consecutiveFailures: 0, startedAt: 0, blocked: false })
   readonly property var inputRestartPolicy: ({ initialDelayMs: 1000, maxDelayMs: 30000, maxConsecutiveFailures: 5, stableAfterMs: 30000 })
 
@@ -241,11 +245,44 @@ Item {
 
   function nativeInputReady() {
     var nativePolicy = String(root.cfg("input.nativeBackend", "auto"))
-    return nativePolicy !== "disabled" && nativePolicy !== "fallback" && inputBackendAvailable && inputBackendProcess.running && inputBackendPath !== ""
+    var lifecycle = root.lifecycleState || {}
+    return !root.shuttingDown && lifecycle.phase !== "suspended" && lifecycle.locked !== true && nativePolicy !== "disabled" && nativePolicy !== "fallback" && inputBackendAvailable && inputBackendProcess.running && inputBackendPath !== "" && inputBackendSession !== ""
+  }
+
+  function inputDispatchAllowed() {
+    var lifecycle = root.lifecycleState || {}
+    return !root.shuttingDown && lifecycle.phase !== "suspended" && lifecycle.locked !== true
+  }
+
+  function cancelFallbackInput() {
+    root.inputQueue = []
+    if (inputProcess.running) inputProcess.running = false
+  }
+
+  function nativeInputReset() {
+    if (!inputBackendProcess.running || !root.inputBackendSession || root.inputNativePending >= 256) return false
+    root.inputRequestCounter++
+    var requestId = root.inputRequestCounter
+    var pending = {}
+    for (var pendingId in root.inputPendingRequests) pending[pendingId] = root.inputPendingRequests[pendingId]
+    pending[String(requestId)] = true
+    root.inputPendingRequests = pending
+    inputBackendProcess.write(JSON.stringify({ type: "keyboard.reset", requestId: requestId }) + "\n")
+    root.inputNativePending++
+    return true
+  }
+
+  function nextInputBackendSession() {
+    root.inputBackendSessionCounter++
+    root.inputBackendSession = String(root.inputBackendSessionCounter) + "-" + String(Date.now())
+    return root.inputBackendSession
   }
 
   function nativeInputSend(commands) {
     if (!root.nativeInputReady()) return false
+    // A native request supersedes anything queued for the one-shot fallback.
+    // This boundary prevents a late fallback process from duplicating a key.
+    root.cancelFallbackInput()
     var list = Array.isArray(commands) ? commands : [commands]
     if (list.length === 0 || root.inputNativePending + list.length > 256) {
       root.lastError = "Native input queue is full"
@@ -254,7 +291,15 @@ Item {
     for (var i = 0; i < list.length; i++) {
       var command = list[i]
       if (!command || typeof command !== "object") return false
-      inputBackendProcess.write(JSON.stringify(command) + "\n")
+      var request = {}
+      for (var field in command) request[field] = command[field]
+      root.inputRequestCounter++
+      request.requestId = root.inputRequestCounter
+      var pending = {}
+      for (var pendingId in root.inputPendingRequests) pending[pendingId] = root.inputPendingRequests[pendingId]
+      pending[String(request.requestId)] = true
+      root.inputPendingRequests = pending
+      inputBackendProcess.write(JSON.stringify(request) + "\n")
     }
     root.inputNativePending += list.length
     return true
@@ -348,8 +393,20 @@ Item {
   function updateNativeInputLine(line) {
     var parsed = root.parseJson(line, null)
     if (!parsed || typeof parsed !== "object" || String(parsed.protocol || "") !== "omanome-input") return
+    var session = String(parsed.session || "")
+    if (!session || !root.inputBackendSession || session !== root.inputBackendSession) return
     var kind = String(parsed.type || "")
     if (kind === "input.ack") {
+      var requestId = String(parsed.requestId || "")
+      if (!requestId || root.inputPendingRequests[requestId] !== true) {
+        root.lastError = "Native input acknowledgement was stale"
+        return
+      }
+      var pendingRequests = {}
+      for (var pendingId in root.inputPendingRequests) {
+        if (pendingId !== requestId) pendingRequests[pendingId] = root.inputPendingRequests[pendingId]
+      }
+      root.inputPendingRequests = pendingRequests
       root.inputNativePending = Math.max(0, root.inputNativePending - 1)
       var ackStatus = {}
       for (var ackKey in root.inputBackendStatus) ackStatus[ackKey] = root.inputBackendStatus[ackKey]
@@ -425,8 +482,14 @@ Item {
     root.inputBackendAvailable = false
     root.inputTextBackendAvailable = false
     root.inputNativePending = 0
+    root.inputPendingRequests = ({})
     root.inputTextFocusActive = false
-    if (!root.inputBackendPath) return
+    root.inputSecureContext = false
+    root.inputBackendSession = ""
+    root.cancelFallbackInput()
+    var lifecycle = root.lifecycleState || {}
+    var nativePolicy = String(root.cfg("input.nativeBackend", "auto"))
+    if (!root.inputBackendPath || nativePolicy === "disabled" || nativePolicy === "fallback" || lifecycle.phase === "suspended" || lifecycle.locked === true) return
     var decision = ProcessPolicy.nextRestart(root.inputRestartState, Date.now(), root.inputRestartPolicy)
     root.inputRestartState = { consecutiveFailures: decision.consecutiveFailures, startedAt: 0, blocked: decision.blocked === true }
     if (!decision.restart) {
@@ -441,10 +504,28 @@ Item {
 
   function startNativeInputBackend() {
     var nativePolicy = String(root.cfg("input.nativeBackend", "auto"))
-    if (root.shuttingDown || nativePolicy === "disabled" || nativePolicy === "fallback" || !root.inputBackendPath || inputBackendProcess.running || root.inputRestartState.blocked) return false
+    var lifecycle = root.lifecycleState || {}
+    if (root.shuttingDown || lifecycle.phase === "suspended" || lifecycle.locked === true || nativePolicy === "disabled" || nativePolicy === "fallback" || !root.inputBackendPath || inputBackendProcess.running || root.inputRestartState.blocked) return false
+    root.nextInputBackendSession()
     inputBackendProcess.command = [root.inputBackendPath]
     inputBackendProcess.running = true
     return true
+  }
+
+  function stopNativeInputBackend(reason) {
+    // Give the helper a best-effort explicit release before terminating it.
+    // The helper also releases every tracked key on stdin EOF, so this remains
+    // safe when suspend/compositor teardown races the write.
+    root.nativeInputReset()
+    if (inputBackendProcess.running) inputBackendProcess.running = false
+    root.inputBackendAvailable = false
+    root.inputTextBackendAvailable = false
+    root.inputNativePending = 0
+    root.inputPendingRequests = ({})
+    root.inputTextFocusActive = false
+    root.inputSecureContext = false
+    root.inputBackendSession = ""
+    if (reason) root.inputBackendReason = String(reason)
   }
 
   function ownedEnvironment(component) {
@@ -453,6 +534,12 @@ Item {
       OMANOME_COMPONENT: String(component || "unknown"),
       OMANOME_SHELL_PID: String(Quickshell.processId || "")
     }
+  }
+
+  function inputBackendEnvironment() {
+    var environment = root.ownedEnvironment("omanome-input")
+    environment.OMANOME_INPUT_SESSION = root.inputBackendSession
+    return environment
   }
 
   function observerEnvironment(component) {
@@ -1198,8 +1285,7 @@ Item {
       if (String(path) === "input.nativeBackend" || String(path) === "input.safeModeDisableNative") {
         var nativePolicy = String(root.cfg("input.nativeBackend", "auto"))
         if (nativePolicy === "fallback" || nativePolicy === "disabled" || root.cfg("input.safeModeDisableNative", false) === true) {
-          if (inputBackendProcess.running) inputBackendProcess.running = false
-          root.inputBackendReason = "native-backend-disabled-by-policy"
+          root.stopNativeInputBackend("native-backend-disabled-by-policy")
         } else root.startInputBackendProbe()
       }
       if (String(path).indexOf("input.deviceMappings") === 0 || String(path) === "input.defaultOutput") root.updateInputMapping()
@@ -1819,7 +1905,8 @@ Item {
     if (transition.state.phase === "suspended") {
       root.inputTextFocusActive = false
       root.requestAutoOsk(false)
-      if (inputBackendProcess.running) inputBackendProcess.running = false
+      root.stopNativeInputBackend("suspended")
+      root.cancelFallbackInput()
       if (rotationProcess.running) rotationProcess.running = false
       root.sessionMonitorReason = "suspended"
     } else if (transition.state.phase === "active") {
@@ -1830,7 +1917,11 @@ Item {
       root.refreshDevices()
       root.refreshRotationBackend()
     }
-    if (transition.state.locked) root.requestAutoOsk(false)
+    if (transition.state.locked) {
+      root.requestAutoOsk(false)
+      root.cancelFallbackInput()
+      root.nativeInputReset()
+    }
     root.stateRevision++
     root.stateUpdated()
   }
@@ -2198,7 +2289,7 @@ Item {
   }
 
   function sendKey(key, shifted) {
-    if (root.cfg("keyboard.enabled", true) !== true) return false
+    if (!root.inputDispatchAllowed() || root.cfg("keyboard.enabled", true) !== true) return false
     var value = String(key || "")
     var named = keyName(value)
     if (root.nativeInputReady()) {
@@ -2215,7 +2306,7 @@ Item {
   }
 
   function sendModifiedKey(key, modifiers) {
-    if (root.cfg("keyboard.enabled", true) !== true) return false
+    if (!root.inputDispatchAllowed() || root.cfg("keyboard.enabled", true) !== true) return false
     var value = String(key || "")
     if (!value) return false
     if (root.nativeInputReady() && value.length === 1 && value.charCodeAt(0) < 128) {
@@ -2242,7 +2333,7 @@ Item {
   }
 
   function typeText(text) {
-    if (root.cfg("keyboard.enabled", true) !== true) return false
+    if (!root.inputDispatchAllowed() || root.cfg("keyboard.enabled", true) !== true) return false
     var value = String(text || "")
     if (!value) return false
     if (root.nativeInputReady()) return root.nativeInputSend({ type: "keyboard.text", text: value })
@@ -2537,7 +2628,7 @@ Item {
   Process {
     id: inputBackendProcess
     stdinEnabled: true
-    environment: root.ownedEnvironment("omanome-input")
+    environment: root.inputBackendEnvironment()
     stdout: SplitParser { onRead: function(line) { root.updateNativeInputLine(line) } }
     // Native helper diagnostics are intentionally not copied into the shell
     // log: the helper's public stream is already redacted and bounded.
@@ -2545,6 +2636,7 @@ Item {
     onStarted: {
       root.processStarted("omanome-input", inputBackendProcess, "persistent native Wayland input backend", true, "bounded-backoff")
       root.inputNativePending = 0
+      root.inputPendingRequests = ({})
       root.inputBackendReason = "connecting"
     }
     onExited: function(exitCode) { root.inputBackendExited(exitCode) }

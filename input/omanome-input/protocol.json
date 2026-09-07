@@ -2,6 +2,10 @@
   "protocol": "omanome-input",
   "version": 1,
   "transport": "newline-delimited-json",
+  "correlation": {
+    "session": "required opaque helper-instance token on every emitted event",
+    "requestId": "shell-assigned numeric command correlation on ACK-capable commands"
+  },
   "limits": {
     "maxCommandBytes": 16384,
     "maxTextBytes": 4096,
@@ -17,6 +21,7 @@
     "text.commit",
     "keyboard.key",
     "keyboard.modifiers",
+    "keyboard.reset",
     "text.delete",
     "text.state",
     "shutdown"

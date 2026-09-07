@@ -69,6 +69,26 @@ class InputProtocolContractTests(unittest.TestCase):
         self.assertIn("ProcessPolicy.nextRestart", self.service)
         self.assertIn("root.wtypeAvailable", self.service)
 
+    def test_native_session_and_ack_boundaries_prevent_stale_or_duplicate_input(self) -> None:
+        self.assertIn("OMANOME_INPUT_SESSION", self.service)
+        self.assertIn("inputBackendSession", self.service)
+        self.assertIn("inputPendingRequests", self.service)
+        self.assertIn("request.requestId", self.service)
+        self.assertIn("acknowledgement was stale", self.service)
+        self.assertIn("cancelFallbackInput", self.service)
+        self.assertIn("nativeInputReset", self.service)
+        self.assertIn("inputDispatchAllowed", self.service)
+        self.assertIn("pressed_keys", self.source)
+        self.assertIn("reset_keyboard", self.source)
+        self.assertIn("invalid-key-state", self.source)
+        self.assertIn("requestId", self.source)
+
+    def test_native_reset_is_part_of_the_public_protocol(self) -> None:
+        self.assertIn("keyboard.reset", self.contract["commands"])
+        self.assertIn('"keyboard.reset"', self.source)
+        self.assertIn('"latchedModifiers"', self.source)
+        self.assertIn('"lockedModifiers"', self.source)
+
     def test_auto_show_requires_real_focus_and_non_physical_input(self) -> None:
         self.assertIn("inputTextBackendAvailable", self.service)
         self.assertIn("inputTextFocusActive", self.service)
