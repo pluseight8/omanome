@@ -1,0 +1,84 @@
+name: Omanome CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  portable:
+    name: Portable validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate JSON documents
+        run: |
+          python3 -m json.tool manifest.json >/dev/null
+          python3 -m json.tool config/defaults.json >/dev/null
+          python3 -m json.tool config/schema.json >/dev/null
+
+      - name: Run project checks
+        run: |
+          make check
+          make hardware-test
+          make dependency-audit
+          make performance-test
+          make performance-check
+          make version-check
+
+      - name: Verify safety invariants
+        run: |
+          ! grep -RIn --exclude-dir=.git --exclude='*.md' 'xdotool\|gnome-shell[[:space:]]*--replace' .
+          ! grep -RIn --exclude-dir=.git --exclude='*.md' 'pkill\|killall' shell input cli
+          test -x input/force-quit.sh
+          grep -Fq 'companion_pending_marker' cli/omanome
+          python3 - <<'PY'
+          import json
+          manifest = json.load(open("manifest.json", encoding="utf-8"))
+          assert "bar" not in manifest["kinds"]
+          assert manifest["version"] == "0.8.0"
+          PY
+
+  companion-contract:
+    name: Optional companion contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate companion without a desktop session
+        run: |
+          python3 -m json.tool hypr/omanome-hypr/compatibility.json >/dev/null
+          test -f hypr/omanome-hypr/omanome-hypr.cpp
+          test -f hypr/omanome-hypr/wobbly-effect.cpp
+          test -f hypr/omanome-hypr/wobbly-effect.hpp
+          make -C hypr/omanome-hypr test
+          grep -Fq '__hyprland_api_get_hash' hypr/omanome-hypr/omanome-hypr.cpp
+          grep -Fq '__hyprland_api_get_client_hash' hypr/omanome-hypr/omanome-hypr.cpp
+          grep -Fq 'IWindowTransformer' hypr/omanome-hypr/wobbly-effect.cpp
+          grep -Fq 'glClearColor(0.F, 0.F, 0.F, 0.F)' hypr/omanome-hypr/wobbly-effect.cpp
+          ! grep -RIn 'LD_PRELOAD\|dlsym\|dlopen\|mprotect\|/proc/.*mem' hypr/omanome-hypr
+          if pkg-config --exists hyprland; then
+            make -C hypr/omanome-hypr check
+          else
+            echo 'Hyprland development headers are not installed on this runner; build remains an explicit local/manual gate.'
+          fi
+
+  performance-safety:
+    name: Performance safety
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Run static performance gate and owner-only process fixture
+        run: |
+          make performance-check
+          python3 -m unittest tests.test_performance_safety -v
+          python3 scripts/process_snapshot.py --json --sample-ms 0

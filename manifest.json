@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "io.omanome.shell",
+  "name": "Omanome",
+  "version": "0.8.0",
+  "author": "Omanome contributors",
+  "description": "A touch-friendly GNOME-inspired experience for Omarchy/Hyprland",
+  "kinds": ["service", "bar-widget", "panel"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "shell/Service.qml",
+    "barWidget": "shell/BarWidget.qml",
+    "panel": "shell/Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Omanome",
+    "description": "Open Omanome overview and touch controls",
+    "category": "Desktop",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "label": "Omanome"
+    },
+    "schema": [
+      {
+        "key": "label",
+        "type": "string",
+        "label": "Bar label"
+      }
+    ]
+  }
+}
