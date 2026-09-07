@@ -52,6 +52,15 @@ class PerformanceSafetyTests(unittest.TestCase):
         self.assertNotIn('command: ["lua"', source)
         self.assertNotIn('command: ["luajit"', source)
 
+    def test_user_commands_have_one_owned_lane_and_no_detached_exec(self) -> None:
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        self.assertIn("id: commandProcess", service)
+        self.assertIn("id: inputProcess", service)
+        self.assertIn("property var inputQueue", service)
+        self.assertNotIn("Util.execArgv", service)
+        self.assertNotIn("Util.execDetached", service)
+        self.assertIn("interval: 120000", service)
+
 
 if __name__ == "__main__":
     unittest.main()

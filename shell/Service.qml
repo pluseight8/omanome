@@ -45,6 +45,8 @@ Item {
   property var processCounters: ({ spawnedTotal: 0, eventsReceived: 0, failedExits: 0, configWrites: 0, helperRestarts: 0, coalescedRequests: 0 })
   property var clipboardRestartState: ({ consecutiveFailures: 0, startedAt: 0, blocked: false })
   readonly property var clipboardRestartPolicy: ({ initialDelayMs: 1000, maxDelayMs: 30000, maxConsecutiveFailures: 5, stableAfterMs: 30000 })
+  property var pendingCommands: ({})
+  property var inputQueue: []
 
   property var config: Config.defaults()
   property bool configReady: false
@@ -293,9 +295,70 @@ Item {
     clipboardRestart.restart()
   }
 
+  function queuedCommand(command) {
+    var key = ProcessPolicy.coalesceKey(command)
+    if (!key) return false
+    var pending = {}
+    for (var existing in root.pendingCommands) pending[existing] = root.pendingCommands[existing]
+    pending[key] = command.slice()
+    root.pendingCommands = pending
+    root.updateProcessCounter("coalescedRequests", 1)
+    root.scheduleProcessRegistryWrite()
+    return true
+  }
+
+  function startNextCommand() {
+    if (commandProcess.running) return false
+    var pending = {}
+    for (var existing in root.pendingCommands) pending[existing] = root.pendingCommands[existing]
+    for (var key in root.pendingCommands) {
+      var next = root.pendingCommands[key]
+      delete pending[key]
+      root.pendingCommands = pending
+      commandProcess.command = next
+      commandProcess.running = true
+      return true
+    }
+    return false
+  }
+
+  function enqueueInput(command) {
+    var values = Array.isArray(command) ? command.map(function(item) { return String(item) }) : []
+    if (values.length === 0) return false
+    var queue = root.inputQueue.slice()
+    var textInput = values[0] === "wtype" && values.length === 3 && values[1] === "--"
+    if (textInput && queue.length > 0) {
+      var last = queue[queue.length - 1]
+      if (Array.isArray(last) && last.length === 3 && last[0] === "wtype" && last[1] === "--" && String(last[2]).length + values[2].length <= 256) {
+        last = last.slice()
+        last[2] = String(last[2]) + values[2]
+        queue[queue.length - 1] = last
+      } else queue.push(values)
+    } else queue.push(values)
+    if (queue.length > 64) {
+      root.lastError = "Input queue is full; request was not started"
+      return false
+    }
+    root.inputQueue = queue
+    inputFlush.restart()
+    return true
+  }
+
+  function flushInputQueue() {
+    if (inputProcess.running || root.inputQueue.length === 0) return false
+    var queue = root.inputQueue.slice()
+    var next = queue.shift()
+    root.inputQueue = queue
+    inputProcess.command = next
+    inputProcess.running = true
+    return true
+  }
+
   function refreshIntegrations() {
     if (root.shell && typeof root.shell.firstPartyServiceFor === "function")
       root.notificationService = root.cfg("notifications.enabled", true) ? root.shell.firstPartyServiceFor("omarchy.notifications") : null
+    if (root.notificationService === null) integrationRefresh.restart()
+    else integrationRefresh.stop()
   }
 
   function refreshEffectBackend() {
@@ -1016,11 +1079,11 @@ Item {
   }
 
   function annotationScreenshot(copyToClipboard) {
-    if (copyToClipboard) {
-      Util.execDetached("grim - | wl-copy --type image/png")
-      return true
-    }
-    Util.execDetached("mkdir -p \"$HOME/Pictures/Screenshots\" && grim \"$HOME/Pictures/Screenshots/omanome-annotation-$(date +%Y%m%d-%H%M%S).png\"")
+    if (screenshotProcess.running) return false
+    screenshotProcess.command = copyToClipboard
+      ? ["bash", "-c", "grim - | wl-copy --type image/png"]
+      : ["bash", "-c", "mkdir -p \"$HOME/Pictures/Screenshots\" && grim \"$HOME/Pictures/Screenshots/omanome-$(date +%Y%m%d-%H%M%S).png\""]
+    screenshotProcess.running = true
     return true
   }
 
@@ -1493,7 +1556,10 @@ Item {
   function execute(argv) {
     var command = Array.isArray(argv) ? argv : []
     if (command.length === 0) return false
-    Util.execArgv(command)
+    if (String(command[0] || "").split("/").pop() === "wtype") return root.enqueueInput(command)
+    if (commandProcess.running) return root.queuedCommand(command)
+    commandProcess.command = command.map(function(item) { return String(item) })
+    commandProcess.running = true
     return true
   }
 
@@ -1505,8 +1571,7 @@ Item {
     var id = String(desktopId || "").replace(/\.desktop$/, "")
     if (!id) return false
     root.rememberRecentApp(id)
-    Util.execArgv(["uwsm-app", "--", "gtk-launch", id + ".desktop"])
-    return true
+    return root.execute(["uwsm-app", "--", "gtk-launch", id + ".desktop"])
   }
 
   function clientAppId(client) {
@@ -1834,8 +1899,7 @@ Item {
     } else if (key === "lock") {
       started = root.execute(["loginctl", "lock-session"])
     } else if (key === "screenshot") {
-      Util.execDetached("mkdir -p \"$HOME/Pictures/Screenshots\" && grim \"$HOME/Pictures/Screenshots/omanome-$(date +%Y%m%d-%H%M%S).png\"")
-      started = true
+      started = root.annotationScreenshot(false)
     } else if (key === "recording") {
       if (recorderProcess.running) recorderProcess.running = false
       else {
@@ -1872,6 +1936,34 @@ Item {
     root.applyHyprSetting("gestures:workspace_swipe_distance", Math.max(1, Number(root.cfg("touch.threshold", 96))))
     root.applyHyprSetting("gestures:workspace_swipe_min_speed_to_force", Math.max(1, Math.round(Number(root.cfg("touch.velocity", 0.35)) * 100)))
     root.applyHyprSetting("gestures:workspace_swipe_touch_invert", root.cfg("touch.invert", false))
+  }
+
+  Process {
+    id: commandProcess
+    environment: root.ownedEnvironment("command")
+    onStarted: root.processStarted("command", commandProcess, "serialized user/system command", false, "serialized-coalesced")
+    onExited: function(exitCode) {
+      root.processStopped("command", commandProcess, exitCode)
+      root.startNextCommand()
+      systemRefresh.restart()
+    }
+  }
+
+  Process {
+    id: inputProcess
+    environment: root.ownedEnvironment("input")
+    onStarted: root.processStarted("input", inputProcess, "bounded one-shot input fallback", false, "queue-bounded")
+    onExited: function(exitCode) {
+      root.processStopped("input", inputProcess, exitCode)
+      if (root.inputQueue.length > 0) inputFlush.restart()
+    }
+  }
+
+  Process {
+    id: screenshotProcess
+    environment: root.ownedEnvironment("screenshot")
+    onStarted: root.processStarted("screenshot", screenshotProcess, "user-requested screenshot", false, "user-action")
+    onExited: function(exitCode) { root.processStopped("screenshot", screenshotProcess, exitCode) }
   }
 
   Process {
@@ -2311,18 +2403,32 @@ Item {
 
   Timer {
     id: integrationRefresh
-    interval: 2000
-    repeat: true
-    running: root.notificationService === null
+    interval: 30000
+    repeat: false
     onTriggered: root.refreshIntegrations()
   }
 
   Timer {
     id: systemRefresh
-    interval: 4000
+    interval: 250
+    repeat: false
+    onTriggered: root.refreshSystemState()
+  }
+
+  Timer {
+    id: systemFallbackRefresh
+    interval: 120000
     repeat: true
     running: root.configReady
     onTriggered: root.refreshSystemState()
+  }
+
+  Timer {
+    id: inputFlush
+    // performance: allow-fast-timer — one-shot input coalescing, never a poll.
+    interval: 16
+    repeat: false
+    onTriggered: root.flushInputQueue()
   }
 
   Timer {
@@ -2334,7 +2440,7 @@ Item {
 
   Timer {
     id: effectRefresh
-    interval: 15000
+    interval: 60000
     repeat: true
     running: root.configReady
     onTriggered: root.refreshEffectBackend()
@@ -2372,7 +2478,7 @@ Item {
 
   Timer {
     id: deviceRefresh
-    interval: 10000
+    interval: 120000
     repeat: true
     running: root.configReady
     onTriggered: root.refreshDevices()
