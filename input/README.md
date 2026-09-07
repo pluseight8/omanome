@@ -1,27 +1,27 @@
 # Omanome input backend
 
-Omanome's keyboard uses the Wayland `virtual-keyboard-v1` protocol through the
-small `wtype` client. It does not use X11 or `xdotool`. The Quickshell panel is
-only the UI; key delivery is performed by the native Wayland client. Ordinary
-keys therefore remain capability-gated one-shot calls until an optional
-persistent input companion is installed; Omanome does not hide that limitation.
+`omanome-input/` contains the optional native Wayland backend. It owns one
+Wayland connection and one bounded JSON-lines stream; it does not use X11,
+`xdotool`, a process per key, or private text logs. The helper reports native
+capabilities only after probing the compositor registry at runtime.
 
-The repository keeps this boundary behind `Service.qml` so a future
-`omanome-input` helper can replace `wtype` without changing the keyboard UI.
-The optional helper may implement text-input focus observation, persistent
-UTF-8/modifier delivery, key repeat, cursor motion, and input-method
-integration when the compositor exposes them. Omanome never claims automatic
-text-field focus detection when that protocol is unavailable and the core
-plugin never requires the helper to install.
+The primary transport is `zwp_virtual_keyboard_v1`. `zwp_input_method_v2` and
+`zwp_text_input_v3` are probed independently, and xkbcommon provides the
+authoritative `en,ru` keymap. Missing or unauthorized globals are reported as
+`unavailable`; the shell may then use its explicit, capability-gated `wtype`
+fallback.
 
-Required for the current backend:
+The public IPC limits and privacy rules are documented in
+[`omanome-input/protocol.json`](omanome-input/protocol.json). Portable checks
+run with:
 
-- `wtype`
-- a compositor advertising `zwp_virtual_keyboard_v1`
+```sh
+make input-check
+```
 
-Use `omanome doctor` to see whether the backend is available. The OSK labels
-cursor mode, suggestions, and auto-show as unavailable until
-`inputBackendAvailable` is provided by such a companion.
+A live Wayland session is required to exercise compositor-specific focus,
+input-method, and virtual-keyboard behavior. `--version` and `--protocol` are
+safe metadata-only smoke tests and do not connect to a compositor.
 
 Rotation has a separate event-driven path in `rotation-monitor.sh`: it first
 executes `monitor-sensor --accel`, then falls back to

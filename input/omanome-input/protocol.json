@@ -1,0 +1,44 @@
+{
+  "protocol": "omanome-input",
+  "version": 1,
+  "transport": "newline-delimited-json",
+  "limits": {
+    "maxCommandBytes": 16384,
+    "maxTextBytes": 4096,
+    "maxPendingCommands": 256,
+    "maxSurroundingTextBytes": 4096
+  },
+  "commands": [
+    "input.status",
+    "input.capabilities",
+    "set.language",
+    "keyboard.layout",
+    "keyboard.text",
+    "text.commit",
+    "keyboard.key",
+    "keyboard.modifiers",
+    "text.delete",
+    "text.state",
+    "shutdown"
+  ],
+  "events": [
+    "input.status",
+    "input.capabilities",
+    "input.error",
+    "text.enter",
+    "text.leave",
+    "text.state",
+    "osk.request"
+  ],
+  "privacy": {
+    "typedTextEmitted": false,
+    "surroundingTextEmitted": false,
+    "passwordPayloadPersisted": false,
+    "argvPayloadsAllowed": false
+  },
+  "fallback": {
+    "nativeVirtualKeyboard": "runtime-probe",
+    "wtype": "explicit-shell-owned-fallback",
+    "unknown": "unavailable"
+  }
+}

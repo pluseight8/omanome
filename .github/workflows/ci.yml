@@ -82,3 +82,26 @@ jobs:
           make performance-check
           python3 -m unittest tests.test_performance_safety -v
           python3 scripts/process_snapshot.py --json --sample-ms 0
+
+  native-input:
+    name: Native input helper
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Wayland and xkbcommon development files
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev pkg-config
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run native input contract and build gates
+        run: make input-check
+
+      - name: Smoke-test metadata mode without a desktop session
+        run: |
+          ./input/omanome-input/target/release/omanome-input --version
+          ./input/omanome-input/target/release/omanome-input --protocol

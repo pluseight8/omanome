@@ -1,0 +1,27 @@
+[package]
+name = "omanome-input"
+version = "0.9.0"
+edition = "2021"
+rust-version = "1.86"
+description = "Omanome's single-instance native Wayland input backend"
+license = "MIT"
+publish = false
+build = "build.rs"
+
+[dependencies]
+libc = "0.2.189"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+wayland-backend = "0.3.17"
+wayland-client = "0.31.15"
+wayland-protocols = { version = "0.32.13", features = ["client", "unstable"] }
+wayland-scanner = "0.31.11"
+
+[build-dependencies]
+wayland-scanner = "0.31.11"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+panic = "abort"
+strip = true

@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: check validate test qmllint integration companion-check hardware-test dependency-audit performance-test performance-check version-check
+.PHONY: check validate test qmllint integration companion-check hardware-test dependency-audit performance-test performance-check version-check input-check
 
 check: validate test qmllint
 
@@ -50,3 +50,9 @@ performance-check:
 
 version-check:
 	python3 scripts/validate_version.py 0.8.0
+
+input-check:
+	cargo fmt --manifest-path input/omanome-input/Cargo.toml --check
+	cargo test --manifest-path input/omanome-input/Cargo.toml --locked
+	cargo build --manifest-path input/omanome-input/Cargo.toml --release --locked
+	python3 -m unittest tests.test_input_protocol -v
