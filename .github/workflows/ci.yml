@@ -27,7 +27,22 @@ jobs:
         run: make validate
 
       - name: Run project tests
-        run: make test
+        run: python3 -m unittest tests.test_diagnostics -v
+
+      - name: Run native input contract tests
+        run: python3 -m unittest tests.test_input_protocol -v
+
+      - name: Run performance safety tests
+        run: python3 -m unittest tests.test_performance_safety -v
+
+      - name: Run process policy tests
+        run: python3 -m unittest tests.test_process_policy tests.test_process_watchdog -v
+
+      - name: Run project contract tests
+        run: python3 -m unittest tests.test_project -v
+
+      - name: Run update lifecycle tests
+        run: python3 -m unittest tests.test_update_lifecycle -v
 
       - name: Run QML lint
         run: make qmllint
