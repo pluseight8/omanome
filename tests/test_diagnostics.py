@@ -75,6 +75,8 @@ class DiagnosticsTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertEqual(payload["mode"], "fixture")
         self.assertFalse(payload["realHardwareValidated"])
+        self.assertEqual(payload["certification"]["evidence"], "fixture")
+        self.assertEqual(payload["certification"]["status"], "Untested")
         self.assertTrue(payload["capabilities"]["touchscreen"]["available"])
         self.assertTrue(payload["capabilities"]["stylus"]["available"])
 
@@ -103,6 +105,104 @@ class DiagnosticsTests(unittest.TestCase):
                     for section in ("display", "multitouch", "detachableKeyboard", "orientation", "osk", "multiMonitor"):
                         self.assertTrue(payload["capabilities"]["certification"][section]["available"])
                 self.assertFalse(payload["capabilities"]["handwriting"]["cloud"]["available"])
+
+    def test_hardware_session_is_private_resumable_and_never_mixes_fixture_evidence(self) -> None:
+        script = ROOT / "scripts" / "hardware_test.py"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            session = root / "session.json"
+            report = root / "report.json"
+            first = subprocess.run(
+                [
+                    "python3",
+                    str(script),
+                    "--session",
+                    str(session),
+                    "--record",
+                    "display=Skipped",
+                    "--report",
+                    str(report),
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(first.returncode, 0, first.stderr)
+            first_payload = json.loads(first.stdout)
+            self.assertFalse(first_payload["realHardwareValidated"])
+            self.assertEqual(first_payload["certification"]["status"], "Skipped")
+            self.assertEqual(stat.S_IMODE(session.stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(report.stat().st_mode), 0o600)
+            session_payload = json.loads(session.read_text(encoding="utf-8"))
+            self.assertEqual(session_payload["records"]["display"]["result"], "Skipped")
+            self.assertNotIn("serial", session.read_text(encoding="utf-8").lower())
+
+            resumed = subprocess.run(
+                [
+                    "python3",
+                    str(script),
+                    "--session",
+                    str(session),
+                    "--resume",
+                    "--record",
+                    "keyboard=Unavailable",
+                    "--report",
+                    str(report),
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(resumed.returncode, 0, resumed.stderr)
+            resumed_payload = json.loads(resumed.stdout)
+            self.assertEqual(resumed_payload["certification"]["recordedCount"], 2)
+            self.assertEqual(resumed_payload["certification"]["status"], "Unavailable")
+            self.assertTrue(resumed_payload["certification"]["sessionPresent"])
+
+    def test_hardware_pass_fail_require_explicit_live_confirmation(self) -> None:
+        script = ROOT / "scripts" / "hardware_test.py"
+        with tempfile.TemporaryDirectory() as temporary:
+            session = pathlib.Path(temporary) / "session.json"
+            result = subprocess.run(
+                [
+                    "python3",
+                    str(script),
+                    "--session",
+                    str(session),
+                    "--record",
+                    "display=Pass",
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 78)
+            self.assertIn("--confirm-hardware", result.stdout)
+            self.assertFalse(session.exists())
+
+    def test_fixture_record_is_rejected_as_hardware_certification(self) -> None:
+        script = ROOT / "scripts" / "hardware_test.py"
+        with tempfile.TemporaryDirectory() as temporary:
+            session = pathlib.Path(temporary) / "session.json"
+            result = subprocess.run(
+                [
+                    "python3",
+                    str(script),
+                    "--fixture",
+                    str(ROOT / "tests" / "fixtures" / "hardware-tablet.json"),
+                    "--session",
+                    str(session),
+                    "--record",
+                    "stylus=Pass",
+                    "--confirm-hardware",
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 78)
+            self.assertIn("fixture evidence", result.stdout)
+            self.assertFalse(session.exists())
 
     def test_stylus_and_touch_diagnostics_remain_json_without_hyprland(self) -> None:
         for operation in ("input-info", "stylus-info", "touch-info"):

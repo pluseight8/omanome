@@ -7,11 +7,29 @@ permissions:
   contents: read
 
 jobs:
-  instructions:
-    name: Hardware test boundary
+  fixture-boundary:
+    name: Hardware fixture boundary
     runs-on: ubuntu-latest
     steps:
-      - name: Explain why hardware is manual
+      - uses: actions/checkout@v4
+      - name: Run fixture probe without certifying hardware
+        run: |
+          python3 scripts/hardware_test.py --fixture tests/fixtures/suspend-resume.json --json > hardware-fixture.json
+          python3 - <<'PY'
+          import json
+          with open("hardware-fixture.json", encoding="utf-8") as handle:
+              report = json.load(handle)
+          assert report["mode"] == "fixture"
+          assert report["realHardwareValidated"] is False
+          assert report["certification"]["evidence"] == "fixture"
+          print("fixture evidence is not hardware certification")
+          PY
+      - name: Explain why physical certification remains manual
         run: |
           echo "Touchscreen, stylus, eraser, accelerometer, multi-monitor, and text-input focus tests require a real Wayland session."
           echo "The required portable CI intentionally does not mark those hardware checks as passed."
+      - name: Upload the non-certifying fixture report
+        uses: actions/upload-artifact@v4
+        with:
+          name: omanome-hardware-fixture
+          path: hardware-fixture.json

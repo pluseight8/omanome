@@ -15,12 +15,234 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from typing import Any
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 EX_CONFIG = 78
+RESULTS = ("Pass", "Fail", "Unavailable", "Skipped", "Untested")
+SESSION_SCHEMA_VERSION = 1
+
+
+def timestamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def has_symlink_component(path: pathlib.Path) -> bool:
+    """Reject an output path that would traverse a symlink."""
+
+    candidate = path.expanduser()
+    if not candidate.is_absolute():
+        candidate = pathlib.Path.cwd() / candidate
+    current = pathlib.Path(candidate.anchor or "/")
+    for part in candidate.parts[1:] if candidate.anchor else candidate.parts:
+        current /= part
+        if current.is_symlink():
+            return True
+    return False
+
+
+def write_private_json(path: pathlib.Path, value: dict[str, Any]) -> None:
+    path = path.expanduser()
+    if has_symlink_component(path) or path.is_symlink():
+        raise ValueError(f"refusing symlink path: {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if has_symlink_component(path.parent) or path.is_symlink():
+        raise ValueError(f"refusing symlink path: {path}")
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary_path = pathlib.Path(temporary)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            descriptor = -1
+            json.dump(value, handle, ensure_ascii=False, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        if path.is_symlink():
+            raise ValueError(f"refusing symlink path: {path}")
+        os.replace(temporary_path, path)
+        os.chmod(path, 0o600)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            temporary_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def read_session(path: pathlib.Path) -> dict[str, Any]:
+    path = path.expanduser()
+    if has_symlink_component(path) or path.is_symlink():
+        raise ValueError(f"refusing symlink session: {path}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid certification session: {exc}") from exc
+    if not isinstance(payload, dict) or payload.get("schemaVersion") != SESSION_SCHEMA_VERSION:
+        raise ValueError("unsupported certification session schema")
+    if payload.get("mode") not in {"fixture", "live-probe"}:
+        raise ValueError("certification session has an invalid mode")
+    stored = payload.get("records", {})
+    if not isinstance(stored, dict):
+        raise ValueError("certification session records must be an object")
+    records: dict[str, dict[str, str]] = {}
+    for name, record in stored.items():
+        if not isinstance(name, str) or not isinstance(record, dict):
+            continue
+        result = record.get("result")
+        if isinstance(result, str) and result in RESULTS:
+            records[name] = {"result": result, "recordedAt": str(record.get("recordedAt", ""))}
+    payload["records"] = records
+    payload["hardwareConfirmed"] = bool(payload.get("hardwareConfirmed", False))
+    return payload
+
+
+def new_session(mode: str) -> dict[str, Any]:
+    now = timestamp()
+    return {
+        "schemaVersion": SESSION_SCHEMA_VERSION,
+        "kind": "omanome-hardware-certification",
+        "createdAt": now,
+        "updatedAt": now,
+        "mode": mode,
+        "hardwareConfirmed": False,
+        "records": {},
+        "note": "Manual records are user evidence; fixture data never certifies hardware.",
+    }
+
+
+def parse_record(value: str) -> tuple[str, str]:
+    name, separator, result = value.partition("=")
+    if not separator or not name.strip() or result not in RESULTS:
+        allowed = ", ".join(RESULTS)
+        raise ValueError(f"record must be NAME=RESULT where RESULT is one of: {allowed}")
+    return name.strip(), result
+
+
+def target_map(capabilities: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    targets: dict[str, dict[str, Any]] = {}
+    for section in ("certification", "lifecycle", "handwriting", "stylusFeatures"):
+        values = capabilities.get(section, {})
+        if isinstance(values, dict):
+            for name, value in values.items():
+                if isinstance(value, dict) and "result" in value:
+                    targets[f"{section}.{name}"] = value
+    for name in ("touchscreen", "rotationSensor", "wayland", "hyprland"):
+        value = capabilities.get(name)
+        if isinstance(value, dict) and "result" in value:
+            targets[name] = value
+    aliases = {
+        "hotplug": "lifecycle.hotplug",
+        "suspendResume": "certification.suspendResume",
+        "stylus.pressure": "stylusFeatures.pressure",
+        "stylus.tilt": "stylusFeatures.tilt",
+        "stylus.distance": "stylusFeatures.distance",
+        "stylus.rotation": "stylusFeatures.rotation",
+        "stylus.eraser": "stylusFeatures.eraser",
+        "stylus.buttons": "stylusFeatures.buttons",
+        "stylus.proximity": "stylusFeatures.proximity",
+    }
+    for alias, canonical in aliases.items():
+        if canonical in targets:
+            targets[alias] = targets[canonical]
+    for name in (
+        "display",
+        "touch",
+        "multitouch",
+        "stylus",
+        "pressure",
+        "tilt",
+        "eraser",
+        "stylusButtons",
+        "keyboard",
+        "detachableKeyboard",
+        "orientation",
+        "osk",
+        "multiMonitor",
+    ):
+        canonical = f"certification.{name}"
+        if canonical in targets:
+            targets.setdefault(name, targets[canonical])
+    for name, value in list(targets.items()):
+        if "." not in name:
+            targets.setdefault(name, value)
+    return targets
+
+
+def apply_manual_records(
+    capabilities: dict[str, Any],
+    records: dict[str, dict[str, str]],
+    mode: str,
+    hardware_confirmed: bool,
+) -> dict[str, dict[str, str]]:
+    if records and mode != "live-probe":
+        raise ValueError("fixture evidence cannot be manually certified")
+    targets = target_map(capabilities)
+    applied: dict[str, dict[str, str]] = {}
+    for name, record in records.items():
+        target = targets.get(name)
+        if target is None:
+            raise ValueError(f"unknown hardware certification target: {name}")
+        result = record.get("result")
+        if result not in RESULTS:
+            raise ValueError(f"invalid result for {name}: {result}")
+        if result in {"Pass", "Fail"} and not hardware_confirmed:
+            raise ValueError("Pass/Fail records require --confirm-hardware in a live session")
+        target["result"] = result
+        target["manual"] = True
+        target["source"] = "manual-session"
+        if result in {"Pass", "Fail"}:
+            target["available"] = True
+            target["status"] = "available"
+        elif result == "Unavailable":
+            target["available"] = False
+            target["status"] = "unavailable"
+        applied[name] = {"result": result, "recordedAt": str(record.get("recordedAt", ""))}
+    return applied
+
+
+def iter_checks(capabilities: dict[str, Any]):
+    for section in ("certification", "lifecycle", "handwriting", "stylusFeatures"):
+        values = capabilities.get(section, {})
+        if isinstance(values, dict):
+            for name, value in values.items():
+                if isinstance(value, dict) and value.get("result") in RESULTS:
+                    yield f"{section}.{name}", value
+    for name in ("touchscreen", "rotationSensor", "wayland", "hyprland"):
+        value = capabilities.get(name)
+        if isinstance(value, dict) and value.get("result") in RESULTS:
+            yield name, value
+
+
+def certification_summary(capabilities: dict[str, Any], records: dict[str, dict[str, str]]) -> dict[str, Any]:
+    counts = {result: 0 for result in RESULTS}
+    for _, value in iter_checks(capabilities):
+        counts[str(value["result"])] += 1
+    recorded_results = [record["result"] for record in records.values() if record.get("result") in RESULTS]
+    if not recorded_results:
+        status = "Untested"
+    elif "Fail" in recorded_results:
+        status = "Fail"
+    elif all(result == "Pass" for result in recorded_results):
+        status = "Pass"
+    elif any(result == "Untested" for result in recorded_results):
+        status = "Untested"
+    elif any(result == "Unavailable" for result in recorded_results):
+        status = "Unavailable"
+    elif any(result == "Skipped" for result in recorded_results):
+        status = "Skipped"
+    else:
+        status = "Untested"
+    return {
+        "status": status,
+        "resultCounts": counts,
+        "recordedCount": len(recorded_results),
+        "recordedResults": recorded_results,
+    }
 
 
 def command_json(command: list[str], timeout: float = 3.0) -> tuple[Any, str]:
@@ -39,11 +261,22 @@ def command_json(command: list[str], timeout: float = 3.0) -> tuple[Any, str]:
         return None, f"{command[0]} returned non-JSON output"
 
 
-def check(name: str, available: bool, reason: str, source: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
+def check(
+    name: str,
+    available: bool,
+    reason: str,
+    source: str,
+    details: dict[str, Any] | None = None,
+    result: str | None = None,
+) -> dict[str, Any]:
+    selected_result = result or ("Untested" if available else "Unavailable")
+    if selected_result not in RESULTS:
+        raise ValueError(f"invalid hardware result: {selected_result}")
     return {
         "name": name,
         "available": bool(available),
         "status": "available" if available else "unavailable",
+        "result": selected_result,
         "reason": reason,
         "source": source,
         "details": details or {},
@@ -273,6 +506,17 @@ def live_result() -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fixture", type=pathlib.Path)
+    parser.add_argument("--session", type=pathlib.Path, help="private resumable certification session")
+    parser.add_argument("--resume", action="store_true", help="resume an existing --session instead of creating one")
+    parser.add_argument(
+        "--record",
+        action="append",
+        default=[],
+        metavar="NAME=RESULT",
+        help="record a live hardware result: Pass, Fail, Unavailable, Skipped, or Untested",
+    )
+    parser.add_argument("--confirm-hardware", action="store_true", help="confirm that this is a real hardware session")
+    parser.add_argument("--report", type=pathlib.Path, help="write the sanitized JSON report to a private file")
     parser.add_argument("--json", action="store_true", help="kept for CLI symmetry; JSON is always emitted")
     args = parser.parse_args(argv)
     try:
@@ -285,18 +529,76 @@ def main(argv: list[str] | None = None) -> int:
         else:
             capabilities = live_result()
             mode = "live-probe"
+        if args.resume and not args.session:
+            raise ValueError("--resume requires --session")
+        if args.record and not args.session:
+            raise ValueError("--record requires --session so evidence is not lost")
+        if args.confirm_hardware and mode != "live-probe":
+            raise ValueError("fixture evidence cannot be confirmed as hardware")
+
+        session: dict[str, Any] | None = None
+        if args.session:
+            session_path = args.session.expanduser()
+            if args.resume:
+                session = read_session(session_path)
+                if session["mode"] != mode:
+                    raise ValueError("certification session mode does not match the current probe")
+            else:
+                if session_path.exists() or session_path.is_symlink():
+                    raise ValueError("certification session already exists; use --resume")
+                session = new_session(mode)
+            if args.confirm_hardware:
+                session["hardwareConfirmed"] = True
+            records_to_apply = dict(session.get("records", {}))
+            for raw_record in args.record:
+                name, result = parse_record(raw_record)
+                records_to_apply[name] = {"result": result, "recordedAt": timestamp()}
+            applied_records = apply_manual_records(
+                capabilities,
+                records_to_apply,
+                mode,
+                bool(session.get("hardwareConfirmed", False)),
+            )
+            session["records"] = applied_records
+            session["updatedAt"] = timestamp()
+            write_private_json(session_path, session)
+        else:
+            applied_records = {}
+
+        summary = certification_summary(capabilities, applied_records)
+        hardware_confirmed = bool(session and session.get("hardwareConfirmed", False))
+        real_hardware_validated = bool(
+            mode == "live-probe"
+            and hardware_confirmed
+            and any(record.get("result") in {"Pass", "Fail"} for record in applied_records.values())
+        )
+        if args.report:
+            report_path = args.report.expanduser()
+            if args.session and report_path == args.session.expanduser():
+                raise ValueError("--report and --session must be different files")
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
         return EX_CONFIG
     payload = {
         "schemaVersion": 1,
         "ok": True,
-        "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "generatedAt": timestamp(),
         "mode": mode,
-        "realHardwareValidated": False,
-        "note": "Capability probe only; unavailable backends are not simulated.",
+        "realHardwareValidated": real_hardware_validated,
+        "certification": {
+            **summary,
+            "evidence": "manual-confirmed" if real_hardware_validated else ("fixture" if mode == "fixture" else "probe-only"),
+            "sessionPresent": bool(session),
+        },
+        "note": "Capability probe only; unavailable backends are not simulated. Fixture evidence never certifies hardware.",
         "capabilities": capabilities,
     }
+    if args.report:
+        try:
+            write_private_json(args.report, payload)
+        except (OSError, ValueError) as exc:
+            print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+            return EX_CONFIG
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     return 0
 
