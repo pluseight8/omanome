@@ -29,6 +29,8 @@ EX_USAGE = 2
 EX_CONFIG = 78
 EX_NOINPUT = 66
 EX_CANTCREAT = 73
+LKG_SUFFIX = ".lkg"
+CORRUPT_SUFFIX = ".corrupt"
 
 
 class ConfigError(Exception):
@@ -189,10 +191,28 @@ def json_text(value: Any) -> str:
     return json.dumps(value, indent=2, ensure_ascii=False, sort_keys=False) + "\n"
 
 
+def has_symlink_component(path: pathlib.Path) -> bool:
+    """Return true when an existing component of an absolute path is a link."""
+
+    if not path.is_absolute():
+        return False
+    cursor = pathlib.Path(path.anchor)
+    for component in path.parts[1:]:
+        cursor /= component
+        if cursor.is_symlink():
+            return True
+    return False
+
+
+def sibling_path(path: pathlib.Path, suffix: str) -> pathlib.Path:
+    return path.with_name(path.name + suffix)
+
+
 def atomic_write(path_text: str, content: str) -> None:
     path = pathlib.Path(path_text)
-    if path.exists() and path.is_symlink():
+    if (path.exists() and path.is_symlink()) or has_symlink_component(path.parent):
         raise ConfigError("symlink-refused", f"refusing to replace symlink: {path}")
+    temporary: pathlib.Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, prefix=".omanome-config-", delete=False) as handle:
@@ -204,8 +224,9 @@ def atomic_write(path_text: str, content: str) -> None:
         os.replace(temporary, path)
     except OSError as exc:
         try:
-            temporary.unlink(missing_ok=True)
-        except (OSError, UnboundLocalError):
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+        except OSError:
             pass
         raise ConfigError("write-failed", f"cannot atomically write {path}: {exc}") from exc
 
@@ -219,12 +240,127 @@ def backup(path_text: str) -> str | None:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     destination = path.with_name(f"{path.name}.bak.{stamp}")
     counter = 1
-    while destination.exists():
+    while destination.exists() or destination.is_symlink():
         destination = path.with_name(f"{path.name}.bak.{stamp}.{counter}")
         counter += 1
     shutil.copy2(path, destination)
     os.chmod(destination, 0o600)
     return str(destination)
+
+
+def private_copy(source: pathlib.Path, destination: pathlib.Path) -> None:
+    """Copy a damaged config without following or replacing a link."""
+
+    if source.is_symlink() or destination.is_symlink() or has_symlink_component(destination.parent):
+        raise ConfigError("symlink-refused", f"refusing to preserve config through symlink: {destination}")
+    try:
+        with source.open("rb") as source_handle, destination.open("xb") as destination_handle:
+            shutil.copyfileobj(source_handle, destination_handle)
+            destination_handle.flush()
+            os.fsync(destination_handle.fileno())
+        os.chmod(destination, 0o600)
+    except FileExistsError:
+        raise ConfigError("write-failed", f"refusing to overwrite preserved config: {destination}")
+    except OSError as exc:
+        try:
+            destination.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise ConfigError("write-failed", f"cannot preserve damaged config: {exc}") from exc
+
+
+def lkg_path(path: pathlib.Path) -> pathlib.Path:
+    return sibling_path(path, LKG_SUFFIX)
+
+
+def preserve_corrupt(path: pathlib.Path) -> pathlib.Path | None:
+    if not path.exists():
+        return None
+    if path.is_symlink() or not path.is_file():
+        raise ConfigError("symlink-refused", f"refusing to preserve non-regular config: {path}")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    destination = sibling_path(path, f"{CORRUPT_SUFFIX}.{stamp}")
+    counter = 1
+    while destination.exists() or destination.is_symlink():
+        destination = sibling_path(path, f"{CORRUPT_SUFFIX}.{stamp}.{counter}")
+        counter += 1
+    private_copy(path, destination)
+    return destination
+
+
+def valid_candidate(path: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    if path.is_symlink() or not path.is_file():
+        return None
+    try:
+        normalized, report, _ = read_and_migrate(str(path))
+    except ConfigError as exc:
+        # A future-schema LKG is not safe to overwrite with old defaults.
+        if exc.reason == "future-schema":
+            return None
+        return None
+    return normalized, report
+
+
+def command_recover(args: argparse.Namespace) -> int:
+    path = pathlib.Path(args.path)
+    if path.is_symlink() or has_symlink_component(path.parent):
+        raise ConfigError("symlink-refused", f"refusing to recover config through symlink: {path}")
+
+    # A future-schema file is intentionally left byte-for-byte untouched. The
+    # running older release must not destroy data it cannot understand.
+    if path.is_file():
+        try:
+            normalized, report, display = read_and_migrate(str(path))
+        except ConfigError as exc:
+            if exc.reason == "future-schema":
+                raise
+        else:
+            atomic_write(str(lkg_path(path)), json_text(normalized))
+            output_result(
+                {
+                    "ok": True,
+                    "path": display,
+                    "recovered": False,
+                    "source": "current",
+                    "schemaVersion": normalized["schemaVersion"],
+                    "migration": report,
+                },
+                args.json,
+            )
+            return 0
+
+    preserved = preserve_corrupt(path)
+    source = "defaults"
+    normalized = load_defaults()
+    report: dict[str, Any] = {
+        "from": CURRENT_SCHEMA_VERSION,
+        "to": CURRENT_SCHEMA_VERSION,
+        "applied": [],
+        "migrated": False,
+    }
+    candidates: list[pathlib.Path] = [lkg_path(path)]
+    candidates.extend(sorted(path.parent.glob(f"{path.name}.bak.*"), reverse=True))
+    for candidate in candidates:
+        valid = valid_candidate(candidate)
+        if valid is None:
+            continue
+        normalized, report = valid
+        source = str(candidate)
+        break
+
+    atomic_write(str(path), json_text(normalized))
+    atomic_write(str(lkg_path(path)), json_text(normalized))
+    payload = {
+        "ok": True,
+        "path": str(path),
+        "recovered": True,
+        "source": source,
+        "schemaVersion": normalized["schemaVersion"],
+        "migration": report,
+        "preservedCorrupt": str(preserved) if preserved else None,
+    }
+    output_result(payload, args.json)
+    return 0
 
 
 def output_result(payload: dict[str, Any], as_json: bool) -> None:
@@ -272,6 +408,7 @@ def command_import(args: argparse.Namespace) -> int:
     normalized, report, display = read_and_migrate(args.source)
     previous = backup(args.target)
     atomic_write(args.target, json_text(normalized))
+    atomic_write(str(lkg_path(pathlib.Path(args.target))), json_text(normalized))
     output_result({"ok": True, "path": args.target, "schemaVersion": normalized["schemaVersion"], "migration": report, "backup": previous}, args.json)
     return 0
 
@@ -309,6 +446,10 @@ def build_parser() -> argparse.ArgumentParser:
     migrate_parser.add_argument("--output", required=True)
     migrate_parser.add_argument("--json", action="store_true")
     migrate_parser.set_defaults(function=command_migrate)
+    recover_parser = subparsers.add_parser("recover")
+    recover_parser.add_argument("path")
+    recover_parser.add_argument("--json", action="store_true")
+    recover_parser.set_defaults(function=command_recover)
     import_parser = subparsers.add_parser("import")
     import_parser.add_argument("source")
     import_parser.add_argument("target")
@@ -324,12 +465,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
+    arguments = list(sys.argv[1:] if argv is None else argv)
     try:
-        args = parser.parse_args(argv)
+        args = parser.parse_args(arguments)
         return int(args.function(args))
     except ConfigError as exc:
         payload = {"ok": False, "reason": exc.reason, "message": str(exc)}
-        if argv and "--json" in argv:
+        if "--json" in arguments:
             print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         else:
             print(f"omanome-config: {exc.reason}: {exc}", file=sys.stderr)

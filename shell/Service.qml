@@ -76,6 +76,8 @@ Item {
   property string configLoadStatus: "not-loaded"
   property string configLoadError: ""
   property var configMigration: ({ applied: [], from: Config.CURRENT_SCHEMA_VERSION, to: Config.CURRENT_SCHEMA_VERSION })
+  property bool configRecoveryRunning: false
+  property string configRecoveryOutput: ""
   property bool safeMode: false
   property bool annotationVisible: false
 
@@ -1103,6 +1105,15 @@ Item {
     directoryProcess.running = true
   }
 
+  function startConfigRecovery() {
+    if (configRecoveryProcess.running || root.configLoadStatus === "future-schema") return false
+    root.configRecoveryOutput = ""
+    root.configRecoveryRunning = true
+    configRecoveryProcess.command = ["python3", root.sourcePath("scripts/config_tool.py"), "recover", root.configPath, "--json"]
+    configRecoveryProcess.running = true
+    return true
+  }
+
   function loadConfig(raw) {
     root._loadingConfig = true
     var loaded = Config.loadDetailed(raw)
@@ -1116,6 +1127,7 @@ Item {
       root.configMigration = { applied: [], from: loaded.schemaVersion || null, to: Config.CURRENT_SCHEMA_VERSION }
       root.safeMode = true
       root.lastError = "Configuration requires recovery: " + root.configLoadError
+      root.startConfigRecovery()
     } else {
       root.config = loaded.config
       root.configLoadStatus = loaded.fresh === true ? "fresh" : (loaded.migrated === true ? "migrated" : "ok")
@@ -2572,7 +2584,36 @@ Item {
     onLoaded: root.loadConfig(text())
     onLoadFailed: {
       root.loadConfig("")
-      initialConfigSave.restart()
+      root.configLoadStatus = "recovery-pending"
+      root.configLoadError = "configuration file was missing or could not be read"
+      root.safeMode = true
+      root.startConfigRecovery()
+    }
+    onFileChanged: if (!root._loadingConfig) reload()
+  }
+
+  Process {
+    id: configRecoveryProcess
+    environment: root.ownedEnvironment("config-recovery")
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.configRecoveryOutput = text }
+    onStarted: root.processStarted("config-recovery", configRecoveryProcess, "preserve damaged config and restore last-known-good", false, "recovery")
+    onExited: function(exitCode) {
+      root.processStopped("config-recovery", configRecoveryProcess, exitCode)
+      root.configRecoveryRunning = false
+      var result = root.parseJson(root.configRecoveryOutput, {})
+      if (exitCode !== 0 || result.ok !== true) {
+        root.lastError = "Configuration recovery is unavailable; use 'omanome config recover'"
+        root.stateRevision++
+        root.stateUpdated()
+        return
+      }
+      root.lastError = result.recovered === true ? "Configuration recovered; previous data was preserved" : ""
+      // FileView observes the atomic replacement. Reload explicitly as well so
+      // a recovery that created a previously missing file is never delayed by
+      // a watcher implementation that only watches existing inodes.
+      configFile.reload()
+      root.stateRevision++
+      root.stateUpdated()
     }
   }
 

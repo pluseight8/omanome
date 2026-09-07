@@ -63,7 +63,7 @@ Commands:
   install                Install this plugin from the official GitHub repo
   export-config [file]   Print or export the versioned config
   import-config <file>   Validate and import a config, keeping a backup
-  config <operation>      Validate, migrate, diff, export, or import config
+  config <operation>      Validate, migrate, recover, diff, export, or import config
   reset [--yes]          Reset Omanome's config only
   update --check         Check the installed checkout and compatibility
   update                 Create rollback point, then use Omarchy plugin update
@@ -87,6 +87,7 @@ Commands:
   capabilities           Print merged capability probes as stable JSON
   hardware-test          Run non-destructive hardware probes (fixture supported)
   diagnostics bundle     Create a redacted support bundle
+  diagnostics export     Create the same redacted bundle (explicit --private accepted)
   processes [--json]     Print only explicitly Omanome-owned processes
   benchmark [--watch]    Print runtime CPU/RAM/process diagnostics
   profiler               Watch the same owner-only performance snapshot
@@ -893,6 +894,11 @@ config_cmd() {
       [[ $# -ge 1 ]] || die "config migrate requires an input JSON file"
       [[ "${2:-}" == "--output" && -n "${3:-}" ]] || die "config migrate requires --output <file>"
       python3 "$config_tool" migrate "$1" --output "$3" "${@:4}" ;;
+    recover)
+      local target="${1:-$current}"
+      if [[ $# -gt 0 && "${1:-}" != --* ]]; then shift; fi
+      ensure_dirs
+      python3 "$config_tool" recover "$target" "$@" ;;
     *) usage >&2; die "unknown config operation: $operation" ;;
   esac
 }
@@ -906,7 +912,8 @@ reset_cmd() {
   fi
   ensure_dirs
   backup_config
-  install -Dm600 -- "$repo_dir/config/defaults.json" "$(config_file)"
+  python3 "$config_tool" export --output "$(config_file)"
+  python3 "$config_tool" recover "$(config_file)" >/dev/null
   if has omarchy-shell; then omarchy-shell -q "$plugin_id" reload || true; fi
 }
 
@@ -1512,7 +1519,14 @@ diagnostics_cmd() {
   case "$operation" in
     capabilities) capabilities_cmd "$@" ;;
     hardware|hardware-test) hardware_test_cmd "$@" ;;
-    bundle|support-bundle) support_bundle_cmd "$@" ;;
+    bundle|support-bundle|export)
+      local filtered=()
+      for argument in "$@"; do
+        [[ "$argument" != "--private" ]] && filtered+=("$argument")
+      done
+      # --private acknowledges the sanitized support-export contract; it does
+      # not disable redaction and never uploads data.
+      support_bundle_cmd "${filtered[@]}" ;;
     doctor) doctor_cmd --json "$@" ;;
     *) usage >&2; die "unknown diagnostics operation: $operation" ;;
   esac
