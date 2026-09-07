@@ -104,6 +104,15 @@ manifest_value() {
 config_file() { printf '%s/config.json\n' "$omanome_config_dir"; }
 
 ensure_dirs() {
+  path_is_safe_directory "$omanome_config_dir" "$config_home" || die "refusing unsafe Omanome config directory: $omanome_config_dir"
+  path_is_safe_directory "$omanome_state_dir" "$state_home" || die "refusing unsafe Omanome state directory: $omanome_state_dir"
+  path_is_safe_directory "$omanome_cache_dir" "$cache_home" || die "refusing unsafe Omanome cache directory: $omanome_cache_dir"
+  path_is_safe_directory "$rollback_dir" "$omanome_state_dir" || die "refusing unsafe rollback directory: $rollback_dir"
+  path_is_safe_directory "$transaction_dir" "$omanome_state_dir" || die "refusing unsafe transaction directory: $transaction_dir"
+  path_is_safe_directory "$transaction_history_dir" "$transaction_dir" || die "refusing unsafe transaction history directory: $transaction_history_dir"
+  path_is_safe_directory "$failed_update_dir" "$omanome_state_dir" || die "refusing unsafe failed-update directory: $failed_update_dir"
+  path_is_safe_directory "$companion_state_dir" "$omanome_state_dir" || die "refusing unsafe companion state directory: $companion_state_dir"
+  path_is_safe_directory "$companion_backup_dir" "$companion_state_dir" || die "refusing unsafe companion backup directory: $companion_backup_dir"
   mkdir -p -- "$omanome_config_dir" "$omanome_state_dir" "$omanome_cache_dir" "$rollback_dir" "$transaction_dir" "$transaction_history_dir" "$failed_update_dir" "$companion_state_dir" "$companion_backup_dir"
 }
 
@@ -138,8 +147,8 @@ path_is_safe_file() {
 
 write_ownership_manifest() {
   ensure_dirs
-  local temporary="$ownership_manifest.tmp.$$"
-  jq -n \
+  local content
+  content="$(jq -n \
     --arg generatedAt "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
     --arg pluginId "$plugin_id" \
     --arg plugin "$installed_plugin_dir" \
@@ -147,10 +156,8 @@ write_ownership_manifest() {
     --arg state "$omanome_state_dir" \
     --arg cache "$omanome_cache_dir" \
     --arg companion "$companion_data_dir" \
-    '{schemaVersion:1,pluginId:$pluginId,generatedAt:$generatedAt,managedPaths:{plugin:$plugin,config:$config,state:$state,cache:$cache,companion:$companion}}' \
-    >"$temporary"
-  chmod 600 -- "$temporary"
-  mv -f -- "$temporary" "$ownership_manifest"
+    '{schemaVersion:1,pluginId:$pluginId,generatedAt:$generatedAt,managedPaths:{plugin:$plugin,config:$config,state:$state,cache:$cache,companion:$companion}}')"
+  json_atomic_write "$ownership_manifest" "$content"
 }
 
 safe_remove_directory() {
@@ -165,6 +172,47 @@ safe_remove_file() {
   path_is_safe_file "$path" "$parent" || die "refusing unsafe file removal: $path"
   [[ -e "$path" ]] || return 0
   rm -f -- "$path"
+}
+
+process_is_omanome_owned() {
+  local pid="$1"
+  [[ "$pid" =~ ^[0-9]+$ && "$pid" != "$$" && "$pid" != "${BASHPID:-}" ]] || return 1
+  [[ -r "/proc/$pid/environ" ]] || return 1
+  tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | grep -Fqx 'OMANOME_OWNER=io.omanome.shell'
+}
+
+omanome_owned_pids() {
+  local proc pid
+  for proc in /proc/[0-9]*; do
+    pid="${proc##*/}"
+    process_is_omanome_owned "$pid" && printf '%s\n' "$pid"
+  done
+}
+
+stop_owned_processes() {
+  local -a pids=()
+  local pid remaining=0 total=0
+  mapfile -t pids < <(omanome_owned_pids)
+  total="${#pids[@]}"
+  for pid in "${pids[@]}"; do
+    process_is_omanome_owned "$pid" || continue
+    kill -TERM -- "$pid" 2>/dev/null || true
+  done
+  if (( total > 0 )); then sleep 0.1; fi
+  for pid in "${pids[@]}"; do
+    if process_is_omanome_owned "$pid" && kill -0 -- "$pid" 2>/dev/null; then
+      kill -KILL -- "$pid" 2>/dev/null || true
+    fi
+  done
+  if (( total > 0 )); then sleep 0.05; fi
+  for pid in "${pids[@]}"; do
+    if process_is_omanome_owned "$pid" && kill -0 -- "$pid" 2>/dev/null; then
+      remaining=$((remaining + 1))
+    fi
+  done
+  uninstall_owned_processes_stopped=$((total - remaining))
+  uninstall_owned_processes_failed=$remaining
+  (( remaining == 0 ))
 }
 
 ownership_manifest_matches() {
@@ -256,13 +304,20 @@ uninstall_plan_cmd() {
     --argjson cacheExists "$cache_exists" \
     --argjson companionExists "$companion_exists" \
     --argjson configExists "$config_exists" \
-    '{schemaVersion:1,dryRun:$dryRun,purgeSettings:$purge,ownership:{status:$ownership,manifest:$manifest},transaction:{pending:$pending},targets:{plugin:{path:$plugin,exists:$pluginExists},state:{path:$state,exists:$stateExists},cache:{path:$cache,exists:$cacheExists},companion:{path:$companion,exists:$companionExists},config:{path:$config,exists:$configExists}},actions:((if $omarchy then [{action:"remove-omarchy-plugin",target:$plugin}] else [] end) + [{action:"remove-directory",target:$plugin},{action:"remove-directory",target:$state},{action:"remove-directory",target:$cache},{action:"remove-directory",target:$companion}] + (if $purge then [{action:"remove-directory",target:$config}] else [{action:"remove-file",target:$safeMode}] end))}'
+    '{schemaVersion:1,dryRun:$dryRun,purgeSettings:$purge,ownership:{status:$ownership,manifest:$manifest},transaction:{pending:$pending},targets:{plugin:{path:$plugin,exists:$pluginExists},state:{path:$state,exists:$stateExists},cache:{path:$cache,exists:$cacheExists},companion:{path:$companion,exists:$companionExists},config:{path:$config,exists:$configExists}},actions:([{action:"stop-owned-processes",owner:"io.omanome.shell"}] + (if $omarchy then [{action:"remove-omarchy-plugin",target:$plugin}] else [] end) + [{action:"remove-directory",target:$plugin},{action:"remove-directory",target:$state},{action:"remove-directory",target:$cache},{action:"remove-directory",target:$companion}] + (if $purge then [{action:"remove-directory",target:$config}] else [{action:"remove-file",target:$safeMode}] end))}'
 }
 
 json_atomic_write() {
-  local path="$1" content="$2" temporary="$1.tmp.$$"
+  local path="$1" content="$2" parent temporary
+  parent="$(dirname -- "$path")"
+  path_is_safe_directory "$parent" || die "refusing unsafe JSON parent directory: $parent"
+  path_is_safe_file "$path" || die "refusing unsafe JSON destination: $path"
+  temporary="$path.tmp.$$"
+  path_is_safe_file "$temporary" "$parent" || die "refusing unsafe JSON temporary path: $temporary"
+  [[ ! -e "$temporary" && ! -L "$temporary" ]] || die "refusing to replace an existing JSON temporary path: $temporary"
   printf '%s\n' "$content" >"$temporary"
   chmod 600 -- "$temporary"
+  path_is_safe_file "$path" || { safe_remove_file "$temporary" "$parent"; die "refusing unsafe JSON destination: $path"; }
   mv -f -- "$temporary" "$path"
 }
 
@@ -291,8 +346,8 @@ transaction_update() {
 transaction_begin() {
   local id="$1" channel="$2" current_version="$3" current_commit="$4" snapshot="$5"
   ensure_dirs
-  local temporary="$transaction_file.tmp.$$"
-  jq -n \
+  local content
+  content="$(jq -n \
     --arg id "$id" \
     --arg channel "$channel" \
     --arg version "$current_version" \
@@ -301,10 +356,8 @@ transaction_begin() {
     --arg startedAt "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
     --arg pluginPath "$installed_plugin_dir" \
     --arg configPath "$(config_file)" \
-    '{schemaVersion:1,id:$id,phase:"prepared",startedAt:$startedAt,updatedAt:$startedAt,channel:$channel,currentVersion:$version,currentCommit:$commit,snapshot:$snapshot,pluginPath:$pluginPath,configPath:$configPath}' \
-    >"$temporary"
-  chmod 600 -- "$temporary"
-  mv -f -- "$temporary" "$transaction_file"
+    '{schemaVersion:1,id:$id,phase:"prepared",startedAt:$startedAt,updatedAt:$startedAt,channel:$channel,currentVersion:$version,currentCommit:$commit,snapshot:$snapshot,pluginPath:$pluginPath,configPath:$configPath}')"
+  json_atomic_write "$transaction_file" "$content"
 }
 
 transaction_finalize() {
@@ -516,6 +569,7 @@ companion_record_event() {
   ensure_dirs
   local event="${1:-unknown}"
   local reason="${2:-}"
+  path_is_safe_file "$companion_lifecycle_log" "$companion_state_dir" || die "refusing unsafe companion lifecycle log: $companion_lifecycle_log"
   printf '%s event=%s reason=%s\n' "$(companion_timestamp)" "$event" "$reason" >>"$companion_lifecycle_log"
   chmod 600 -- "$companion_lifecycle_log"
 }
@@ -530,8 +584,8 @@ companion_state_update() {
   if [[ -f "$companion_lifecycle_file" ]]; then
     current="$(jq -c 'if type == "object" then . else {} end' "$companion_lifecycle_file" 2>/dev/null || printf '{}')"
   fi
-  local temporary="$companion_lifecycle_file.tmp.$$"
-  jq --arg event "$event" --arg reason "$reason" --arg at "$at" '
+  local content
+  content="$(jq --arg event "$event" --arg reason "$reason" --arg at "$at" '
     .schemaVersion = 1
     | .lastEvent = $event
     | .lastEventAt = $at
@@ -553,19 +607,21 @@ companion_state_update() {
       elif $event == "recovered" then
         .enabled = false | .loadPending = false | .lastRecoveryAt = $at
       else . end
-  ' <<<"$current" >"$temporary"
-  chmod 600 -- "$temporary"
-  mv -f -- "$temporary" "$companion_lifecycle_file"
+  ' <<<"$current")"
+  json_atomic_write "$companion_lifecycle_file" "$content"
   companion_record_event "$event" "$reason"
 }
 
 companion_backup_artifact() {
   [[ -f "$companion_artifact" ]] || return 0
   ensure_dirs
+  path_is_safe_directory "$companion_data_dir" "$data_home/omanome" || die "refusing unsafe companion data directory: $companion_data_dir"
+  path_is_safe_file "$companion_artifact" "$companion_data_dir" || die "refusing unsafe companion artifact: $companion_artifact"
   local stamp destination
   stamp="$(date -u +%Y%m%d-%H%M%S)"
   destination="$companion_backup_dir/$stamp"
   if [[ -e "$destination" ]]; then destination="$companion_backup_dir/${stamp}-$(date +%s%N)"; fi
+  path_is_safe_directory "$destination" "$companion_backup_dir" || die "refusing unsafe companion backup path: $destination"
   mkdir -p -- "$destination"
   install -Dm755 -- "$companion_artifact" "$destination/omanome-hypr.so"
   if [[ -f "$companion_data_dir/compatibility.json" ]]; then
@@ -685,20 +741,23 @@ companion_build_cmd() {
 
 companion_install_cmd() {
   companion_build_cmd
+  path_is_safe_directory "$data_home/omanome" "$data_home" || die "refusing unsafe companion parent directory: $data_home/omanome"
+  path_is_safe_directory "$companion_data_dir" "$data_home/omanome" || die "refusing unsafe companion data directory: $companion_data_dir"
   mkdir -p -- "$companion_data_dir"
   local previous_backup=""
   previous_backup="$(companion_backup_artifact || true)"
+  path_is_safe_file "$companion_artifact" "$companion_data_dir" || die "refusing unsafe companion artifact: $companion_artifact"
+  path_is_safe_file "$companion_data_dir/compatibility.json" "$companion_data_dir" || die "refusing unsafe companion metadata: $companion_data_dir/compatibility.json"
   install -Dm755 -- "$companion_root/build/omanome-hypr.so" "$companion_artifact"
   install -Dm644 -- "$companion_manifest" "$companion_data_dir/compatibility.json"
-  local runtime_version runtime_abi runtime_commit compiler artifact_hash plugin_build metadata
+  local runtime_version runtime_abi runtime_commit compiler artifact_hash plugin_build metadata_content
   runtime_version="$(companion_runtime_version || true)"
   runtime_abi="$(companion_runtime_abi || true)"
   runtime_commit="$(companion_runtime_commit || true)"
   compiler="$(g++ --version 2>/dev/null | head -n 1 || true)"
   artifact_hash="$(sha256sum "$companion_artifact" | awk '{print $1}')"
   plugin_build="$(manifest_value version)"
-  metadata="$companion_data_dir/compatibility.json.tmp"
-  jq --arg version "${runtime_version:-unknown}" \
+  metadata_content="$(jq --arg version "${runtime_version:-unknown}" \
     --arg commit "${runtime_commit:-unknown}" \
     --arg abi "${runtime_abi:-unknown}" \
     --arg compiler "${compiler:-unknown}" \
@@ -709,9 +768,8 @@ companion_install_cmd() {
       hyprland:{version:$version,commit:$commit,abi:$abi},
       build:{hyprlandVersion:$version,hyprlandCommit:$commit,hyprlandAbi:$abi,compiler:$compiler,pluginBuild:$pluginBuild,artifactSha256:$artifactHash,builtAt:$builtAt}
     }' \
-    "$companion_data_dir/compatibility.json" >"$metadata"
-  mv -f -- "$metadata" "$companion_data_dir/compatibility.json"
-  chmod 600 -- "$companion_data_dir/compatibility.json"
+    "$companion_data_dir/compatibility.json")"
+  json_atomic_write "$companion_data_dir/compatibility.json" "$metadata_content"
   rm -f -- "$companion_pending_marker"
   companion_state_update artifact-installed "new artifact installed${previous_backup:+; previous artifact backed up}"
   say "Installed user-owned companion at $companion_artifact"
@@ -1031,10 +1089,8 @@ preflight_config_cmd() {
 migrate_config_cmd() {
   local current="$(config_file)"
   [[ -f "$current" ]] || return 0
-  [[ ! -L "$current" ]] || die "configuration is a symlink; refusing to migrate it"
-  local temporary="$current.migrate.$$"
-  python3 "$config_tool" migrate "$current" --output "$temporary" >/dev/null || { safe_remove_file "$temporary" "$omanome_config_dir"; die "configuration migration failed"; }
-  mv -f -- "$temporary" "$current"
+  path_is_safe_file "$current" "$omanome_config_dir" || die "configuration path is unsafe; refusing to migrate it"
+  python3 "$config_tool" migrate "$current" --output "$current" >/dev/null || die "configuration migration failed"
   chmod 600 -- "$current"
 }
 
@@ -1141,11 +1197,15 @@ prune_rollback_cmd() {
 
 restore_directory_snapshot() {
   local source="$1" target="$2" target_parent="$3" failed_root="$4" name="$5"
-  [[ ! -e "$target" || ! -L "$target" ]] || die "refusing to restore through symlink: $target"
+  path_is_safe_directory "$source" "$(dirname -- "$source")" || die "unsafe rollback source: $source"
+  path_is_safe_directory "$target_parent" || die "unsafe rollback target parent: $target_parent"
+  path_is_safe_directory "$target" "$target_parent" || die "unsafe rollback target: $target"
+  path_is_safe_directory "$failed_root" "$failed_update_dir" || die "unsafe failed-update path: $failed_root"
   if [[ -d "$source" ]]; then
     [[ ! -L "$source" ]] || die "rollback snapshot contains a symlink: $source"
     local stage="$target.restore.$$"
-    [[ ! -e "$stage" ]] || die "restore staging path already exists: $stage"
+    path_is_safe_directory "$stage" "$target_parent" || die "unsafe restore staging path: $stage"
+    [[ ! -e "$stage" && ! -L "$stage" ]] || die "restore staging path already exists: $stage"
     cp -a -- "$source" "$stage"
     if [[ -e "$target" ]]; then mv -- "$target" "$failed_root/$name"; fi
     mv -- "$stage" "$target"
@@ -1167,8 +1227,12 @@ restore_snapshot_cmd() {
   [[ "$snapshot" != "$rollback_dir" && -d "$snapshot/plugin" ]] || die "no rollback point available"
   [[ ! -L "$snapshot/plugin" ]] || die "rollback snapshot plugin is a symlink"
   ensure_dirs
+  path_is_safe_directory "$(dirname -- "$installed_plugin_dir")" "$config_home/omarchy" || die "unsafe plugin parent path"
+  path_is_safe_directory "$(dirname -- "$companion_data_dir")" "$data_home" || die "unsafe companion parent path"
+  path_is_safe_directory "$(dirname -- "$companion_state_dir")" "$omanome_state_dir" || die "unsafe companion state parent path"
   mkdir -p -- "$(dirname -- "$installed_plugin_dir")" "$(dirname -- "$companion_data_dir")" "$(dirname -- "$companion_state_dir")"
   local failed_root="$failed_update_dir/$(date -u +%Y%m%d-%H%M%S)-$$"
+  path_is_safe_directory "$failed_root" "$failed_update_dir" || die "unsafe failed-update path: $failed_root"
   mkdir -p -- "$failed_root"
   restore_directory_snapshot "$snapshot/plugin" "$installed_plugin_dir" "$(dirname -- "$installed_plugin_dir")" "$failed_root" plugin
   if [[ -f "$snapshot/config.json" ]]; then
@@ -1330,6 +1394,8 @@ uninstall_cmd() {
   fi
 
   local lock_held=0 transaction_recovered=false omarchy_removed=true
+  uninstall_owned_processes_stopped=0
+  uninstall_owned_processes_failed=0
   if [[ -d "$omanome_state_dir" ]]; then
     acquire_update_lock
     lock_held=1
@@ -1341,6 +1407,11 @@ uninstall_cmd() {
       fi
       transaction_recovered=true
     fi
+  fi
+
+  if ! stop_owned_processes; then
+    if [[ "$lock_held" -eq 1 ]]; then release_update_lock; fi
+    die "refusing uninstall: could not stop $uninstall_owned_processes_failed Omanome-owned process(es) safely"
   fi
 
   if has omarchy; then
@@ -1369,7 +1440,8 @@ uninstall_cmd() {
       --argjson purge "$(if [[ "$uninstall_purge_settings" -eq 1 ]]; then printf true; else printf false; fi)" \
       --argjson recovered "$transaction_recovered" \
       --argjson omarchyRemoved "$omarchy_removed" \
-      '{removed:true,purgeSettings:$purge,ownership:$ownership,transactionRecovered:$recovered,omarchyPluginRemoved:$omarchyRemoved}'
+      --argjson ownedProcessesStopped "$uninstall_owned_processes_stopped" \
+      '{removed:true,purgeSettings:$purge,ownership:$ownership,transactionRecovered:$recovered,omarchyPluginRemoved:$omarchyRemoved,ownedProcessesStopped:$ownedProcessesStopped}'
   else
     say "Omanome removed. Omarchy, its standard bar, other plugins, themes, and user Hyprland configuration were not touched."
     [[ "$omarchy_removed" == true ]] || say "Warning: Omarchy plugin registration could not be removed; local Omanome paths were still cleaned safely."

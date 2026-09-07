@@ -308,6 +308,29 @@ class DiagnosticsTests(unittest.TestCase):
             self.assertIn("unsafe plugin path", result.stderr)
             self.assertTrue(outside.exists())
 
+    def test_setup_refuses_symlink_managed_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            config_home = root / "config"
+            config_home.mkdir()
+            outside = root / "outside"
+            outside.mkdir()
+            (config_home / "omanome").symlink_to(outside, target_is_directory=True)
+            env = os.environ.copy()
+            env.update(
+                {
+                    "HOME": str(root),
+                    "XDG_CONFIG_HOME": str(config_home),
+                    "XDG_STATE_HOME": str(root / "state"),
+                    "XDG_DATA_HOME": str(root / "data"),
+                    "XDG_CACHE_HOME": str(root / "cache"),
+                }
+            )
+            result = subprocess.run([str(CLI), "setup"], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("unsafe Omanome config directory", result.stderr)
+            self.assertFalse((outside / "config.json").exists())
+
     def test_uninstall_removes_owned_paths_but_keeps_settings_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
@@ -324,6 +347,28 @@ class DiagnosticsTests(unittest.TestCase):
             self.assertTrue((root / "config" / "omanome" / "config.json").exists())
             self.assertFalse((root / "config" / "omanome" / "safe-mode").exists())
             self.assertTrue((root / "untouched.txt").exists())
+
+    def test_uninstall_stops_only_explicitly_owned_processes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            env = self.make_uninstall_environment(root)
+            owned_env = env.copy()
+            owned_env["OMANOME_OWNER"] = "io.omanome.shell"
+            owned_env["OMANOME_COMPONENT"] = "test-helper"
+            owned = subprocess.Popen(["sleep", "30"], env=owned_env)
+            foreign = subprocess.Popen(["sleep", "30"], env=env)
+            try:
+                result = subprocess.run([str(CLI), "uninstall", "--yes", "--json"], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                payload = json.loads(result.stdout)
+                self.assertGreaterEqual(payload["ownedProcessesStopped"], 1)
+                self.assertIsNotNone(owned.poll())
+                self.assertIsNone(foreign.poll())
+            finally:
+                for process in (owned, foreign):
+                    if process.poll() is None:
+                        process.terminate()
+                    process.wait(timeout=5)
 
 
 if __name__ == "__main__":
