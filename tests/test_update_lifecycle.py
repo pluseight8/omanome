@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -15,30 +16,38 @@ CLI = ROOT / "cli" / "omanome"
 
 
 class UpdateLifecycleTests(unittest.TestCase):
-    def make_fixture(self, root: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
+    def make_fixture(
+        self,
+        root: pathlib.Path,
+        *,
+        installed: bool = True,
+        configured: bool = True,
+    ) -> tuple[pathlib.Path, pathlib.Path]:
         config_home = root / "config"
         state_home = root / "state"
         cache_home = root / "cache"
         plugin = config_home / "omarchy" / "plugins" / "io.omanome.shell"
-        plugin.mkdir(parents=True)
-        (plugin / ".git").mkdir()
-        (plugin / "manifest.json").write_text(
-            json.dumps(
-                {
-                    "schemaVersion": 1,
-                    "id": "io.omanome.shell",
-                    "name": "Omanome",
-                    "version": "0.7.0",
-                    "kinds": ["service", "bar-widget", "panel"],
-                    "entryPoints": {},
-                }
-            ),
-            encoding="utf-8",
-        )
-        (config_home / "omanome").mkdir(parents=True)
-        (config_home / "omanome" / "config.json").write_text(
-            (ROOT / "config" / "defaults.json").read_text(encoding="utf-8"), encoding="utf-8"
-        )
+        if installed:
+            plugin.mkdir(parents=True)
+            (plugin / ".git").mkdir()
+            (plugin / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "id": "io.omanome.shell",
+                        "name": "Omanome",
+                        "version": "0.7.0",
+                        "kinds": ["service", "bar-widget", "panel"],
+                        "entryPoints": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+        if configured:
+            (config_home / "omanome").mkdir(parents=True)
+            (config_home / "omanome" / "config.json").write_text(
+                (ROOT / "config" / "defaults.json").read_text(encoding="utf-8"), encoding="utf-8"
+            )
         fake_bin = root / "bin"
         fake_bin.mkdir()
         (fake_bin / "git").write_text(
@@ -80,9 +89,19 @@ class UpdateLifecycleTests(unittest.TestCase):
                   [[ "${OMANOME_SIMULATE_HEALTH_FAILURE:-0}" != 1 ]]
                   exit $?
                 fi
+                if [[ "$2" == "add" ]]; then
+                  plugin="${XDG_CONFIG_HOME}/omarchy/plugins/io.omanome.shell"
+                  mkdir -p "$plugin/.git"
+                  printf '%s\n' '{"schemaVersion": 1, "id": "io.omanome.shell", "name": "Omanome", "version": "0.7.0", "kinds": ["service", "bar-widget", "panel"], "entryPoints": {}}' >"$plugin/manifest.json"
+                  exit 0
+                fi
                 if [[ "$2" == "update" ]]; then
                   plugin="${XDG_CONFIG_HOME}/omarchy/plugins/io.omanome.shell/manifest.json"
                   sed -i 's/"version": "0.7.0"/"version": "0.9.0"/' "$plugin"
+                  exit 0
+                fi
+                if [[ "$2" == "remove" ]]; then
+                  rm -rf -- "${XDG_CONFIG_HOME}/omarchy/plugins/io.omanome.shell"
                   exit 0
                 fi
                 exit 0
@@ -90,7 +109,17 @@ class UpdateLifecycleTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        for path in (fake_bin / "git", fake_bin / "curl", fake_bin / "omarchy"):
+        (fake_bin / "omarchy-shell").write_text(
+            textwrap.dedent(
+                """
+                #!/usr/bin/env bash
+                printf '%s\n' "$*" >>"${OMANOME_SHELL_LOG}"
+                exit 0
+                """
+            ),
+            encoding="utf-8",
+        )
+        for path in (fake_bin / "git", fake_bin / "curl", fake_bin / "omarchy", fake_bin / "omarchy-shell"):
             path.chmod(path.stat().st_mode | stat.S_IXUSR)
         env = os.environ.copy()
         env.update(
@@ -100,10 +129,14 @@ class UpdateLifecycleTests(unittest.TestCase):
                 "XDG_STATE_HOME": str(state_home),
                 "XDG_CACHE_HOME": str(cache_home),
                 "OMANOME_GIT_ARGS_LOG": str(root / "git-args.log"),
+                "OMANOME_SHELL_LOG": str(root / "shell.log"),
                 "PATH": f"{fake_bin}:{env['PATH']}",
             }
         )
         return plugin, env
+
+    def run_cli(self, env: dict[str, str], *arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run([str(CLI), *arguments], env=env, capture_output=True, text=True)
 
     def test_health_failure_restores_snapshot_and_keeps_journal_history(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -142,6 +175,94 @@ class UpdateLifecycleTests(unittest.TestCase):
             args_log = (root / "git-args.log").read_text(encoding="utf-8")
             self.assertIn("refs/tags/v0.9.0^{}", args_log)
             self.assertNotIn("refs/heads/main", args_log)
+
+    def test_portable_install_update_reload_suspend_resume_rollback_uninstall(self) -> None:
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            plugin, env = self.make_fixture(root, installed=False, configured=False)
+            config = root / "first-run-config.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 2,
+                        "general": {"mode": "tablet"},
+                        "onboarding": {"completed": True, "privacyAcknowledged": True},
+                        "updates": {"channel": "stable", "automaticInstall": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            setup = self.run_cli(env, "setup")
+            self.assertEqual(setup.returncode, 0, setup.stderr)
+            exported = self.run_cli(env, "export-config")
+            self.assertEqual(exported.returncode, 0, exported.stderr)
+            self.assertTrue((root / "config" / "omanome" / "config.json").is_file())
+
+            imported = self.run_cli(env, "import-config", str(config))
+            self.assertEqual(imported.returncode, 0, imported.stderr)
+            imported_config = json.loads((root / "config" / "omanome" / "config.json").read_text(encoding="utf-8"))
+            self.assertEqual(imported_config["general"]["mode"], "tablet")
+            self.assertTrue(imported_config["onboarding"]["privacyAcknowledged"])
+
+            installed = self.run_cli(env, "install")
+            self.assertEqual(installed.returncode, 0, installed.stderr)
+            self.assertTrue(plugin.is_dir())
+            self.assertEqual(json.loads((plugin / "manifest.json").read_text(encoding="utf-8"))["version"], "0.7.0")
+
+            reloaded = self.run_cli(env, "reload")
+            self.assertEqual(reloaded.returncode, 0, reloaded.stderr)
+            shell_events = (root / "shell.log").read_text(encoding="utf-8").splitlines()
+            self.assertTrue(any("rescanPlugins" in event for event in shell_events))
+
+            lifecycle_expression = (
+                "const L=require('./shell/models/Lifecycle.js'); "
+                "let state=L.emptyState(); "
+                "const suspend=L.transition(state,{event:'suspend'},100); "
+                "const resume=L.transition(suspend.state,{event:'resume'},200); "
+                "console.log(JSON.stringify({suspend,resume}));"
+            )
+            lifecycle = subprocess.run(
+                [node, "-e", lifecycle_expression], cwd=ROOT, capture_output=True, text=True
+            )
+            self.assertEqual(lifecycle.returncode, 0, lifecycle.stderr)
+            lifecycle_payload = json.loads(lifecycle.stdout)
+            self.assertEqual(lifecycle_payload["suspend"]["state"]["phase"], "suspended")
+            self.assertEqual(lifecycle_payload["resume"]["state"]["phase"], "active")
+            self.assertEqual(lifecycle_payload["resume"]["state"]["generation"], 2)
+
+            first_update = self.run_cli(env, "update", "--json")
+            self.assertEqual(first_update.returncode, 0, first_update.stderr)
+            self.assertTrue(json.loads(first_update.stdout)["updated"])
+            self.assertEqual(json.loads((plugin / "manifest.json").read_text(encoding="utf-8"))["version"], "0.9.0")
+            self.assertTrue(list((root / "state" / "omanome" / "rollback").iterdir()))
+
+            rollback = self.run_cli(env, "rollback")
+            self.assertEqual(rollback.returncode, 0, rollback.stderr)
+            self.assertEqual(json.loads((plugin / "manifest.json").read_text(encoding="utf-8"))["version"], "0.7.0")
+
+            second_update = self.run_cli(env, "update", "--json")
+            self.assertEqual(second_update.returncode, 0, second_update.stderr)
+            self.assertTrue(json.loads(second_update.stdout)["updated"])
+            self.assertEqual(json.loads((plugin / "manifest.json").read_text(encoding="utf-8"))["version"], "0.9.0")
+
+            uninstall_plan = self.run_cli(env, "uninstall", "--dry-run", "--json")
+            self.assertEqual(uninstall_plan.returncode, 0, uninstall_plan.stderr)
+            plan = json.loads(uninstall_plan.stdout)
+            self.assertIn({"action": "stop-owned-processes", "owner": "io.omanome.shell"}, plan["actions"])
+
+            uninstalled = self.run_cli(env, "uninstall", "--yes", "--json")
+            self.assertEqual(uninstalled.returncode, 0, uninstalled.stderr)
+            uninstall_payload = json.loads(uninstalled.stdout)
+            self.assertTrue(uninstall_payload["removed"])
+            self.assertFalse(uninstall_payload["purgeSettings"])
+            self.assertFalse(plugin.exists())
+            self.assertFalse((root / "state" / "omanome").exists())
+            self.assertFalse((root / "cache" / "omanome").exists())
+            self.assertTrue((root / "config" / "omanome" / "config.json").is_file())
 
 
 if __name__ == "__main__":

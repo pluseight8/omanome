@@ -1240,7 +1240,10 @@ restore_directory_snapshot() {
 restore_snapshot_cmd() {
   local requested="${1:-}" snapshot
   if [[ -z "$requested" ]]; then
-    snapshot="$(find "$rollback_dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort -r | head -n 1)"
+    local latest_name
+    latest_name="$(find "$rollback_dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort -r | head -n 1)"
+    [[ -n "$latest_name" ]] || latest_name=""
+    snapshot="${rollback_dir}/${latest_name}"
   elif [[ "$requested" = /* ]]; then
     snapshot="$requested"
   else
