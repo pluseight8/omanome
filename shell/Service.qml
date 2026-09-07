@@ -73,6 +73,8 @@ Item {
   property bool wobblyConfigSynced: false
   property bool wobblyConfigFailed: false
   property var wobblyConfigResponse: null
+  property string doctorOutput: ""
+  property bool doctorRunning: false
   property var forceQuitState: ({ active: false, phase: "idle", target: null, message: "" })
   property string blurRuleSignature: ""
   property string lastInput: "keyboard"
@@ -1159,6 +1161,50 @@ Item {
     return JSON.stringify(root.statusObject())
   }
 
+  // Diagnostics deliberately contain capability and version metadata only.
+  // Clipboard entries, window titles, typed text, file contents and secrets
+  // never enter this object.
+  function diagnosticsObject() {
+    var companion = root.companionState || {}
+    return {
+      version: root.manifest ? String(root.manifest.version || "unknown") : "unknown",
+      hyprland: root.effectBackend && root.effectBackend.runtime ? String(root.effectBackend.runtime.version || "unknown") : (root.hyprlandAvailable ? "available" : "unavailable"),
+      hyprlandAbi: root.effectBackend && root.effectBackend.runtime ? String(root.effectBackend.runtime.abi || "unknown") : "unknown",
+      quickshell: String(Quickshell.env("QUICKSHELL_VERSION") || "host-provided"),
+      wayland: String(Quickshell.env("WAYLAND_DISPLAY") || "unavailable"),
+      mode: root.detectedMode,
+      input: { last: root.lastInput, pending: root.inputCandidate, touchscreen: root.hasTouchscreen, stylus: root.hasStylus, physicalKeyboard: root.hasPhysicalKeyboard },
+      devices: { monitors: root.monitors.length, stylus: root.stylusDevices.length, keyboards: root.keyboardDevices.length },
+      rotation: { available: root.systemState.rotationAvailable === true, sensor: root.systemState.rotationSensorAvailable === true, backend: String(root.systemState.rotationSensorBackend || "manual") },
+      companion: { installed: companion.installed === true, built: companion.built === true, loaded: companion.loaded === true, compatible: companion.compatible === true, crashMarker: companion.crashMarker === true, abiMatch: companion.abiMatch === true },
+      effects: { blur: root.effectBackend.layerRulesAvailable === true, livePreview: root.livePreviewState.available === true, wobbly: root.effectCapabilities.wobblyWindows === true, cube: root.effectCapabilities.desktopCube === true },
+      osk: { enabled: root.cfg("keyboard.enabled", true) === true, wtype: root.wtypeAvailable, inputBackend: root.inputBackendAvailable },
+      config: { schemaVersion: Number(root.config.schemaVersion || 1), path: root.configPath },
+      responsive: root.responsiveState,
+      error: String(root.lastError || "")
+    }
+  }
+
+  function diagnosticsText() { return JSON.stringify(root.diagnosticsObject(), null, 2) }
+
+  function copyPlainText(value) {
+    var text = String(value || "")
+    if (!text) return false
+    diagnosticsCopyProcess.payload = text
+    diagnosticsCopyProcess.running = true
+    return true
+  }
+
+  function copyDiagnostics() { return root.copyPlainText(root.diagnosticsText()) }
+
+  function runDoctor() {
+    if (doctorProcess.running) return false
+    root.doctorOutput = ""
+    root.doctorRunning = true
+    doctorProcess.running = true
+    return true
+  }
+
   function open(view) {
     if (root.shell && root.manifest && typeof root.shell.summon === "function")
       return root.shell.summon(String(root.manifest.id), JSON.stringify({ view: String(view || "overview") }))
@@ -1749,6 +1795,26 @@ Item {
     onStarted: {
       write(secret)
       secret = ""
+    }
+  }
+
+  Process {
+    id: diagnosticsCopyProcess
+    property string payload: ""
+    command: ["wl-copy", "--type", "text/plain"]
+    stdinEnabled: true
+    onStarted: { write(payload); payload = "" }
+  }
+
+  Process {
+    id: doctorProcess
+    command: [root.sourcePath("cli/omanome"), "doctor"]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.doctorOutput = text }
+    onExited: function(exitCode) {
+      root.doctorRunning = false
+      if (exitCode !== 0 && root.doctorOutput === "") root.doctorOutput = "doctor unavailable (exit " + exitCode + ")"
+      root.stateRevision++
+      root.stateUpdated()
     }
   }
 

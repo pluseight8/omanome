@@ -168,6 +168,17 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertIn("WindowLayout.rects", overview)
         self.assertIn("Current workspace first", overview)
 
+    def test_settings_2_0_has_deep_links_search_accessibility_and_safe_diagnostics(self) -> None:
+        settings = (ROOT / "shell/views/Settings.qml").read_text(encoding="utf-8")
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        button = (ROOT / "shell/components/ActionButton.qml").read_text(encoding="utf-8")
+        for value in ("openDeepLink", "filteredCategories", "settings:", "mobileDetails", "accessibility", "diagnostics", "copyDiagnostics", "resetCategory"):
+            self.assertIn(value, settings)
+        self.assertIn("diagnosticsObject", service)
+        self.assertIn("clipboardEntries", service)  # status keeps only a count, not contents
+        self.assertNotIn("clipboardHistory", service[service.index("function diagnosticsObject"):service.index("function diagnosticsText")])
+        self.assertIn("Accessible.name", button)
+
     def test_quick_settings_and_stylus_are_capability_aware(self) -> None:
         result = self.run_node(
             "const Q=require('./shell/models/QuickSettings.js'); const S=require('./shell/models/Stylus.js'); "

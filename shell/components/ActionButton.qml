@@ -10,6 +10,8 @@ Item {
   property bool checked: false
   property bool usable: true
   property bool compact: false
+  property string accessibleName: ""
+  property string accessibleDescription: ""
   property real minimumWidth: 96
   property real minimumHeight: 48
   property color foreground: Color.foreground
@@ -20,6 +22,11 @@ Item {
   implicitWidth: Math.max(minimumWidth, content.implicitWidth + Style.space(24))
   implicitHeight: compact ? Style.space(38) : Math.max(minimumHeight, content.implicitHeight + Style.space(18))
   opacity: usable ? 1 : 0.42
+
+  Accessible.name: root.accessibleName !== "" ? root.accessibleName : root.text
+  Accessible.description: root.accessibleDescription !== "" ? root.accessibleDescription : root.subtitle
+  Accessible.role: Accessible.Button
+  Accessible.checked: root.checked
 
   Rectangle {
     id: surface
