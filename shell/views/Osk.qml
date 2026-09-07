@@ -271,6 +271,12 @@ Item {
     root.repeatKey = ""
   }
 
+  function repeatInterval() {
+    var configured = Math.max(60, Number(root.cfg("keyboard.repeatRate", 55)))
+    if (root.service && root.service.performanceState && root.service.performanceState.mode === "battery-saver") return Math.max(100, configured)
+    return configured
+  }
+
   function chooseAlternate(value) {
     root.stopHold()
     root.popupAlternates = []
@@ -399,7 +405,7 @@ Item {
     repeat: true
     onTriggered: {
       root.press(root.repeatKey)
-      interval = Math.max(30, Number(root.cfg("keyboard.repeatRate", 55)))
+      interval = root.repeatInterval()
     }
   }
 
@@ -563,6 +569,7 @@ Item {
                 checked: (root.isModifier(modelData) && root.modifierState[modelData] === true) || (modelData === "Fn" && root.inputLayer === "function")
                 onClicked: { root.stopHold(); root.press(modelData) }
                 onPressAndHold: root.beginHold(modelData)
+                onReleased: root.stopHold()
               }
             }
           }
@@ -624,6 +631,7 @@ Item {
                       text: root.keyText(modelData)
                       onClicked: { root.stopHold(); root.press(modelData) }
                       onPressAndHold: root.beginHold(modelData)
+                      onReleased: root.stopHold()
                     }
                   }
                 }
@@ -642,6 +650,7 @@ Item {
                       text: root.keyText(modelData)
                       onClicked: { root.stopHold(); root.press(modelData) }
                       onPressAndHold: root.beginHold(modelData)
+                      onReleased: root.stopHold()
                     }
                   }
                 }

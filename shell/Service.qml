@@ -42,9 +42,11 @@ Item {
   property bool processRegistryReady: false
   property var ownedProcesses: []
   property var processRestartHistory: ({})
-  property var processCounters: ({ spawnedTotal: 0, eventsReceived: 0, failedExits: 0, configWrites: 0, helperRestarts: 0, coalescedRequests: 0 })
+  property var processCounters: ({ spawnedTotal: 0, eventsReceived: 0, failedExits: 0, configWrites: 0, clipboardWrites: 0, helperRestarts: 0, coalescedRequests: 0 })
   property var clipboardRestartState: ({ consecutiveFailures: 0, startedAt: 0, blocked: false })
   readonly property var clipboardRestartPolicy: ({ initialDelayMs: 1000, maxDelayMs: 30000, maxConsecutiveFailures: 5, stableAfterMs: 30000 })
+  property var rotationRestartState: ({ consecutiveFailures: 0, startedAt: 0, blocked: false })
+  readonly property var rotationRestartPolicy: ({ initialDelayMs: 1000, maxDelayMs: 30000, maxConsecutiveFailures: 5, stableAfterMs: 30000 })
   property var pendingCommands: ({})
   property var inputQueue: []
 
@@ -293,6 +295,25 @@ Item {
     root.updateProcessCounter("helperRestarts", 1)
     clipboardRestart.interval = Math.max(1, decision.delayMs)
     clipboardRestart.restart()
+  }
+
+  function rotationBackendWanted() {
+    if (!root.configReady || !root.cfg("rotation.enabled", true)) return false
+    return root.cfg("rotation.orientation", "auto") === "auto" && root.systemState.rotationSensorAvailable === true && !root.cfg("rotation.lock", false)
+  }
+
+  function rotationMonitorExited(exitCode) {
+    root.processStopped("rotation-monitor", rotationProcess, exitCode)
+    if (!root.rotationBackendWanted()) return
+    var now = Date.now()
+    var decision = ProcessPolicy.nextRestart(root.rotationRestartState, now, root.rotationRestartPolicy)
+    root.rotationRestartState = { consecutiveFailures: decision.consecutiveFailures, startedAt: 0, blocked: decision.blocked === true }
+    if (!decision.restart) {
+      root.lastError = "Rotation sensor monitor disabled after repeated failures"
+      return
+    }
+    rotationRestart.interval = Math.max(1, decision.delayMs)
+    rotationRestart.restart()
   }
 
   function queuedCommand(command) {
@@ -1279,17 +1300,13 @@ Item {
   }
 
   function refreshRotationBackend() {
-    if (!root.configReady || !root.cfg("rotation.enabled", true)) {
-      if (rotationProcess.running) rotationProcess.running = false
+    if (root.rotationBackendWanted()) {
+      if (!root.rotationRestartState.blocked && !rotationProcess.running) rotationProcess.running = true
       return
     }
-    var automatic = root.cfg("rotation.orientation", "auto") === "auto"
-    var available = root.systemState.rotationSensorAvailable === true
-    if (automatic && available && !root.cfg("rotation.lock", false)) {
-      if (!rotationProcess.running) rotationProcess.running = true
-    } else if (rotationProcess.running) {
-      rotationProcess.running = false
-    }
+    rotationRestart.stop()
+    root.rotationRestartState = { consecutiveFailures: 0, startedAt: 0, blocked: false }
+    if (rotationProcess.running) rotationProcess.running = false
   }
 
   function refreshDevices() {
@@ -1713,8 +1730,15 @@ Item {
 
   function saveClipboard() {
     if (!root.configReady || root.cfg("clipboard.persist", true) === false) return
+    clipboardWriteDebounce.restart()
+  }
+
+  function persistClipboard() {
+    if (!root.configReady || root.cfg("clipboard.persist", true) === false) return
     var settings = root.cfg("clipboard", {})
     clipboardFile.setText(JSON.stringify(ClipboardModel.persistable(root.clipboardHistory, settings), null, 2) + "\n")
+    root.updateProcessCounter("clipboardWrites", 1)
+    root.scheduleProcessRegistryWrite()
   }
 
   function clipboardSettings() {
@@ -2038,6 +2062,13 @@ Item {
     onLoadFailed: root.loadClipboard("[]")
   }
 
+  Timer {
+    id: clipboardWriteDebounce
+    interval: 250
+    repeat: false
+    onTriggered: root.persistClipboard()
+  }
+
   Process {
     id: devicesProcess
     command: ["hyprctl", "devices", "-j"]
@@ -2206,12 +2237,15 @@ Item {
     command: ["bash", root.sourcePath("input/rotation-monitor.sh")]
     environment: root.ownedEnvironment("rotation-monitor")
     stdout: SplitParser { onRead: function(line) { root.updateOrientation(line) } }
-    onStarted: root.processStarted("rotation-monitor", rotationProcess, "event-driven orientation monitor", true, "bounded-backoff")
-    onExited: function(exitCode) {
-      root.processStopped("rotation-monitor", rotationProcess, exitCode)
-      if (exitCode !== 0 && root.systemState.rotationSensorAvailable) root.lastError = "Rotation sensor backend stopped"
-      root.refreshRotationBackend()
+    onStarted: {
+      root.processStarted("rotation-monitor", rotationProcess, "event-driven orientation monitor", true, "bounded-backoff")
+      if (ProcessPolicy.stable(root.rotationRestartState, Date.now(), root.rotationRestartPolicy))
+        root.rotationRestartState = { consecutiveFailures: 0, startedAt: 0, blocked: false }
+      var state = root.rotationRestartState
+      if (!state.startedAt) state.startedAt = Date.now()
+      root.rotationRestartState = state
     }
+    onExited: root.rotationMonitorExited(exitCode)
   }
 
   Process {
@@ -2396,6 +2430,13 @@ Item {
     id: clipboardRestart
     interval: 1000
     onTriggered: root.startClipboardWatchers()
+  }
+
+  Timer {
+    id: rotationRestart
+    interval: 1000
+    repeat: false
+    onTriggered: root.refreshRotationBackend()
   }
 
   Timer {

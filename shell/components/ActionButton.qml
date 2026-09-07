@@ -18,6 +18,7 @@ Item {
   property color accent: Color.accent
   signal clicked()
   signal pressAndHold()
+  signal released()
 
   implicitWidth: Math.max(minimumWidth, content.implicitWidth + Style.space(24))
   implicitHeight: compact ? Style.space(38) : Math.max(minimumHeight, content.implicitHeight + Style.space(18))
@@ -88,6 +89,7 @@ Item {
       cursorShape: Qt.PointingHandCursor
       onClicked: root.clicked()
       onPressAndHold: root.pressAndHold()
+      onReleased: root.released()
     }
   }
 }

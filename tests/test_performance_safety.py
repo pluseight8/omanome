@@ -61,6 +61,17 @@ class PerformanceSafetyTests(unittest.TestCase):
         self.assertNotIn("Util.execDetached", service)
         self.assertIn("interval: 120000", service)
 
+    def test_osk_release_stops_repeat_and_clipboard_writes_are_debounced(self) -> None:
+        osk = (ROOT / "shell/views/Osk.qml").read_text(encoding="utf-8")
+        button = (ROOT / "shell/components/ActionButton.qml").read_text(encoding="utf-8")
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        self.assertIn("signal released()", button)
+        self.assertGreaterEqual(osk.count("onReleased: root.stopHold()"), 3)
+        self.assertIn("function repeatInterval()", osk)
+        self.assertIn("id: clipboardWriteDebounce", service)
+        self.assertIn("clipboardWriteDebounce.restart()", service)
+        self.assertIn("root.persistClipboard()", service)
+
 
 if __name__ == "__main__":
     unittest.main()
