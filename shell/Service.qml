@@ -578,7 +578,7 @@ Item {
     root.wobblyBackendDesired = wanted
     root.wobblyBackendSynced = false
     root.wobblyBackendFailed = false
-    if (!root.hyprlandAvailable || root.companionState.loaded !== true || root.effectCapabilities.wobblyWindows !== true) {
+    if (!root.hyprlandAvailable || (wanted && (root.companionState.loaded !== true || root.effectCapabilities.wobblyWindows !== true))) {
       if (wanted) root.lastError = "Wobbly needs a compatible loaded omanome-hypr renderer"
       return false
     }
@@ -591,8 +591,9 @@ Item {
   }
 
   function reconcileWobblyBackend() {
-    if (!root.hyprlandAvailable || root.companionState.loaded !== true || root.effectCapabilities.wobblyWindows !== true) return false
     var wanted = root.wobblyDesired()
+    if (!root.hyprlandAvailable) return false
+    if (wanted && (root.companionState.loaded !== true || root.effectCapabilities.wobblyWindows !== true)) return false
     if (root.wobblyBackendSynced && root.wobblyBackendDesired === wanted) return true
     if (root.wobblyBackendFailed && root.wobblyBackendDesired === wanted) return false
     return root.requestWobblyBackend(wanted)

@@ -1,7 +1,0 @@
-{
-  "wayland": true,
-  "hyprland": true,
-  "touchscreen": [{"name": "Fixture Touchscreen"}],
-  "stylus": [{"name": "Fixture Pen", "pressure": true, "tilt": true}],
-  "sensors": {"available": true, "backend": "fixture"}
-}

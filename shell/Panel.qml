@@ -166,6 +166,7 @@ Item {
 
               Loader {
                 id: contentLoader
+                active: root.opened
                 anchors.fill: parent
                 source: root.sourceFor(root.activeView)
                 asynchronous: true

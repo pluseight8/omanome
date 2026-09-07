@@ -13,6 +13,7 @@ Item {
   property var panel: null
   property string category: "general"
   property string query: ""
+  property string pendingQuery: ""
   property bool mobileDetails: false
   property var categories: [
     { key: "general", fallback: "General", description: "Mode, language and profiles", aliases: ["общие", "режим", "язык"] },
@@ -132,8 +133,15 @@ Item {
           color: Color.foreground
           font.pixelSize: Style.font.body
           placeholderText: root.service.tr("searchSettings", "Search settings")
-          onTextChanged: root.query = text
+          onTextChanged: { root.pendingQuery = text; searchDebounce.restart() }
         }
+      }
+
+      Timer {
+        id: searchDebounce
+        interval: 120
+        repeat: false
+        onTriggered: root.query = root.pendingQuery
       }
 
       ListView {

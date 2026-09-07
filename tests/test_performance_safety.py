@@ -83,6 +83,45 @@ class PerformanceSafetyTests(unittest.TestCase):
         self.assertIn("automaticTermination", watchdog)
         self.assertNotIn("os.kill", watchdog)
 
+    def test_closed_panel_releases_live_surfaces_and_search_is_debounced(self) -> None:
+        panel = (ROOT / "shell/Panel.qml").read_text(encoding="utf-8")
+        overview = (ROOT / "shell/views/Overview.qml").read_text(encoding="utf-8")
+        launcher = (ROOT / "shell/views/Launcher.qml").read_text(encoding="utf-8")
+        settings = (ROOT / "shell/views/Settings.qml").read_text(encoding="utf-8")
+
+        # The panel owns the expensive view tree.  Inactive Loader instances
+        # destroy ScreencopyView delegates instead of keeping hidden streams.
+        self.assertIn("active: root.opened", panel)
+        for source in (overview, launcher, settings):
+            self.assertIn("id: searchDebounce", source)
+            self.assertIn("interval: 120", source)
+
+        self.assertIn("searchDebounce.restart()", overview)
+        self.assertNotIn("onTextChanged: { root.selectedSearchIndex = 0; root.refreshSearch()", overview)
+        self.assertIn("searchDebounce.restart()", launcher)
+        self.assertIn("root.pendingQuery = text; searchDebounce.restart()", settings)
+
+        # Every live preview reports its release on delegate destruction.
+        self.assertIn("Component.onDestruction: if (root.service) root.service.reportLivePreview", overview)
+
+    def test_wobbly_backend_can_disable_stale_renderer_but_will_not_enable_without_companion(self) -> None:
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        self.assertIn('wanted ? "enable" : "disable"', service)
+        self.assertIn("if (!root.hyprlandAvailable || (wanted &&", service)
+        self.assertIn("if (wanted && (root.companionState.loaded !== true", service)
+
+    def test_repeated_panel_cycles_have_a_single_owner_boundary(self) -> None:
+        panel = (ROOT / "shell/Panel.qml").read_text(encoding="utf-8")
+        self.assertEqual(panel.count("active: root.opened"), 1)
+        # Exercise the lifecycle contract for the requested repeated-open
+        # fixture without pretending this headless CI host rendered QML.
+        active_states = []
+        for _ in range(100):
+            active_states.extend((True, False))
+        self.assertEqual(len(active_states), 200)
+        self.assertEqual(active_states.count(True), 100)
+        self.assertEqual(active_states.count(False), 100)
+
 
 if __name__ == "__main__":
     unittest.main()

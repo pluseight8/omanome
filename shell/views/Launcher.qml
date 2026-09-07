@@ -156,6 +156,13 @@ Item {
     function onValuesChanged() { root.refresh() }
   }
 
+  Timer {
+    id: searchDebounce
+    interval: 120
+    repeat: false
+    onTriggered: root.refresh()
+  }
+
   ColumnLayout {
     anchors.fill: parent
     anchors.margins: tokens.space(22)
@@ -197,7 +204,7 @@ Item {
         clip: true
         focus: true
         placeholderText: root.service.tr("searchApps", "Search applications")
-        onTextChanged: { root.selectedIndex = 0; root.refresh() }
+        onTextChanged: { root.selectedIndex = 0; searchDebounce.restart() }
         Keys.onPressed: function(event) {
           if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
             root.launch(root.currentEntry())

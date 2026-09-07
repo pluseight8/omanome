@@ -204,7 +204,7 @@ Item {
         clip: true
         focus: true
         placeholderText: root.service.tr("searchEverything", "Search apps, windows, settings and actions")
-        onTextChanged: { root.selectedSearchIndex = 0; root.refreshSearch(); root.revision++ }
+        onTextChanged: { root.selectedSearchIndex = 0; searchDebounce.restart(); root.revision++ }
         Keys.onPressed: function(event) {
           if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
             root.activateSearch(root.searchResults[root.selectedSearchIndex])
@@ -322,9 +322,16 @@ Item {
           horizontalAlignment: Text.AlignHCenter
         }
       }
-    }
+  }
 
-    Item {
+  Timer {
+    id: searchDebounce
+    interval: 120
+    repeat: false
+    onTriggered: root.refreshSearch()
+  }
+
+  Item {
       id: windowArea
       visible: String(search.text || "").trim() === ""
       Layout.fillWidth: true
