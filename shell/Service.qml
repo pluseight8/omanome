@@ -14,6 +14,10 @@ import "models/ForceQuit.js" as ForceQuitModel
 import "models/I18n.js" as I18n
 import "models/QuickSettings.js" as QuickSettingsModel
 import "models/Stylus.js" as StylusModel
+import "models/StylusInput.js" as StylusInputModel
+import "models/Mapping.js" as MappingModel
+import "models/Lifecycle.js" as LifecycleModel
+import "models/Rotation.js" as RotationModel
 import "models/Touch.js" as TouchModel
 import "models/InputDevices.js" as InputDevicesModel
 import "models/Responsive.js" as ResponsiveModel
@@ -79,6 +83,14 @@ Item {
   property var monitors: []
   property var clients: []
   property var stylusDevices: []
+  property var stylusInputState: StylusInputModel.emptyState()
+  property var stylusProviderState: StylusInputModel.providerState({}, stylusInputState)
+  property var stylusPalmState: ({ mode: "automatic", active: false, until: 0, reason: "not-evaluated" })
+  property var inputMappingState: ({ schemaVersion: 1, outputs: [], plan: [], explanation: [] })
+  property var lifecycleState: LifecycleModel.emptyState()
+  property var orientationState: RotationModel.emptyState()
+  property bool sessionMonitorAvailable: false
+  property string sessionMonitorReason: "not-started"
   property var keyboardDevices: []
   property bool hasTouchscreen: false
   property bool hasStylus: false
@@ -187,6 +199,7 @@ Item {
     forceQuitTermProcess.command = ["bash", root.sourcePath("input/force-quit.sh")]
     forceQuitKillProcess.command = ["bash", root.sourcePath("input/force-quit.sh")]
     deviceMonitorProcess.command = ["bash", root.sourcePath("input/device-monitor.sh")]
+    sessionMonitorProcess.command = ["bash", root.sourcePath("input/session-monitor.sh")]
   }
 
   function inputBackendCandidates() {
@@ -209,7 +222,8 @@ Item {
   }
 
   function startInputBackendProbe() {
-    if (root.safeMode || root.cfg("input.nativeBackend", "auto") === "disabled" || root.cfg("input.safeModeDisableNative", false) === true) {
+    var nativePolicy = String(root.cfg("input.nativeBackend", "auto"))
+    if (root.safeMode || nativePolicy === "disabled" || nativePolicy === "fallback" || root.cfg("input.safeModeDisableNative", false) === true) {
       root.inputBackendReason = "native-backend-disabled-by-policy"
       return false
     }
@@ -223,7 +237,8 @@ Item {
   }
 
   function nativeInputReady() {
-    return inputBackendAvailable && inputBackendProcess.running && inputBackendPath !== ""
+    var nativePolicy = String(root.cfg("input.nativeBackend", "auto"))
+    return nativePolicy !== "disabled" && nativePolicy !== "fallback" && inputBackendAvailable && inputBackendProcess.running && inputBackendPath !== ""
   }
 
   function nativeInputSend(commands) {
@@ -308,6 +323,25 @@ Item {
     return root.reconcileOskPolicy()
   }
 
+  function refreshStylusInputPolicy() {
+    root.stylusProviderState = StylusInputModel.providerState(root.cfg("stylus", {}), root.stylusInputState)
+    root.stylusPalmState = StylusInputModel.palmTransition(
+      root.stylusPalmState,
+      { stylusProximity: root.stylusInputState.proximity === true, stylusContact: root.stylusInputState.contact === true, touchCount: root.lastInput === "touch" ? 1 : 0 },
+      Date.now(),
+      { mode: root.cfg("stylus.palmRejection", "automatic") }
+    )
+  }
+
+  function updateTabletEvent(parsed) {
+    root.stylusInputState = StylusInputModel.applyEvent(root.stylusInputState, parsed, Date.now())
+    if (["proximity-in", "tip-down", "motion"].indexOf(String(parsed.event || "")) >= 0)
+      root.recordInput("stylus")
+    root.refreshStylusInputPolicy()
+    root.stateRevision++
+    root.stateUpdated()
+  }
+
   function updateNativeInputLine(line) {
     var parsed = root.parseJson(line, null)
     if (!parsed || typeof parsed !== "object" || String(parsed.protocol || "") !== "omanome-input") return
@@ -326,6 +360,18 @@ Item {
       root.inputBackendCapabilities = capabilities
       root.inputBackendAvailable = String(parsed.backend || "") === "native-wayland" && String(parsed.virtualKeyboard || "") === "native"
       root.inputTextBackendAvailable = String(parsed.inputMethod || "") === "v2"
+      if (String(parsed.tablet || "") === "v2") {
+        var tabletState = {}
+        for (var tabletKey in root.stylusInputState) tabletState[tabletKey] = root.stylusInputState[tabletKey]
+        tabletState.backend = "native-wayland-tablet-v2"
+        tabletState.available = true
+        tabletState.tabletCount = Number(parsed.tabletCount || tabletState.tabletCount || 0)
+        tabletState.toolCount = Number(parsed.toolCount || tabletState.toolCount || 0)
+        tabletState.proximity = parsed.stylusProximity === true
+        tabletState.contact = parsed.stylusContact === true
+        root.stylusInputState = tabletState
+        root.refreshStylusInputPolicy()
+      }
       root.inputBackendReason = root.inputBackendAvailable ? "native-wayland" : String(parsed.reason || "native-capability-unavailable")
       if (root.inputBackendAvailable) root.syncNativeInputLanguage()
       root.stateRevision++
@@ -360,6 +406,10 @@ Item {
       root.requestAutoOsk(String(parsed.request || "") === "show")
       return
     }
+    if (kind === "tablet.event") {
+      root.updateTabletEvent(parsed)
+      return
+    }
     if (kind === "input.error") {
       root.inputBackendReason = String(parsed.code || "input-error")
       root.lastError = "Native input: " + root.inputBackendReason
@@ -386,7 +436,8 @@ Item {
   }
 
   function startNativeInputBackend() {
-    if (!root.inputBackendPath || inputBackendProcess.running || root.inputRestartState.blocked) return false
+    var nativePolicy = String(root.cfg("input.nativeBackend", "auto"))
+    if (nativePolicy === "disabled" || nativePolicy === "fallback" || !root.inputBackendPath || inputBackendProcess.running || root.inputRestartState.blocked) return false
     inputBackendProcess.command = [root.inputBackendPath]
     inputBackendProcess.running = true
     return true
@@ -1075,6 +1126,7 @@ Item {
     root._loadingConfig = false
     root.configReady = true
     root.startDeviceMonitor()
+    root.startSessionMonitor()
     if (root.cfg("clipboard.privateMode", false) || root.cfg("privacy.clipboardPrivate", false))
       root.stopClipboardWatchers()
     else
@@ -1116,8 +1168,16 @@ Item {
       if (String(path) === "input.deviceHotplug" && root.cfg("input.deviceHotplug", true) !== true && deviceMonitorProcess.running)
         deviceMonitorProcess.running = false
       else if (root.cfg("input.deviceHotplug", true) === true) root.startDeviceMonitor()
-      if (String(path) === "input.nativeBackend" || String(path) === "input.safeModeDisableNative") root.startInputBackendProbe()
+      if (String(path) === "input.nativeBackend" || String(path) === "input.safeModeDisableNative") {
+        var nativePolicy = String(root.cfg("input.nativeBackend", "auto"))
+        if (nativePolicy === "fallback" || nativePolicy === "disabled" || root.cfg("input.safeModeDisableNative", false) === true) {
+          if (inputBackendProcess.running) inputBackendProcess.running = false
+          root.inputBackendReason = "native-backend-disabled-by-policy"
+        } else root.startInputBackendProbe()
+      }
+      if (String(path).indexOf("input.deviceMappings") === 0 || String(path) === "input.defaultOutput") root.updateInputMapping()
     }
+    if (String(path).indexOf("stylus.") === 0) root.refreshStylusInputPolicy()
     if (String(path).indexOf("notifications.enabled") === 0) root.refreshIntegrations()
     if (String(path) === "wobbly.enabled") {
       root.wobblyBackendFailed = false
@@ -1572,9 +1632,19 @@ Item {
     else if (value.indexOf("bottom-up") >= 0) next = "bottom-up"
     else if (value.indexOf("normal") >= 0) next = "normal"
     if (!next) return
-    root.orientation = next
-    if (root.cfg("rotation.orientation", "auto") === "auto" && !root.cfg("rotation.lock", false))
-      root.applyRotation(root.rotationTransformFor(next))
+    var observed = RotationModel.observe(root.orientationState, next, Date.now(), {
+      stableMs: Number(root.cfg("rotation.orientationDebounceMs", 550)),
+      minimumDwellMs: Number(root.cfg("rotation.minimumDwellMs", 1000))
+    })
+    root.orientationState = observed.state
+    if (observed.pending) {
+      orientationTransition.interval = Math.max(120, Number(observed.delayMs || 550))
+      orientationTransition.restart()
+      return
+    }
+    if (observed.changed) root.orientation = observed.value
+    if (observed.changed && root.cfg("rotation.orientation", "auto") === "auto" && !root.cfg("rotation.lock", false))
+      root.applyRotation(root.rotationTransformFor(observed.value))
   }
 
   function setRotationOrientation(value) {
@@ -1610,6 +1680,21 @@ Item {
     if (!clientsProcess.running) clientsProcess.running = true
   }
 
+  function updateInputMapping() {
+    var mappingPlan = MappingModel.plan(
+      root.inputDeviceState.devices,
+      root.monitors,
+      root.cfg("input.deviceMappings", {}),
+      root.cfg("input.defaultOutput", "")
+    )
+    root.inputMappingState = {
+      schemaVersion: 1,
+      outputs: MappingModel.availableOutputs(root.monitors),
+      plan: mappingPlan,
+      explanation: MappingModel.explain(mappingPlan)
+    }
+  }
+
   function updateDevices(raw) {
     var parsed = parseJson(raw, {})
     root.devices = parsed
@@ -1639,6 +1724,8 @@ Item {
     root.hasPhysicalKeyboard = root.keyboardDevices.length > 0
     root.hasDetachableKeyboard = root.keyboardDevices.some(function(device) { return StylusModel.isDetachableKeyboard(device.raw || device) })
     root.hasBluetoothKeyboard = root.keyboardDevices.some(function(device) { return StylusModel.isBluetoothKeyboard(device.raw || device) })
+    root.updateInputMapping()
+    root.refreshStylusInputPolicy()
     root.reconcileOskPolicy()
     var tabletSwitch = parsed.tabletSwitch
     if (tabletSwitch === undefined) tabletSwitch = parsed.tablet_switch
@@ -1669,6 +1756,8 @@ Item {
     var parsed = parseJson(raw, null)
     if (!parsed || String(parsed.type || "") !== "device.event") return
     root.inputDeviceState = InputDevicesModel.applyEvent(root.inputDeviceState, parsed)
+    root.updateInputMapping()
+    root.refreshStylusInputPolicy()
     root.inputDeviceMonitorAvailable = true
     root.inputDeviceMonitorReason = "udev-event-stream"
     deviceRefreshDebounce.restart()
@@ -1684,8 +1773,42 @@ Item {
     return true
   }
 
+  function startSessionMonitor() {
+    if (!root.configReady || root.safeMode || sessionMonitorProcess.running) return false
+    if (!root.sourcePath("input/session-monitor.sh")) return false
+    sessionMonitorProcess.command = ["bash", root.sourcePath("input/session-monitor.sh")]
+    sessionMonitorProcess.running = true
+    return true
+  }
+
+  function updateSessionEvent(raw) {
+    var parsed = parseJson(raw, null)
+    if (!parsed || String(parsed.type || "") !== "session.event") return
+    var transition = LifecycleModel.transition(root.lifecycleState, parsed, Date.now())
+    if (!transition.changed && transition.action === "ignore") return
+    root.lifecycleState = transition.state
+    if (transition.state.phase === "suspended") {
+      root.inputTextFocusActive = false
+      root.requestAutoOsk(false)
+      if (inputBackendProcess.running) inputBackendProcess.running = false
+      if (rotationProcess.running) rotationProcess.running = false
+      root.sessionMonitorReason = "suspended"
+    } else if (transition.state.phase === "active") {
+      root.sessionMonitorReason = transition.state.locked ? "active-locked" : "active"
+      root.inputRestartState = { consecutiveFailures: 0, startedAt: 0, blocked: false }
+      root.startInputBackendProbe()
+      root.startDeviceMonitor()
+      root.refreshDevices()
+      root.refreshRotationBackend()
+    }
+    if (transition.state.locked) root.requestAutoOsk(false)
+    root.stateRevision++
+    root.stateUpdated()
+  }
+
   function updateMonitors(raw) {
     root.monitors = parseJson(raw, [])
+    root.updateInputMapping()
     root.updateResponsiveContext()
     root.stateRevision++
     root.stateUpdated()
@@ -1729,6 +1852,19 @@ Item {
         lastEvent: root.inputDeviceState.hotplug,
         mapping: root.inputDeviceState.devices.map(function(item) { return { id: item.id, role: item.role, output: item.output || "automatic" } })
       },
+      stylusInput: {
+        backend: root.stylusInputState.backend,
+        available: root.stylusInputState.available === true,
+        proximity: root.stylusInputState.proximity === true,
+        contact: root.stylusInputState.contact === true,
+        capabilities: root.stylusInputState.capabilities,
+        points: Number(root.stylusInputState.totalPoints || 0),
+        provider: root.stylusProviderState,
+        palm: root.stylusPalmState
+      },
+      inputMapping: root.inputMappingState,
+      lifecycle: { state: root.lifecycleState, sessionMonitor: root.sessionMonitorAvailable, reason: root.sessionMonitorReason },
+      orientationDebounce: root.orientationState,
       posture: InputDevicesModel.explain(root.tabletModeState.signals || {}, root.detectedMode),
       touch: {
         workspaceSwipe: TouchModel.workspaceSwipeEnabled(root.cfg("touch", {}), root.clients),
@@ -1808,7 +1944,7 @@ Item {
       quickshell: String(Quickshell.env("QUICKSHELL_VERSION") || "host-provided"),
       wayland: String(Quickshell.env("WAYLAND_DISPLAY") || "unavailable"),
       mode: root.detectedMode,
-      input: { last: root.lastInput, pending: root.inputCandidate, touchscreen: root.hasTouchscreen, stylus: root.hasStylus, physicalKeyboard: root.hasPhysicalKeyboard, detachableKeyboard: root.hasDetachableKeyboard, bluetoothKeyboard: root.hasBluetoothKeyboard, deviceBackend: root.inputDeviceState.backend, hotplug: root.inputDeviceMonitorAvailable },
+      input: { last: root.lastInput, pending: root.inputCandidate, touchscreen: root.hasTouchscreen, stylus: root.hasStylus, physicalKeyboard: root.hasPhysicalKeyboard, detachableKeyboard: root.hasDetachableKeyboard, bluetoothKeyboard: root.hasBluetoothKeyboard, deviceBackend: root.inputDeviceState.backend, hotplug: root.inputDeviceMonitorAvailable, stylusInput: root.stylusInputState, stylusProvider: root.stylusProviderState, palm: root.stylusPalmState, mapping: root.inputMappingState },
       tabletMode: { mode: root.detectedMode, reason: root.tabletModeState.reason, switchAvailable: root.tabletSwitchAvailable, switchActive: root.tabletSwitchActive, profile: root.tabletProfile },
       onboarding: { completed: root.cfg("onboarding.completed", false) === true, skipped: root.cfg("onboarding.skipped", false) === true, version: Number(root.cfg("onboarding.version", 1)) },
       devices: { monitors: root.monitors.length, stylus: root.stylusDevices.length, keyboards: root.keyboardDevices.length },
@@ -2042,7 +2178,7 @@ Item {
         { type: "keyboard.key", key: named, state: 0 }
       ])
     }
-    if (!root.wtypeAvailable) return false
+    if (!root.wtypeAvailable || root.cfg("input.allowWtypeFallback", true) !== true) return false
     if (value.length === 1 && !shifted) return root.execute(["wtype", "--", value])
     if (value.length === 1 && shifted) return root.typeText(value.toUpperCase())
     return root.execute(["wtype", "-k", named])
@@ -2059,7 +2195,7 @@ Item {
       nativeCommands.push({ type: "keyboard.modifiers", modifiers: [] })
       return root.nativeInputSend(nativeCommands)
     }
-    if (!root.wtypeAvailable) return false
+    if (!root.wtypeAvailable || root.cfg("input.allowWtypeFallback", true) !== true) return false
     var args = ["wtype"]
     var active = Array.isArray(modifiers) ? modifiers : []
     for (var i = 0; i < active.length; i++) {
@@ -2080,7 +2216,7 @@ Item {
     var value = String(text || "")
     if (!value) return false
     if (root.nativeInputReady()) return root.nativeInputSend({ type: "keyboard.text", text: value })
-    if (!root.wtypeAvailable) return false
+    if (!root.wtypeAvailable || root.cfg("input.allowWtypeFallback", true) !== true) return false
     return root.execute(["wtype", "--", value])
   }
 
@@ -2515,6 +2651,23 @@ Item {
     }
   }
 
+  Process {
+    id: sessionMonitorProcess
+    environment: root.ownedEnvironment("session-lifecycle")
+    stdout: SplitParser { onRead: function(line) { root.updateSessionEvent(line) } }
+    stderr: SplitParser { onRead: function(line) { root.sessionMonitorReason = "session-monitor-diagnostic" } }
+    onStarted: {
+      root.processStarted("session-lifecycle", sessionMonitorProcess, "event-driven suspend/resume lifecycle", true, "none")
+      root.sessionMonitorAvailable = true
+      root.sessionMonitorReason = "connected"
+    }
+    onExited: function(exitCode) {
+      root.processStopped("session-lifecycle", sessionMonitorProcess, exitCode)
+      root.sessionMonitorAvailable = false
+      root.sessionMonitorReason = exitCode === 127 ? "dbus-monitor-unavailable" : "session-monitor-exited"
+    }
+  }
+
   Timer {
     id: deviceRefreshDebounce
     interval: 240
@@ -2534,6 +2687,29 @@ Item {
       if (before !== root.detectedMode) {
         root.stateRevision++
         root.stateUpdated()
+      }
+    }
+  }
+
+  Timer {
+    id: orientationTransition
+    interval: 550
+    repeat: false
+    onTriggered: {
+      var candidate = String(root.orientationState.candidate || "")
+      if (!candidate) return
+      var observed = RotationModel.observe(root.orientationState, candidate, Date.now(), {
+        stableMs: Number(root.cfg("rotation.orientationDebounceMs", 550)),
+        minimumDwellMs: Number(root.cfg("rotation.minimumDwellMs", 1000))
+      })
+      root.orientationState = observed.state
+      if (observed.pending) {
+        interval = Math.max(120, Number(observed.delayMs || 550))
+        restart()
+      } else if (observed.changed) {
+        root.orientation = observed.value
+        if (root.cfg("rotation.orientation", "auto") === "auto" && !root.cfg("rotation.lock", false))
+          root.applyRotation(root.rotationTransformFor(observed.value))
       }
     }
   }

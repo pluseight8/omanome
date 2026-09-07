@@ -43,6 +43,7 @@ Item {
   property real floatingY: 0.72
   property int lastShiftTap: 0
   property real inkWidth: 4
+  property bool nativeInkAvailable: false
 
   function cfg(path, fallback) {
     return root.service ? root.service.cfg(path, fallback) : fallback
@@ -59,6 +60,22 @@ Item {
       return
     }
     root.suggestionItems = Osk.suggestions(root.currentWord, root.language, 3)
+  }
+
+  function syncNativeInk() {
+    if (!root.service) return
+    var provider = root.service.stylusProviderState || {}
+    root.nativeInkAvailable = String(provider.ink || "") !== "unavailable"
+    var state = root.service.stylusInputState || {}
+    var nativeStrokes = Array.isArray(state.strokes) ? state.strokes : []
+    var active = Array.isArray(state.currentStroke) ? state.currentStroke : []
+    if (nativeStrokes.length > 0 || active.length > 0) {
+      var combined = nativeStrokes.slice()
+      if (active.length > 0) combined.push(active)
+      root.strokes = combined
+      root.redoStrokes = []
+      inkCanvas.requestPaint()
+    }
   }
 
   function isWordCharacter(value) {
@@ -129,6 +146,12 @@ Item {
     function onConfigUpdated(path) {
       if (String(path || "").indexOf("keyboard.") === 0) root.refreshLanguage()
     }
+  }
+
+  Connections {
+    target: root.service
+    function onStylusInputStateChanged() { root.syncNativeInk() }
+    function onStylusProviderStateChanged() { root.syncNativeInk() }
   }
 
   function displayLanguage() {
@@ -799,7 +822,7 @@ Item {
           RowLayout {
             Layout.fillWidth: true
             Text { text: "Handwriting"; color: Color.foreground; font.pixelSize: Style.font.body; font.bold: true }
-            Text { text: "Ink stays local"; color: Color.accent; font.pixelSize: Style.font.caption }
+            Text { text: root.nativeInkAvailable ? "Native Wayland ink · local only" : "Ink stays local"; color: Color.accent; font.pixelSize: Style.font.caption }
             Item { Layout.fillWidth: true }
             ActionButton { compact: true; text: "Undo"; onClicked: root.undoInk() }
             ActionButton { compact: true; text: "Redo"; onClicked: root.redoInk() }
@@ -839,7 +862,7 @@ Item {
             Text {
               anchors.centerIn: parent
               visible: root.strokes.length === 0
-              text: root.service && root.service.inputBackendAvailable ? "Write here" : "Write here · recognition backend unavailable"
+              text: root.nativeInkAvailable ? "Write here · recognition unavailable" : "Write here · native tablet unavailable"
               color: Color.muted
               font.pixelSize: Style.font.body
             }

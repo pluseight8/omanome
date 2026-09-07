@@ -41,7 +41,9 @@
     "suppressOskOnDetachableKeyboard": true,
     "suppressOskOnBluetoothKeyboard": true,
     "deviceHotplug": true,
-    "safeModeDisableNative": false
+    "safeModeDisableNative": false,
+    "defaultOutput": "",
+    "deviceMappings": {}
   },
   "onboarding": {
     "completed": false,
@@ -79,6 +81,8 @@
     "pressureMax": 1.0,
     "palmRejection": "automatic",
     "palmBackend": "native-first",
+    "handwritingEnabled": true,
+    "recognitionProvider": "none",
     "hoverCursor": true,
     "showOskOnTextField": "ask",
     "annotation": true,
@@ -422,14 +426,16 @@
     "cancelButton": true,
     "stylusSecondaryButton": true
   },
-  "rotation": {
+    "rotation": {
     "enabled": true,
     "lock": false,
     "orientation": "auto",
     "sensor": "auto",
     "outputPolicy": "mapped",
     "transformTouch": true,
-    "transformStylus": true
+    "transformStylus": true,
+    "orientationDebounceMs": 550,
+    "minimumDwellMs": 1000
   },
   "privacy": {
     "clipboardPrivate": false,

@@ -47,6 +47,10 @@ device name or start another audio service.
 `device-monitor.sh` is a single event-driven `udevadm` observer for input and
 display hotplug. It emits only bounded capability metadata; when udev is not
 available the shell keeps the last snapshot and reports hotplug as unavailable.
+`session-monitor.sh` is a separate event-driven login1 `PrepareForSleep`
+observer; suspend/resume pauses native backends and triggers a bounded refresh
+on resume. If D-Bus monitoring is unavailable, the capability is reported as
+unavailable rather than replaced by a polling loop.
 `omanome input-info` combines the helper metadata, a short runtime Wayland
 probe when a session is present, keyboard/device counts, and the explicit
 `wtype` fallback. It never reports fallback as native and never includes typed

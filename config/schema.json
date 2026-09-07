@@ -19,7 +19,9 @@
         "suppressOskOnDetachableKeyboard": { "type": "boolean" },
         "suppressOskOnBluetoothKeyboard": { "type": "boolean" },
         "deviceHotplug": { "type": "boolean" },
-        "safeModeDisableNative": { "type": "boolean" }
+        "safeModeDisableNative": { "type": "boolean" },
+        "defaultOutput": { "type": "string" },
+        "deviceMappings": { "type": "object" }
       }
     },
     "onboarding": { "type": "object" },
@@ -56,7 +58,13 @@
     "wobbly": { "type": "object" },
     "cube": { "type": "object" },
     "forceQuit": { "type": "object" },
-    "rotation": { "type": "object" },
+    "rotation": {
+      "type": "object",
+      "properties": {
+        "orientationDebounceMs": { "type": "integer", "minimum": 120, "maximum": 5000 },
+        "minimumDwellMs": { "type": "integer", "minimum": 0, "maximum": 10000 }
+      }
+    },
     "privacy": { "type": "object" },
     "shortcuts": { "type": "object" },
     "updates": { "type": "object" },

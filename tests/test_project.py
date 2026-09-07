@@ -348,6 +348,7 @@ class OmanomeProjectTests(unittest.TestCase):
             ROOT / "input/companion-info.sh",
             ROOT / "input/audio-devices.sh",
             ROOT / "input/device-monitor.sh",
+            ROOT / "input/session-monitor.sh",
         ):
             result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)

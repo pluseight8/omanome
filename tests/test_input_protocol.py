@@ -25,6 +25,10 @@ class InputProtocolContractTests(unittest.TestCase):
         cls.osk_policy = (ROOT / "shell/models/OskPolicy.js").read_text(encoding="utf-8")
         cls.devices = (ROOT / "shell/models/InputDevices.js").read_text(encoding="utf-8")
         cls.tablet_mode = (ROOT / "shell/models/TabletMode.js").read_text(encoding="utf-8")
+        cls.stylus_input = (ROOT / "shell/models/StylusInput.js").read_text(encoding="utf-8")
+        cls.mapping = (ROOT / "shell/models/Mapping.js").read_text(encoding="utf-8")
+        cls.lifecycle = (ROOT / "shell/models/Lifecycle.js").read_text(encoding="utf-8")
+        cls.rotation = (ROOT / "shell/models/Rotation.js").read_text(encoding="utf-8")
 
     def test_protocol_is_versioned_and_bounded(self) -> None:
         self.assertEqual(self.contract["protocol"], "omanome-input")
@@ -125,6 +129,59 @@ class InputProtocolContractTests(unittest.TestCase):
         self.assertIn("--property", monitor)
         self.assertNotIn("wtype", monitor)
         self.assertIn("device.event", monitor)
+
+    def test_native_stylus_state_is_bounded_and_provider_is_honest(self) -> None:
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        expression = (
+            "const S=require('./shell/models/StylusInput.js'); const M=require('./shell/models/Mapping.js'); "
+            "let state=S.emptyState(); "
+            "for (const e of [{event:'tablet-added',tabletCount:1},{event:'tool-added',toolCount:1},{event:'proximity-in',proximity:true},{event:'tip-down',contact:true},{event:'motion',x:12,y:24,contact:true,proximity:true},{event:'pressure',pressure:32768,contact:true},{event:'tilt',tiltX:10,tiltY:-8,contact:true},{event:'tip-up',contact:false},{event:'proximity-out',proximity:false}]) state=S.applyEvent(state,{type:'tablet.event',...e},1000); "
+            "let palm=S.palmTransition({}, {stylusProximity:true,stylusContact:true,touchCount:1},1000,{mode:'balanced'}); "
+            "let provider=S.providerState({enabled:true},state); let mapping=M.plan([{id:'tablet-a',role:'stylus',output:'DISCONNECTED'}],[{name:'DP-1'},{name:'HDMI-A-1'}],{},'DP-1'); "
+            "let tx=M.transaction({transform:0},1,mapping,['DP-1']); let committed=M.commit(M.apply(tx,true)); let rolled=M.rollback(M.apply(tx,false,'hyprctl failed')); "
+            "console.log(JSON.stringify({points:state.totalPoints,pressure:state.capabilities.pressure,proximity:state.proximity,provider:provider.recognition,palm:palm.active,output:mapping[0].output,reason:mapping[0].reason,commit:committed.phase,rollback:rolled.phase}));"
+        )
+        result = subprocess.run([node, "-e", expression], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertGreater(payload["points"], 0)
+        self.assertTrue(payload["pressure"])
+        self.assertFalse(payload["proximity"])
+        self.assertEqual(payload["provider"], "unavailable")
+        self.assertTrue(payload["palm"])
+        self.assertEqual(payload["output"], "DP-1")
+        self.assertEqual(payload["reason"], "configured-output-disconnected")
+        self.assertEqual(payload["commit"], "committed")
+        self.assertEqual(payload["rollback"], "rolled-back")
+        self.assertLessEqual(self.stylus_input.count("MAX_TOTAL_POINTS"), 6)
+        self.assertIn("rollback-required", self.mapping)
+
+    def test_suspend_resume_and_sensor_debounce_are_event_driven(self) -> None:
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        expression = (
+            "const L=require('./shell/models/Lifecycle.js'); const R=require('./shell/models/Rotation.js'); "
+            "let state=L.emptyState(); let sleep=L.transition(state,{event:'suspend'},1000); let wake=L.transition(sleep.state,{event:'resume'},2000); "
+            "let first=R.observe(R.emptyState(),'right-up',1000,{stableMs:550,minimumDwellMs:1000}); let second=R.observe(first.state,'right-up',1300,{stableMs:550,minimumDwellMs:1000}); let third=R.observe(second.state,'right-up',2100,{stableMs:550,minimumDwellMs:1000}); "
+            "let retry=L.reconnect({attempts:4},0,{maxAttempts:5,initialDelayMs:1000,maxDelayMs:30000}); "
+            "console.log(JSON.stringify({sleep:sleep.state.phase,wake:wake.state.phase,first:first.pending,second:second.pending,third:third.value,retry:retry.retry,blocked:retry.blocked,delay:retry.delayMs}));"
+        )
+        result = subprocess.run([node, "-e", expression], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["sleep"], "suspended")
+        self.assertEqual(payload["wake"], "active")
+        self.assertTrue(payload["first"])
+        self.assertTrue(payload["second"])
+        self.assertEqual(payload["third"], "right-up")
+        self.assertFalse(payload["retry"])
+        self.assertTrue(payload["blocked"])
+        self.assertLessEqual(payload["delay"], 30000)
+        self.assertIn("dbus-monitor", (ROOT / "input/session-monitor.sh").read_text(encoding="utf-8"))
+        self.assertIn("PrepareForSleep", (ROOT / "input/session-monitor.sh").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
