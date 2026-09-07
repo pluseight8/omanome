@@ -50,6 +50,7 @@ jobs:
         run: |
           python3 -m json.tool hypr/omanome-hypr/compatibility.json >/dev/null
           test -f hypr/omanome-hypr/omanome-hypr.cpp
+          make -C hypr/omanome-hypr test
           grep -Fq '__hyprland_api_get_hash' hypr/omanome-hypr/omanome-hypr.cpp
           grep -Fq '__hyprland_api_get_client_hash' hypr/omanome-hypr/omanome-hypr.cpp
           if pkg-config --exists hyprland; then

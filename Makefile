@@ -31,4 +31,4 @@ integration:
 	./cli/omanome doctor
 
 companion-check:
-	$(MAKE) -C hypr/omanome-hypr all
+	$(MAKE) -C hypr/omanome-hypr check
