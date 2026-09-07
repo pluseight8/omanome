@@ -2,9 +2,17 @@
 
 Omanome is an open-source, GNOME-inspired touch and stylus enhancement suite for the current Omarchy Quattro shell on Hyprland. It is intentionally an Omarchy plugin, not a replacement desktop session: the standard Omarchy bar remains in charge of the top edge, the existing Quickshell process hosts the plugin, and all plugin state is namespaced under `io.omanome.shell`.
 
-This repository is the runnable 0.9.0 phase. It uses public Omarchy/Quickshell/Hyprland interfaces for the core and explicit, version-aware optional compositor integrations for advanced effects. The native Wayland input helper owns one bounded seat/keyboard/tablet connection, supports xkbcommon EN/RU layouts, and reports unavailable compositor protocols honestly. Features without a real backend remain visibly unavailable rather than becoming fake overlays.
+This repository is the runnable 1.0.0 release. It uses public Omarchy/Quickshell/Hyprland interfaces for the core and explicit, version-aware optional compositor integrations for advanced effects. The native Wayland input helper owns one bounded seat/keyboard/tablet connection, supports xkbcommon EN/RU layouts, and reports unavailable compositor protocols honestly. Features without a real backend remain visibly unavailable rather than becoming fake overlays.
 
-## What is included
+## What is Omanome
+
+Omanome is a single Omarchy plugin that adds touch, stylus, input, overview,
+launcher, dock, quick-settings, notification, clipboard, and accessibility
+surfaces to the existing shell. It keeps the standard Omarchy bar and other
+plugins intact and stores user configuration and runtime state under the
+namespaced `io.omanome.shell` / `omanome` paths.
+
+## Screens and features
 
 - An Omarchy Quattro manifest with `service`, `bar-widget`, and `panel` entry points. It never declares the replacement `bar` kind.
 - A compact Omanome bar widget that is added to the existing Omarchy layout like any other widget.
@@ -79,7 +87,7 @@ If this checkout is being developed locally, run `./cli/omanome setup` and add t
 
 After installation, add the `Omanome` bar widget through Omarchy's normal bar settings if it is not already in the layout. This extends the existing bar; it does not replace it.
 
-## Use
+## Quick start
 
 The widget opens the panel with the left mouse button, Quick Settings with the right button, and the keyboard view with the middle button. The panel can also be summoned by the host shell:
 
@@ -89,6 +97,14 @@ omarchy-shell shell toggle io.omanome.shell '{"view":"quicksettings"}'
 ```
 
 Use a user-owned Hyprland keybinding for those commands if desired. Omanome does not overwrite existing shortcuts silently.
+
+For a first health check after installation:
+
+```sh
+omanome status
+omanome capabilities
+omanome doctor
+```
 
 Configuration is stored at `~/.config/omanome/config.json` (or `$XDG_CONFIG_HOME/omanome/config.json`). Runtime state and clipboard images are stored below `$XDG_STATE_HOME/omanome`. Clipboard capture skips sensitive/private state and password, secret, credential, token, and private-key MIME hints; payloads are never written to logs or command-line arguments.
 
@@ -189,6 +205,25 @@ The OSK uses `wtype` and is intentionally safe when it is unavailable. Automatic
 
 Rotation prefers `monitor-sensor`, then the iio-sensor-proxy D-Bus API through a persistent signal monitor. Manual rotation works independently. Dynamic monitor names and device mappings are used; a synchronized batch is rolled back if Hyprland rejects it.
 
+## Limitations and honest status
+
+Portable CI and the included hardware fixture validate contracts and fallback
+behavior; they are not physical touchscreen, stylus, sensor, multi-monitor, or
+loaded-companion certification. Native OSK and text-focus behavior depends on
+the compositor protocols and `wtype` being available. Handwriting recognition
+is local and provider-based, with no cloud service enabled by default. Live
+window previews, Wobbly, and Cube remain unavailable when their real compositor
+stream, exact companion ABI, GL backend, or external cube backend is absent;
+each path fails closed and leaves the normal shell usable.
+
+## Advanced
+
+See [`docs/FEATURES.md`](docs/FEATURES.md) for the feature truth matrix,
+[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) for recovery procedures,
+and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/TESTING.md`](docs/TESTING.md),
+and [`docs/HARDWARE.md`](docs/HARDWARE.md) for integration boundaries,
+acceptance evidence, and the manual hardware matrix.
+
 ## Development
 
 ```sh
@@ -199,13 +234,13 @@ The check runs repository validation, shell syntax checks, Python tests includin
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/TESTING.md`](docs/TESTING.md), and [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) for the plugin contract, coexistence rules, test matrix, performance evidence, and safe integration boundaries.
 
-## 0.9 native input, stylus, lifecycle and safety boundaries
+## 1.0 native input, stylus, lifecycle and safety boundaries
 
 Blur is applied through Hyprland layer-rule IPC to Omanome namespaces; it is not a translucent-rectangle imitation. Coverflow selects real Hyprland foreign-toplevel objects and activates them through native APIs. Live previews stay disabled unless the running Quickshell/companion exposes an actual texture provider. Force Quit starts with the selected foreign window's native close request and only falls back to the selected numeric PID; session processes are protected and no process-name broadcast is used.
 
 The optional `omanome-hypr` companion uses the exact Hyprland API hash handshake and the public `IWindowTransformer` workbuffer path for Wobbly. It is fail-closed on non-GL backends, rotated outputs, X11 windows, shader/buffer errors, lifecycle markers, ABI/version mismatches, or missing artifacts. Wobbly can be controlled with `hyprctl -j omanome-effects wobbly enable|disable` and configured with bounded `key=value` arguments; the QML setting debounces those commands and applies the same mesh/physics values. The advanced-effects master switch plus battery/fullscreen policy bypass expensive render hooks. The true Desktop Cube is integrated through the separately maintained, version-matched `omarchy-desktop-cube` backend when it is loaded; Omanome does not duplicate its renderer. Without that external backend, cube controls remain unavailable. Omanome never animates screenshots and never loads an unpinned Hyprland `.so`.
 
-The 0.9 input stack retains the 0.8 lifecycle policy: bounded subprocess backoff, crash-loop suppression,
+The 1.0 input stack retains the 0.8 lifecycle policy: bounded subprocess backoff, crash-loop suppression,
 one owned command lane, debounced persistence, slow/event-driven fallbacks,
 owner-only snapshots, and explicit release of preview delegates on panel close.
 The native `omanome-input` path uses `zwp_virtual_keyboard_v1` when available,

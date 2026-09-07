@@ -1,5 +1,77 @@
 # Changelog
 
+## 1.0.0
+
+### Highlights
+
+- Delivers the production source release of the Omarchy/Quickshell touch and
+  stylus enhancement suite while preserving the standard Omarchy bar and other
+  plugins.
+- Adds a feature-truth matrix, troubleshooting runbook, accessibility
+  acceptance contract, equal-key EN/RU locale coverage, and release evidence.
+
+### Input
+
+- Ships the native Rust input transport with bounded Wayland JSON IPC,
+  xkbcommon EN/RU layouts, capability-aware keyboard/tablet state, and explicit
+  `wtype` fallback behavior.
+- Keeps OSK prediction, autocorrect, handwriting ink, and diagnostics local;
+  typed or surrounding text is not persisted or logged.
+
+### Tablet
+
+- Covers capability-driven pressure, tilt, distance, rotation, eraser,
+  buttons, proximity, output mapping, hotplug, suspend/resume, palm-policy
+  configuration, and transactional rotation rollback.
+- Includes non-certifying fixture evidence and truthful unavailable states when
+  a physical device or sensor backend is absent.
+
+### Desktop
+
+- Retains Overview, App Grid, Dock, Quick Settings, notifications, clipboard,
+  touch-sized controls, accessibility settings, onboarding, and native
+  foreign-toplevel activation as one namespaced plugin surface.
+- Keeps live previews, Wobbly, and Desktop Cube behind real compositor/provider
+  boundaries; no screenshot or unpinned `.so` imitation is used.
+
+### Performance
+
+- Keeps owner-only process accounting, bounded helper lifecycle, lazy views,
+  debounced persistence, deterministic budgets, and a notify-only watchdog.
+- Portable checks measure contracts and JSON/config budgets, not frame rate,
+  idle CPU, thermals, or physical-device latency.
+
+### Safety
+
+- Preserves privacy-filtered clipboard handling, protected session processes,
+  PID-scoped Force Quit fallback, redacted diagnostics, safe mode, and
+  ownership-safe uninstall.
+
+### Updates
+
+- Validates stable releases by GitHub release tag, journals updates, creates
+  rollback snapshots, restores failed health checks, recovers interrupted
+  transactions, and supports an explicit no-argument rollback to the newest
+  valid snapshot.
+- Publishes a source archive and SHA-256 checksum from the green `main` commit.
+
+### Compatibility
+
+- Targets Omarchy Quattro 4.0.1-1, Quickshell 0.3.1, Hyprland 0.56.2, and
+  Qt 6.11.2 in the validation environment.
+- `omarchy plugin validate .`, portable CI, native input checks, companion
+  checks, dependency/performance audits, hardware fixtures, and lifecycle E2E
+  are release gates.
+
+### Known limitations
+
+- No physical touchscreen, stylus, sensor, multi-monitor matrix, suspend test,
+  or loaded optional companion was available in the release environment;
+  hardware certification is intentionally not claimed.
+- Native text-focus, live previews, Wobbly, Cube, sensor auto-rotation, and
+  handwriting recognition remain unavailable when their real backend/provider
+  is not exposed.
+
 ## 0.9.0
 
 - Adds the native Rust `omanome-input` Wayland backend with one bounded seat

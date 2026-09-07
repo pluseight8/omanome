@@ -34,24 +34,47 @@ class OmanomeProjectTests(unittest.TestCase):
 
     def test_manifest_preserves_the_standard_bar(self) -> None:
         manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "0.9.0")
+        self.assertEqual(manifest["version"], "1.0.0")
         self.assertNotIn("bar", manifest["kinds"])
         self.assertEqual(set(manifest["entryPoints"]), {"service", "barWidget", "panel"})
         for entry in manifest["entryPoints"].values():
             self.assertTrue((ROOT / entry).is_file(), entry)
 
-    def test_09_release_and_performance_contract_are_documented(self) -> None:
+    def test_10_release_and_performance_contract_are_documented(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         readme_ru = (ROOT / "README.ru.md").read_text(encoding="utf-8")
         performance = (ROOT / "docs/PERFORMANCE.md").read_text(encoding="utf-8")
         release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
-        self.assertIn("runnable 0.9.0 phase", readme)
-        self.assertIn("версии 0.9.0", readme_ru)
+        self.assertIn("runnable 1.0.0 release", readme)
+        self.assertIn("версии 1.0.0", readme_ru)
         self.assertIn("ownerCpuPercent", performance)
         self.assertIn("systemCpuPercent", performance)
         self.assertIn("notify-only", performance)
         self.assertIn("refs/tags/${TAG_VERSION}", release)
         self.assertNotIn("0.7.0", release)
+
+    def test_i18n_locales_have_equal_key_sets(self) -> None:
+        result = self.run_node(
+            "const fs=require('fs'); const vm=require('vm'); const context={console}; "
+            "vm.runInNewContext(fs.readFileSync('shell/models/I18n.js','utf8')+"
+            "'; console.log(JSON.stringify({en:Object.keys(en).sort(),ru:Object.keys(ru).sort()}));', context);"
+        )
+        self.assertEqual(result["en"], result["ru"])
+
+    def test_accessibility_contract_is_wired_to_shared_controls(self) -> None:
+        action_button = (ROOT / "shell/components/ActionButton.qml").read_text(encoding="utf-8")
+        settings = (ROOT / "shell/views/Settings.qml").read_text(encoding="utf-8")
+        tokens = (ROOT / "shell/components/DesignTokens.qml").read_text(encoding="utf-8")
+        self.assertIn("Accessible.name", action_button)
+        self.assertIn("Accessible.description", action_button)
+        self.assertIn("Accessible.role: Accessible.Button", action_button)
+        self.assertIn("minimumHeight: 48", action_button)
+        self.assertIn('accessibility.textScale', settings)
+        self.assertIn('accessibility.highContrast', settings)
+        self.assertIn('accessibility.reduceTransparency', settings)
+        self.assertIn('accessibility.reducedMotion', settings)
+        self.assertIn('accessibility.screenReaderHints', settings)
+        self.assertIn('textScale: textScale', tokens)
 
     def test_config_is_versioned_and_has_core_sections(self) -> None:
         defaults = json.loads((ROOT / "config/defaults.json").read_text(encoding="utf-8"))
@@ -411,7 +434,7 @@ class OmanomeProjectTests(unittest.TestCase):
         metadata = json.loads((companion / "compatibility.json").read_text(encoding="utf-8"))
         cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")
         self.assertEqual(metadata["protocolVersion"], 2)
-        self.assertEqual(metadata["pluginVersion"], "0.9.0")
+        self.assertEqual(metadata["pluginVersion"], "1.0.0")
         self.assertEqual(metadata["statusIpc"], "hyprctl -j omanome-effects")
         self.assertIn("__hyprland_api_get_hash", source)
         self.assertIn("__hyprland_api_get_client_hash", source)
@@ -436,9 +459,9 @@ class OmanomeProjectTests(unittest.TestCase):
 
         result = self.run_node(
             "const C=require('./shell/models/Companion.js'); "
-            "const good={installed:true,built:true,loaded:true,protocolVersion:2,pluginVersion:'0.9.0'," \
-            "runtime:{version:'0.56.2',abi:'same'},build:{version:'0.56.2',abi:'same',pluginBuild:'0.9.0'}," \
-            "versionMatch:true,pluginBuildMatch:true,artifactHashMatch:true,compatibility:{pluginVersion:'0.9.0'}," \
+            "const good={installed:true,built:true,loaded:true,protocolVersion:2,pluginVersion:'1.0.0'," \
+            "runtime:{version:'0.56.2',abi:'same'},build:{version:'0.56.2',abi:'same',pluginBuild:'1.0.0'}," \
+            "versionMatch:true,pluginBuildMatch:true,artifactHashMatch:true,compatibility:{pluginVersion:'1.0.0'}," \
             "capabilities:{desktopCube:true}}; " \
             "const bad={...good,runtime:{abi:'new'},build:{abi:'old'}}; " \
             "const crashed={...good,crashMarker:true}; "

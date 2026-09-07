@@ -49,7 +49,7 @@ performance-check:
 	python3 scripts/performance_check.py --json
 
 version-check:
-	python3 scripts/validate_version.py 0.9.0
+	python3 scripts/validate_version.py 1.0.0
 
 input-check:
 	cargo fmt --manifest-path input/omanome-input/Cargo.toml --check

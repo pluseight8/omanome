@@ -2,9 +2,9 @@
 
 Omanome — открытый набор улучшений рабочего стола для актуального Omarchy Quattro на Hyprland. Он добавляет GNOME-подобный интерфейс для touchscreen и стилуса, но остаётся обычным Omarchy Shell Plugin: стандартная верхняя панель не заменяется, второй Quickshell не запускается, GNOME Shell и Mutter не нужны.
 
-Это запускаемая фаза версии 0.9.0. Ядро использует публичные API Omarchy/Quickshell/Hyprland, а дополнительные compositor-возможности подключаются только через явные version-aware companion boundaries. Нативный Wayland input helper держит одно bounded-соединение с seat/keyboard/tablet, использует xkbcommon EN/RU и честно сообщает недоступные протоколы. Если настоящего backend нет, функция остаётся явно недоступной, а не подменяется декоративной имитацией.
+Это запускаемая релизная фаза версии 1.0.0. Ядро использует публичные API Omarchy/Quickshell/Hyprland, а дополнительные compositor-возможности подключаются только через явные version-aware companion boundaries. Нативный Wayland input helper держит одно bounded-соединение с seat/keyboard/tablet, использует xkbcommon EN/RU и честно сообщает недоступные протоколы. Если настоящего backend нет, функция остаётся явно недоступной, а не подменяется декоративной имитацией.
 
-## Возможности
+## Экраны и возможности
 
 - Manifest с `service`, `bar-widget` и `panel`; replacement-тип `bar` отсутствует.
 - Компактный Omanome widget в существующей панели Omarchy.
@@ -64,7 +64,7 @@ omanome install
 
 После установки добавьте widget `Omanome` через обычные настройки панели Omarchy. Он расширяет существующую панель и не создаёт её копию.
 
-## Запуск
+## Быстрый запуск
 
 Левая кнопка на widget открывает Overview, правая — Quick Settings, средняя — OSK. Через shell API:
 
@@ -74,6 +74,14 @@ omarchy-shell shell toggle io.omanome.shell '{"view":"quicksettings"}'
 ```
 
 Можно назначить эти команды на пользовательские Hyprland keybindings. Omanome не перезаписывает занятые shortcuts молча.
+
+Для первой проверки после установки:
+
+```sh
+omanome status
+omanome capabilities
+omanome doctor
+```
 
 Конфигурация: `~/.config/omanome/config.json` (либо `$XDG_CONFIG_HOME/omanome/config.json`). Состояние и изображения clipboard: `$XDG_STATE_HOME/omanome`. Sensitive/private clipboard не сохраняется при MIME hints `password`, `secret`, `credential`, `token`, `private-key`; содержимое не попадает в логи и аргументы команд.
 
@@ -161,6 +169,24 @@ schema-2 `performance.qualityPreset` мигрирует в `performance.mode`.
 
 Omanome не зависит от бренда стилуса: discovery использует типы и capabilities, а не vendor-name substring. Diagnostics показывают pressure, tilt X/Y, rotation, distance, proximity, eraser, buttons, serial, backend и mapped output только когда их сообщает backend. Нативные pressure/tilt/eraser-события приложений не заменяются synthetic mouse events. Политика pressure curve, palm rejection, monitor mapping и кнопок описана в [`stylus/README.md`](stylus/README.md). OSK работает через `wtype`; auto-show focused text field и persistent cursor input требуют optional native companion. Auto-rotation предпочитает `monitor-sensor`, затем iio-sensor-proxy D-Bus; manual rotation работает без sensor.
 
+## Ограничения и честный статус
+
+Portable CI и hardware fixture проверяют контракты и fallback-поведение, но не
+являются сертификацией физического touchscreen, stylus, sensor, multi-monitor
+или загруженного companion. Native OSK и text-focus зависят от протоколов
+compositor и наличия `wtype`. Handwriting recognition остаётся локальным
+provider-based слотом без включённого cloud service. Live preview, Wobbly и
+Cube остаются unavailable без настоящего compositor stream, точного companion
+ABI/GL backend или внешнего cube backend; все эти пути fail-closed и не ломают
+обычный shell.
+
+## Расширенные материалы
+
+Матрица фактического статуса возможностей: [`docs/FEATURES.md`](docs/FEATURES.md).
+Процедуры диагностики и восстановления: [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
+Границы интеграции, тесты и ручная hardware-матрица: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
+[`docs/TESTING.md`](docs/TESTING.md), [`docs/HARDWARE.md`](docs/HARDWARE.md).
+
 ## Проверка и разработка
 
 ```sh
@@ -171,13 +197,13 @@ make check
 
 Подробности: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/TESTING.md`](docs/TESTING.md) и [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
 
-## Границы 0.9 native input, stylus, lifecycle и safety
+## Границы 1.0 native input, stylus, lifecycle и safety
 
 Blur применяется через Hyprland layer-rule IPC к namespace Omanome, а не рисуется как прозрачный прямоугольник. Coverflow работает с реальными Hyprland foreign-toplevel объектами и native activation. Live preview остаётся выключенным, пока активный Quickshell/companion не даст настоящий texture provider. Force Quit сначала вызывает native close выбранного окна и только затем использует выбранный numeric PID; session-процессы защищены, broadcast по имени не используется.
 
 Настоящий Wobbly подключается через optional `omanome-hypr`: он получает compositor-owned workbuffer, рисует ограниченный mesh через публичный `IWindowTransformer` и возвращает framebuffer в обычный Hyprland pass. Включение выполняется через `hyprctl -j omanome-effects wobbly enable`, а bounded physics/mesh — через `wobbly config key=value ...`; QML Settings отправляет тот же IPC с debounce. Master-toggle advanced effects и battery/fullscreen policy отключают дорогой render path fail-closed. При несовпадении API/ABI, X11/rotated output, ошибке shader/buffer, crash-marker или недоступном GL renderer эффект остаётся выключенным, а исходный framebuffer сохраняется. Настоящий Desktop Cube подключается через отдельно сопровождаемый version-matched `omarchy-desktop-cube`, если он загружен; без него cube недоступен. Omanome не анимирует screenshots и не загружает неприкреплённый Hyprland `.so`.
 
-В 0.9 сохранены lifecycle-инварианты 0.8: bounded backoff для subprocess, подавление crash loop,
+В 1.0 сохранены lifecycle-инварианты 0.8: bounded backoff для subprocess, подавление crash loop,
 единая command lane, debounce persistence, медленные/event-driven fallback,
 owner-only snapshots и явное освобождение preview delegates при закрытии panel.
 Нативный `omanome-input` использует `zwp_virtual_keyboard_v1`, когда compositor

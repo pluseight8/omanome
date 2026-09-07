@@ -43,8 +43,8 @@ def main() -> int:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     readme_ru = (ROOT / "README.ru.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    if f"runnable {version} phase" not in readme:
-        errors.append("README.md does not identify the current runnable phase")
+    if f"runnable {version} release" not in readme:
+        errors.append("README.md does not identify the current runnable release")
     if f"версии {version}" not in readme_ru:
         errors.append("README.ru.md does not identify the current phase")
     if f"## {version}" not in changelog:
