@@ -27,37 +27,7 @@ jobs:
         run: make validate
 
       - name: Run project tests
-        run: |
-          set +e
-          output="$(python3 -m unittest tests.test_diagnostics.DiagnosticsTests.test_extended_hardware_fixtures_report_capabilities_without_certifying_hardware -v 2>&1)"
-          status=$?
-          printf '%s\n' "$output"
-          if [ "$status" -ne 0 ]; then
-            summary="$(printf '%s\n' "$output" | tr '\n' ' ' | sed 's/%/%25/g; s/\r/%0D/g')"
-            echo "::error file=tests/test_diagnostics.py,line=55::$summary"
-          fi
-          exit "$status"
-
-      - name: Run hardware diagnostic contract test
-        run: python3 -m unittest tests.test_diagnostics.DiagnosticsTests.test_hardware_fixture_is_explicitly_not_certification -v
-
-      - name: Run safe mode diagnostic contract test
-        run: python3 -m unittest tests.test_diagnostics.DiagnosticsTests.test_safe_mode_has_explicit_status_and_does_not_need_omarchy -v
-
-      - name: Run device diagnostic JSON contract test
-        run: python3 -m unittest tests.test_diagnostics.DiagnosticsTests.test_stylus_and_touch_diagnostics_remain_json_without_hyprland -v
-
-      - name: Run support bundle privacy contract test
-        run: python3 -m unittest tests.test_diagnostics.DiagnosticsTests.test_support_bundle_excludes_personal_config_values -v
-
-      - name: Run uninstall dry-run contract test
-        run: python3 -m unittest tests.test_diagnostics.DiagnosticsTests.test_uninstall_dry_run_is_verified_and_non_destructive -v
-
-      - name: Run uninstall symlink safety contract test
-        run: python3 -m unittest tests.test_diagnostics.DiagnosticsTests.test_uninstall_refuses_symlink_targets -v
-
-      - name: Run uninstall ownership contract test
-        run: python3 -m unittest tests.test_diagnostics.DiagnosticsTests.test_uninstall_removes_owned_paths_but_keeps_settings_by_default -v
+        run: python3 -m unittest tests.test_diagnostics -v
 
       - name: Run native input contract tests
         run: python3 -m unittest tests.test_input_protocol -v
