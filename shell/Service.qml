@@ -81,6 +81,16 @@ Item {
   property var wobblyConfigResponse: null
   property string doctorOutput: ""
   property bool doctorRunning: false
+  property string updateOutput: ""
+  property bool updateRunning: false
+  property string rollbackOutput: ""
+  property bool rollbackRunning: false
+  property string recoveryOutput: ""
+  property bool recoveryRunning: false
+  property string backupOutput: ""
+  property bool backupRunning: false
+  property string supportBundleOutput: ""
+  property bool supportBundleRunning: false
   property var forceQuitState: ({ active: false, phase: "idle", target: null, message: "" })
   property string blurRuleSignature: ""
   property string lastInput: "keyboard"
@@ -1257,6 +1267,60 @@ Item {
     return true
   }
 
+  function runUpdateCheck() {
+    if (updateProcess.running) return false
+    root.updateOutput = ""
+    updateProcess.command = ["bash", root.sourcePath("cli/omanome"), "update", "--check", "--json"]
+    root.updateRunning = true
+    updateProcess.running = true
+    return true
+  }
+
+  function runUpdatePreview() {
+    if (updateProcess.running) return false
+    root.updateOutput = ""
+    updateProcess.command = ["bash", root.sourcePath("cli/omanome"), "update", "--dry-run", "--json"]
+    root.updateRunning = true
+    updateProcess.running = true
+    return true
+  }
+
+  function runRollbackList() {
+    if (rollbackProcess.running) return false
+    root.rollbackOutput = ""
+    rollbackProcess.command = ["bash", root.sourcePath("cli/omanome"), "rollback", "--list", "--json"]
+    root.rollbackRunning = true
+    rollbackProcess.running = true
+    return true
+  }
+
+  function runRecovery() {
+    if (recoveryProcess.running) return false
+    root.recoveryOutput = ""
+    recoveryProcess.command = ["bash", root.sourcePath("cli/omanome"), "recover", "--json"]
+    root.recoveryRunning = true
+    recoveryProcess.running = true
+    return true
+  }
+
+  function runBackup() {
+    if (backupProcess.running) return false
+    root.backupOutput = ""
+    backupProcess.command = ["bash", root.sourcePath("cli/omanome"), "config", "export"]
+    root.backupRunning = true
+    backupProcess.running = true
+    return true
+  }
+
+  function runSupportBundle() {
+    if (supportBundleProcess.running) return false
+    root.supportBundleOutput = ""
+    supportBundleProcess.command = ["bash", root.sourcePath("cli/omanome"), "diagnostics", "bundle"]
+    root.supportBundleRunning = true
+    supportBundleProcess.running = true
+    return true
+  }
+
   function needsOnboarding() {
     return root.configReady && root.cfg("onboarding.completed", false) !== true && root.cfg("onboarding.skipped", false) !== true
   }
@@ -1869,6 +1933,61 @@ Item {
     onExited: function(exitCode) {
       root.doctorRunning = false
       if (exitCode !== 0 && root.doctorOutput === "") root.doctorOutput = "doctor unavailable (exit " + exitCode + ")"
+      root.stateRevision++
+      root.stateUpdated()
+    }
+  }
+
+  Process {
+    id: updateProcess
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateOutput = text }
+    onExited: function(exitCode) {
+      root.updateRunning = false
+      if (exitCode !== 0 && root.updateOutput === "") root.updateOutput = "update check unavailable (exit " + exitCode + ")"
+      root.stateRevision++
+      root.stateUpdated()
+    }
+  }
+
+  Process {
+    id: rollbackProcess
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.rollbackOutput = text }
+    onExited: function(exitCode) {
+      root.rollbackRunning = false
+      if (exitCode !== 0 && root.rollbackOutput === "") root.rollbackOutput = "rollback inventory unavailable (exit " + exitCode + ")"
+      root.stateRevision++
+      root.stateUpdated()
+    }
+  }
+
+  Process {
+    id: recoveryProcess
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.recoveryOutput = text }
+    onExited: function(exitCode) {
+      root.recoveryRunning = false
+      if (exitCode !== 0 && root.recoveryOutput === "") root.recoveryOutput = "recovery unavailable (exit " + exitCode + ")"
+      root.stateRevision++
+      root.stateUpdated()
+    }
+  }
+
+  Process {
+    id: backupProcess
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.backupOutput = text }
+    onExited: function(exitCode) {
+      root.backupRunning = false
+      if (exitCode !== 0 && root.backupOutput === "") root.backupOutput = "config backup unavailable (exit " + exitCode + ")"
+      root.stateRevision++
+      root.stateUpdated()
+    }
+  }
+
+  Process {
+    id: supportBundleProcess
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.supportBundleOutput = text }
+    onExited: function(exitCode) {
+      root.supportBundleRunning = false
+      if (exitCode !== 0 && root.supportBundleOutput === "") root.supportBundleOutput = "support bundle unavailable (exit " + exitCode + ")"
       root.stateRevision++
       root.stateUpdated()
     }
