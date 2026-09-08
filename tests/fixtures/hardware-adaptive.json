@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "kind": "omanome-adaptive-fixture",
+  "wayland": true,
+  "hyprland": true,
+  "display": [{ "name": "Fixture internal display", "builtin": true }],
+  "touchscreen": [{ "name": "Fixture touchscreen" }],
+  "devices": {
+    "keyboards": [
+      {
+        "name": "Fixture detachable cover",
+        "type": "keyboard",
+        "transport": "pogo-pin",
+        "detachable": true,
+        "vendorId": "fixture-vendor",
+        "productId": "fixture-cover",
+        "capabilities": { "keyboard": true }
+      }
+    ],
+    "touch": [{ "name": "Fixture touchscreen", "type": "touchscreen" }]
+  },
+  "multitouch": { "available": true },
+  "orientation": { "available": true },
+  "sensors": { "available": true, "backend": "fixture" },
+  "osk": { "available": true },
+  "adaptive": {
+    "scenarios": {
+      "keyboard-attach": { "available": true, "evidence": "portable-contract" },
+      "keyboard-detach": { "available": true, "evidence": "portable-contract" },
+      "bluetooth-keyboard": { "available": true, "evidence": "portable-contract" },
+      "second-keyboard": { "available": true, "evidence": "portable-contract" },
+      "tablet-switch": { "available": true, "evidence": "portable-contract" },
+      "dock-undock": { "available": true, "evidence": "portable-contract" },
+      "external-monitor-keyboard": { "available": true, "evidence": "portable-contract" },
+      "transition-reversal": { "available": true, "evidence": "portable-contract" }
+    }
+  }
+}

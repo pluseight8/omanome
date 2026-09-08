@@ -54,6 +54,7 @@ jobs:
           make performance-test
           make performance-check
           make version-check
+          make adaptive-check
 
       - name: Verify safety invariants
         run: |
@@ -141,3 +142,24 @@ jobs:
 
       - name: Recheck dependency safety boundary
         run: make dependency-audit
+
+  adaptive-safety:
+    name: Adaptive mode safety
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Run adaptive device, transition, and ownership gate
+        run: make adaptive-check
+
+      - name: Recheck standard bar and hotplug boundaries
+        run: |
+          python3 - <<'PY'
+          import json
+          manifest = json.load(open("manifest.json", encoding="utf-8"))
+          assert "bar" not in manifest["kinds"]
+          assert "bar-widget" in manifest["kinds"]
+          assert "barWidget" in manifest["entryPoints"]
+          PY
+          ! grep -RIn --exclude-dir=.git --exclude='*.md' 'gnome-shell[[:space:]]*--replace\|pkill\|killall' shell input cli

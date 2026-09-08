@@ -34,6 +34,16 @@ MULTITASKING_SCENARIOS = (
     ("rotation", "Rotate landscape to portrait and back without losing the pair or ratio."),
     ("stylus-drag", "Drag and snap a window with stylus contact; proximity alone must not act."),
 )
+ADAPTIVE_SCENARIOS = (
+    ("keyboard-attach", "Attach a physical keyboard and confirm one coordinated mode transition."),
+    ("keyboard-detach", "Detach the active keyboard and confirm the stable tablet policy is restored."),
+    ("bluetooth-keyboard", "Connect a Bluetooth keyboard and confirm its configured external-device policy."),
+    ("second-keyboard", "Disconnect one of two keyboards and confirm the aggregate keyboard state remains active."),
+    ("tablet-switch", "Toggle the platform tablet switch and confirm posture debounce and mode policy."),
+    ("dock-undock", "Dock and undock with the configured external-monitor profile and restore behavior."),
+    ("external-monitor-keyboard", "Connect an external monitor and keyboard and confirm Docked mode policy."),
+    ("transition-reversal", "Reverse an attach/detach transition without starting competing animations."),
+)
 
 
 def timestamp() -> str:
@@ -135,7 +145,7 @@ def parse_record(value: str) -> tuple[str, str]:
 
 def target_map(capabilities: dict[str, Any]) -> dict[str, dict[str, Any]]:
     targets: dict[str, dict[str, Any]] = {}
-    for section in ("certification", "lifecycle", "handwriting", "stylusFeatures", "multitasking"):
+    for section in ("certification", "lifecycle", "handwriting", "stylusFeatures", "multitasking", "adaptive"):
         values = capabilities.get(section, {})
         if isinstance(values, dict):
             for name, value in values.items():
@@ -180,6 +190,10 @@ def target_map(capabilities: dict[str, Any]) -> dict[str, dict[str, Any]]:
     for name, value in list(targets.items()):
         if "." not in name:
             targets.setdefault(name, value)
+    for name, _ in ADAPTIVE_SCENARIOS:
+        canonical = f"adaptive.{name}"
+        if canonical in targets:
+            targets.setdefault(name, targets[canonical])
     return targets
 
 
@@ -216,7 +230,7 @@ def apply_manual_records(
 
 
 def iter_checks(capabilities: dict[str, Any]):
-    for section in ("certification", "lifecycle", "handwriting", "stylusFeatures", "multitasking"):
+    for section in ("certification", "lifecycle", "handwriting", "stylusFeatures", "multitasking", "adaptive"):
         values = capabilities.get(section, {})
         if isinstance(values, dict):
             for name, value in values.items():
@@ -441,6 +455,39 @@ def multitasking_results(payload: dict[str, Any], source: str) -> dict[str, dict
     return result
 
 
+def adaptive_results(payload: dict[str, Any], source: str) -> dict[str, dict[str, Any]]:
+    """Expose the 1.2 adaptive matrix without turning fixtures into certification."""
+
+    declaration = payload.get("adaptive", {}) if isinstance(payload, dict) else {}
+    entries = declaration.get("scenarios", declaration.get("tests", {})) if isinstance(declaration, dict) else {}
+    if not isinstance(entries, dict):
+        entries = {}
+    result: dict[str, dict[str, Any]] = {}
+    for name, label in ADAPTIVE_SCENARIOS:
+        entry = entries.get(name)
+        if source == "fixture":
+            available = entry is not None and explicit_available(entry)
+            outcome = "Untested" if available else "Unavailable"
+            reason = (
+                "fixture declares this scenario; interactive hardware execution was not performed"
+                if available
+                else "fixture does not declare this scenario"
+            )
+        else:
+            available = False
+            outcome = "Untested"
+            reason = "guided live hardware test required; a session probe cannot infer interaction success"
+        result[name] = check(
+            f"adaptive.{name}",
+            available,
+            reason,
+            source,
+            {"label": label, "declared": entry is not None},
+            outcome,
+        )
+    return result
+
+
 def certification_results(fixture: dict[str, Any], touch: Any, stylus: Any, sensors: dict[str, Any]) -> dict[str, dict[str, Any]]:
     devices = fixture.get("devices") if isinstance(fixture.get("devices"), dict) else {}
     keyboards = fixture.get("keyboard", devices.get("keyboards", []))
@@ -506,6 +553,7 @@ def fixture_result(fixture: dict[str, Any]) -> dict[str, Any]:
         "lifecycle": lifecycle_results(fixture),
         "handwriting": handwriting_result(fixture),
         "multitasking": multitasking_results(fixture, "fixture"),
+        "adaptive": adaptive_results(fixture, "fixture"),
         "certification": certification_results(fixture, touch, stylus, sensors),
     }
 
@@ -544,6 +592,7 @@ def live_result() -> dict[str, Any]:
             for name in ("ink", "recognition", "cloud")
         },
         "multitasking": multitasking_results({}, "live-session"),
+        "adaptive": adaptive_results({}, "live-session"),
         "certification": live_certification_results(devices, monitors, touch, stylus, sensors),
     }
 
@@ -575,7 +624,7 @@ def main(argv: list[str] | None = None) -> int:
         help="record a live hardware result: Pass, Fail, Unavailable, Skipped, or Untested",
     )
     parser.add_argument("--confirm-hardware", action="store_true", help="confirm that this is a real hardware session")
-    parser.add_argument("--guided", action="store_true", help="run the multitasking matrix as an interactive live-hardware checklist")
+    parser.add_argument("--guided", action="store_true", help="run the 1.1 multitasking and 1.2 adaptive matrices as an interactive live-hardware checklist")
     parser.add_argument("--report", type=pathlib.Path, help="write the sanitized JSON report to a private file")
     parser.add_argument("--json", action="store_true", help="kept for CLI symmetry; JSON is always emitted")
     args = parser.parse_args(argv)
@@ -622,10 +671,11 @@ def main(argv: list[str] | None = None) -> int:
             if args.guided:
                 if not session.get("hardwareConfirmed", False):
                     raise ValueError("--guided requires --confirm-hardware for a new or unconfirmed session")
-                for name, label in MULTITASKING_SCENARIOS:
-                    target = f"multitasking.{name}"
-                    if target not in records_to_apply:
-                        records_to_apply[target] = {"result": guided_result(name, label), "recordedAt": timestamp()}
+                for section, scenarios in (("multitasking", MULTITASKING_SCENARIOS), ("adaptive", ADAPTIVE_SCENARIOS)):
+                    for name, label in scenarios:
+                        target = f"{section}.{name}"
+                        if target not in records_to_apply:
+                            records_to_apply[target] = {"result": guided_result(name, label), "recordedAt": timestamp()}
             applied_records = apply_manual_records(
                 capabilities,
                 records_to_apply,
@@ -668,6 +718,8 @@ def main(argv: list[str] | None = None) -> int:
             "interactive": mode == "live-probe" and sys.stdin.isatty(),
             "requiresConfirmHardware": True,
             "scenarioCount": len(MULTITASKING_SCENARIOS),
+            "adaptiveScenarioCount": len(ADAPTIVE_SCENARIOS),
+            "totalScenarioCount": len(MULTITASKING_SCENARIOS) + len(ADAPTIVE_SCENARIOS),
         },
         "note": "Capability probe only; unavailable backends are not simulated. Fixture evidence never certifies hardware.",
         "capabilities": capabilities,
