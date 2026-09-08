@@ -710,6 +710,14 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertIn("snapZonesForTarget", dock)
         self.assertIn("snapZonesForTarget", launcher)
         self.assertIn("snapWindowToZone", overview)
+        self.assertIn("pairEntries", launcher)
+        self.assertIn("pairIcon", launcher)
+        self.assertIn("launchPair", launcher)
+        self.assertIn("Accessible.name", launcher)
+        self.assertIn("service.launchAppPair", launcher)
+        self.assertIn("groupEntries", overview)
+        self.assertIn("windowGroupSummaries", overview)
+        self.assertIn("service.launchAppPair", overview)
 
     def test_window_groups_are_persistent_metadata_only_and_service_wired(self) -> None:
         service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")

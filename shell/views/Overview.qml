@@ -24,6 +24,7 @@ Item {
   property var draggedWindow: null
   property var splitSelection: []
   property bool windowDragActive: false
+  property var groupEntries: []
 
   function dragInputKind() {
     var kind = String(root.service ? root.service.lastInput : "mouse")
@@ -51,6 +52,7 @@ Item {
     try { root.windows = Hyprland.toplevels.values || [] } catch (error) { root.windows = [] }
     try { root.workspaces = Hyprland.workspaces.values || [] } catch (error2) { root.workspaces = [] }
     try { root.applications = DesktopEntries.applications.values || [] } catch (error3) { root.applications = [] }
+    try { root.groupEntries = root.service && typeof root.service.windowGroupSummaries === "function" ? root.service.windowGroupSummaries() : [] } catch (error4) { root.groupEntries = [] }
     if (root.selectedWorkspace <= 0 && Hyprland.focusedWorkspace) root.selectedWorkspace = Number(Hyprland.focusedWorkspace.id)
     root.refreshSearch()
     root.revision++
@@ -198,6 +200,7 @@ Item {
   Connections { target: Hyprland.workspaces; function onValuesChanged() { root.refresh() } }
   Connections { target: DesktopEntries.applications; function onValuesChanged() { root.refresh() } }
   Connections { target: Hyprland; function onFocusedWorkspaceChanged() { root.selectedWorkspace = Hyprland.focusedWorkspace ? Number(Hyprland.focusedWorkspace.id) : root.selectedWorkspace; root.refresh() } }
+  Connections { target: root.service; function onConfigUpdated(path) { if (String(path || "").indexOf("multitasking.") === 0) root.refresh() } }
   Component.onCompleted: root.refresh()
 
   ColumnLayout {
@@ -356,6 +359,19 @@ Item {
       spacing: tokens.space(7)
       visible: String(search.text || "").trim() === ""
       Text { text: root.service.tr("dock", "Dock"); color: Color.muted; font.pixelSize: Style.font.caption }
+      Repeater {
+        model: root.groupEntries
+        delegate: ActionButton {
+          required property var modelData
+          visible: modelData.persistent === true
+          compact: true
+          icon: modelData.type === "app-pair" ? "◇" : "⧉"
+          text: modelData.name
+          subtitle: String(modelData.layout && modelData.layout.ratio || "")
+          accessibleName: modelData.name + " · " + root.service.tr("windowGroup", "Window group")
+          onClicked: modelData.type === "app-pair" ? root.service.launchAppPair(modelData.id, {}) : root.service.recordInput("touch")
+        }
+      }
       Repeater {
         model: root.dockApps()
         delegate: ActionButton {

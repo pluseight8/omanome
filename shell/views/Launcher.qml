@@ -22,6 +22,7 @@ Item {
   property int selectedIndex: 0
   property var draggedApp: null
   property bool appDragActive: false
+  property var pairEntries: []
 
   function dragInputKind() {
     var kind = String(root.service ? root.service.lastInput : "mouse")
@@ -34,6 +35,37 @@ Item {
     root.draggedApp = null
     root.appDragActive = false
     var result = root.service.launchAppToZone(app.id, zoneId, root.dragInputKind(), {})
+    if (result && (result.ok === true || result.pending === true) && root.panel) root.panel.close()
+    return result
+  }
+
+  function refreshPairs() {
+    try {
+      var groups = root.service && typeof root.service.windowGroupSummaries === "function" ? root.service.windowGroupSummaries() : []
+      root.pairEntries = groups.filter(function(item) { return item && item.type === "app-pair" && item.persistent !== false }).slice(0, 12)
+    } catch (error) {
+      root.pairEntries = []
+    }
+  }
+
+  function pairIcon(group, index) {
+    try {
+      var apps = group && Array.isArray(group.apps) ? group.apps : []
+      var entry = apps[index] ? Apps.normalize(DesktopEntries.byId(apps[index])) : null
+      return root.service.iconPath(entry ? entry.icon : "application-x-executable")
+    } catch (error) {
+      return root.service.iconPath("application-x-executable")
+    }
+  }
+
+  function pairLabel(group) {
+    var apps = group && Array.isArray(group.apps) ? group.apps : []
+    return String(group && group.name || apps.join(" + ") || root.service.tr("appPair", "App Pair"))
+  }
+
+  function launchPair(group) {
+    if (!group || !root.service || typeof root.service.launchAppPair !== "function") return false
+    var result = root.service.launchAppPair(group.id, {})
     if (result && (result.ok === true || result.pending === true) && root.panel) root.panel.close()
     return result
   }
@@ -73,9 +105,11 @@ Item {
       root.categoryList = ["All", "Favorites"].concat(Apps.categories(root.allApplications))
       var sorted = Apps.sorted(root.allApplications, search.text, 300, root.favoriteIds(), root.recentIds())
       root.entries = sorted.filter(root.inCurrentFilter)
+      root.refreshPairs()
     } catch (error) {
       root.allApplications = []
       root.entries = []
+      root.pairEntries = []
     }
     root.selectedIndex = Math.max(0, Math.min(root.selectedIndex, Math.max(0, root.entries.length - 1)))
   }
@@ -171,6 +205,11 @@ Item {
   Connections {
     target: DesktopEntries.applications
     function onValuesChanged() { root.refresh() }
+  }
+
+  Connections {
+    target: root.service
+    function onConfigUpdated(path) { if (String(path || "").indexOf("multitasking.") === 0) root.refreshPairs() }
   }
 
   Timer {
@@ -286,6 +325,112 @@ Item {
             text: modelData === "Favorites" ? "★ " + root.service.tr("favorites", "Favorites") : modelData
             checked: root.category === modelData
             onClicked: { root.category = modelData; root.selectedIndex = 0; root.refresh() }
+          }
+        }
+      }
+    }
+
+    Flickable {
+      Layout.fillWidth: true
+      Layout.preferredHeight: root.pairEntries.length > 0 ? tokens.space(108) : 0
+      visible: root.pairEntries.length > 0
+      contentWidth: pairColumn.width
+      clip: true
+
+      Column {
+        id: pairColumn
+        spacing: tokens.space(6)
+
+        Text {
+          text: root.service.tr("appPairs", "App Pairs")
+          color: Color.muted
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+        }
+
+        Row {
+          spacing: tokens.space(8)
+
+          Repeater {
+            model: root.pairEntries
+            delegate: Item {
+              required property var modelData
+              width: tokens.space(220)
+              height: tokens.target(76)
+
+              Accessible.name: root.pairLabel(modelData)
+              Accessible.description: root.service.tr("appPairHint", "Launch both applications and restore their split layout")
+              Accessible.role: Accessible.Button
+
+              Surface {
+                anchors.fill: parent
+                surfaceRadius: tokens.radius(14)
+                surfaceColor: Color.menu.background
+                surfaceOpacity: tokens.reduceTransparency ? 0.98 : 0.86
+
+                Row {
+                  anchors.fill: parent
+                  anchors.margins: tokens.space(10)
+                  spacing: tokens.space(8)
+
+                  Row {
+                    width: tokens.space(52)
+                    height: tokens.space(42)
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    Image {
+                      width: tokens.space(34)
+                      height: width
+                      source: root.pairIcon(modelData, 0)
+                      sourceSize.width: width * 2
+                      sourceSize.height: height * 2
+                      asynchronous: true
+                      fillMode: Image.PreserveAspectFit
+                    }
+                    Image {
+                      width: tokens.space(34)
+                      height: width
+                      x: tokens.space(18)
+                      y: tokens.space(8)
+                      source: root.pairIcon(modelData, 1)
+                      sourceSize.width: width * 2
+                      sourceSize.height: height * 2
+                      asynchronous: true
+                      fillMode: Image.PreserveAspectFit
+                    }
+                  }
+
+                  Column {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width - tokens.space(60)
+                    spacing: 2
+
+                    Text {
+                      width: parent.width
+                      text: root.pairLabel(modelData)
+                      color: Color.foreground
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.body
+                      elide: Text.ElideRight
+                    }
+                    Text {
+                      width: parent.width
+                      text: String(modelData.layout && modelData.layout.ratio || "50/50") + " · " + root.service.tr("appPairHintShort", "restore split")
+                      color: Color.muted
+                      font.pixelSize: Style.font.caption
+                      elide: Text.ElideRight
+                    }
+                  }
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  acceptedButtons: Qt.LeftButton
+                  onPressed: root.service.recordInput("touch")
+                  onClicked: root.launchPair(modelData)
+                }
+              }
+            }
           }
         }
       }
