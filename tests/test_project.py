@@ -758,6 +758,32 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertNotIn("address", persistent_section)
         self.assertNotIn("pid", persistent_section)
 
+    def test_tablet_switcher_and_layout_persistence_are_wired_without_screenshot_polling(self) -> None:
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        switcher = (ROOT / "shell/views/Switcher.qml").read_text(encoding="utf-8")
+        tablet = (ROOT / "shell/models/TabletSwitcher.js").read_text(encoding="utf-8")
+        persistence = (ROOT / "shell/models/LayoutPersistence.js").read_text(encoding="utf-8")
+        settings = (ROOT / "shell/views/Settings.qml").read_text(encoding="utf-8")
+        defaults = json.loads((ROOT / "config/defaults.json").read_text(encoding="utf-8"))
+
+        multitasking = defaults["multitasking"]
+        self.assertIn("tabletSwitcher", multitasking)
+        self.assertIn("layoutPersistence", multitasking)
+        self.assertFalse(multitasking["tabletSwitcher"]["closeOnSwipe"])
+        self.assertEqual(multitasking["tabletSwitcher"]["mode"], "automatic")
+        self.assertEqual(multitasking["layoutPersistence"]["maxRecent"], 12)
+        for marker in ("TabletSwitcherModel", "LayoutPersistenceModel", "tabletSwitcherMode", "tabletSwitcherCards", "beginTabletSwitcherSwipe", "endTabletSwitcherSwipe", "layoutPersistenceSummary", "rememberManagedLayout"):
+            self.assertIn(marker, service)
+        for marker in ("Large Cards", "tabletMode", "DragHandler", "acceptedDevices", "ScreencopyView", "metadataFallback", "tabletSwitcherGestureHint"):
+            self.assertIn(marker, switcher)
+        self.assertNotIn("setInterval", switcher)
+        self.assertIn("MAX_CARDS", tablet)
+        self.assertIn("decideSwipe", tablet)
+        self.assertIn("persistable", persistence)
+        self.assertNotIn('"title"', persistence)
+        for marker in ("Tablet switcher", "Layout persistence", "Swipe up to close", "Saved layouts never contain"):
+            self.assertIn(marker, settings)
+
     def test_native_omarchy_validator_when_available(self) -> None:
         omarchy = shutil.which("omarchy")
         if not omarchy:

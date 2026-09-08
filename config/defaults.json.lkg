@@ -192,6 +192,8 @@
     "minimumWindowSize": { "width": 320, "height": 240 },
     "layouts": [],
     "customLayouts": [],
+    "tabletSwitcher": { "enabled": true, "mode": "automatic", "scope": "current-workspace", "maxCards": 32, "closeOnSwipe": false, "touchSwipe": true, "swipeThresholdPx": 96, "swipeVelocity": 0.5, "closeThresholdPx": 120, "selectedScale": 1.0, "sideScale": 0.92, "sideOpacity": 0.76 },
+    "layoutPersistence": { "enabled": true, "recentEnabled": true, "maxRecent": 12, "maxSaved": 32, "saved": [], "recent": [] },
     "snapAssist": { "enabled": true, "dwellMs": 220, "movementThreshold": 18, "stylusDwellMs": 120, "preview": true, "edgeZones": true, "sensitivity": 1.0, "portraitLayouts": true, "autoSecondWindowPicker": true },
     "splitView": { "divider": true, "defaultRatio": "50/50", "rememberRatio": true, "autoConvertOnRotation": true, "autoHide": true, "autoHideMs": 1800, "handleSize": 48 },
     "floating": { "enabled": true, "miniEnabled": true, "pictureInPicture": true, "keepAbove": true, "edgeSnap": true, "rememberPosition": true, "perMonitor": true, "resizeHandle": true },

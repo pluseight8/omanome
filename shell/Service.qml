@@ -33,6 +33,8 @@ import "models/WindowGroups.js" as WindowGroupsModel
 import "models/FloatingWindows.js" as FloatingWindowsModel
 import "models/GestureCoordinator.js" as GestureCoordinatorModel
 import "models/MonitorRecovery.js" as MonitorRecoveryModel
+import "models/TabletSwitcher.js" as TabletSwitcherModel
+import "models/LayoutPersistence.js" as LayoutPersistenceModel
 
 // Omanome's one shared service. It is deliberately headless: all visible
 // surfaces are summoned through the existing Omarchy shell host, so Omanome
@@ -176,6 +178,10 @@ Item {
   property var gestureState: GestureCoordinatorModel.emptyState()
   property var gestureLastAction: ({ type: "gesture", ok: false, reason: "not-used" })
   property int gestureRevision: 0
+  property var tabletSwitcherState: TabletSwitcherModel.emptyState()
+  property int tabletSwitcherRevision: 0
+  property var layoutPersistenceState: LayoutPersistenceModel.emptyState()
+  property int layoutPersistenceRevision: 0
   property var monitorRecoveryState: ({ ok: true, reason: "not-used", topology: { removed: [], added: [], changed: [] }, moved: [], skipped: [], commands: [], rollback: [] })
   property int monitorRecoveryRevision: 0
   property string blurRuleSignature: ""
@@ -1263,6 +1269,41 @@ Item {
     return true
   }
 
+  function loadLayoutPersistence() {
+    var result = LayoutPersistenceModel.restore(root.cfg("multitasking.layoutPersistence", {}))
+    root.layoutPersistenceState = result.ok === true ? result.state : LayoutPersistenceModel.emptyState()
+    root.layoutPersistenceRevision++
+    return result.ok === true
+  }
+
+  function persistLayoutPersistence() {
+    if (!root.configReady || root._loadingConfig || ["ok", "fresh", "migrated"].indexOf(root.configLoadStatus) < 0) return false
+    root.config = Config.set(root.config, "multitasking.layoutPersistence", LayoutPersistenceModel.persistable(root.layoutPersistenceState))
+    root.saveConfig()
+    root.configUpdated("multitasking.layoutPersistence")
+    return true
+  }
+
+  function rememberManagedLayout(group, kind) {
+    if (!group || root.safeMode) return false
+    var previous = JSON.stringify(LayoutPersistenceModel.persistable(root.layoutPersistenceState))
+    var next = String(kind || "recent") === "saved"
+      ? LayoutPersistenceModel.save(root.layoutPersistenceState, group, { now: Date.now() })
+      : LayoutPersistenceModel.rememberRecent(root.layoutPersistenceState, group, { now: Date.now() })
+    root.layoutPersistenceState = next
+    root.layoutPersistenceRevision++
+    var changed = previous !== JSON.stringify(LayoutPersistenceModel.persistable(next))
+    if (changed) root.persistLayoutPersistence()
+    return changed
+  }
+
+  function removePersistedLayout(id) {
+    root.layoutPersistenceState = LayoutPersistenceModel.remove(root.layoutPersistenceState, id)
+    root.layoutPersistenceRevision++
+    root.persistLayoutPersistence()
+    return true
+  }
+
   function persistWindowGroups() {
     if (!root.configReady || root._loadingConfig || ["ok", "fresh", "migrated"].indexOf(root.configLoadStatus) < 0) return false
     var saved = (Array.isArray(root.windowGroups) ? root.windowGroups : []).filter(function(group) { return group && group.persistent !== false })
@@ -1306,6 +1347,7 @@ Item {
       root.safeMode = false
     }
     root.loadWindowGroups()
+    root.loadLayoutPersistence()
     root._loadingConfig = false
     root.configReady = true
     root.prepareWindowGroupRestore()
@@ -1335,6 +1377,7 @@ Item {
     root.saveConfig()
     root.configUpdated(String(path))
     if (String(path) === "multitasking.groups") root.loadWindowGroups()
+    if (String(path) === "multitasking.layoutPersistence") root.loadLayoutPersistence()
     if (String(path).indexOf("multitasking.sessionRestore") === 0 || String(path) === "multitasking.groups") root.prepareWindowGroupRestore()
     if (String(path) === "keyboard.layout") root.setInputLanguage(String(value || "auto"))
     if (String(path).indexOf("clipboard.") === 0 || String(path).indexOf("privacy.clipboard") === 0) {
@@ -2265,8 +2308,10 @@ Item {
           revision: root.gestureRevision,
           lastAction: { ok: root.gestureLastAction.ok === true, action: String(root.gestureLastAction.action || ""), reason: String(root.gestureLastAction.reason || "") }
         },
+        tabletSwitcher: root.tabletSwitcherSummary(),
         monitorRecovery: MonitorRecoveryModel.summary(root.monitorRecoveryState),
         groups: root.windowGroupSummaries(),
+        layoutPersistence: LayoutPersistenceModel.summary(root.layoutPersistenceState),
         sessionRestore: root.windowGroupRestoreSummary(),
         floating: {
           enabled: root.cfg("multitasking.floating.enabled", true) === true,
@@ -2327,8 +2372,10 @@ Item {
           lastAction: String(root.gestureLastAction.action || ""),
           lastReason: String(root.gestureLastAction.reason || "")
         },
+        tabletSwitcher: root.tabletSwitcherSummary(),
         monitorRecovery: MonitorRecoveryModel.summary(root.monitorRecoveryState),
         groups: root.windowGroupSummaries(),
+        layoutPersistence: LayoutPersistenceModel.summary(root.layoutPersistenceState),
         sessionRestore: root.windowGroupRestoreSummary(),
         floating: {
           enabled: root.cfg("multitasking.floating.enabled", true) === true,
@@ -2529,6 +2576,85 @@ Item {
     var request = "movetoworkspace " + id
     if (address) request += ",address:" + address
     return root.dispatch(request)
+  }
+
+  function closeSwitcherWindow(window) {
+    var item = root.multitaskingForeign(window)
+    if (item && typeof item.close === "function") {
+      item.close()
+      return true
+    }
+    var address = root.multitaskingAddress(window)
+    return address ? root.dispatch("closewindow address:" + address) : false
+  }
+
+  function tabletSwitcherOptions() {
+    var configured = root.cfg("multitasking.tabletSwitcher", {})
+    var altTab = root.cfg("altTab", {})
+    return {
+      enabled: configured.enabled !== false,
+      mode: String(configured.mode || "automatic"),
+      scope: String(configured.scope || altTab.scope || "current-workspace"),
+      maxCards: Number(configured.maxCards || 32),
+      closeOnSwipe: configured.closeOnSwipe === true,
+      touchSwipe: configured.touchSwipe !== false && altTab.touchSwipe !== false,
+      swipeThresholdPx: Number(configured.swipeThresholdPx || 96),
+      swipeVelocity: Number(configured.swipeVelocity || 0.5),
+      closeThresholdPx: Number(configured.closeThresholdPx || 120),
+      selectedScale: Number(configured.selectedScale || 1.0),
+      sideScale: Number(configured.sideScale || 0.92),
+      sideOpacity: Number(configured.sideOpacity || 0.76)
+    }
+  }
+
+  function tabletSwitcherMode() {
+    var options = root.tabletSwitcherOptions()
+    if (options.enabled === false || root.cfg("multitasking.enabled", true) === false) return false
+    if (options.mode === "always") return true
+    if (options.mode === "never") return false
+    return root.detectedMode === "tablet" || root.detectedMode === "hybrid" || root.lastInput === "touch" || root.lastInput === "stylus"
+  }
+
+  function tabletSwitcherCards(windows, context) {
+    if (!root.tabletSwitcherMode()) return []
+    var cards = TabletSwitcherModel.selectable(windows, root.tabletSwitcherOptions(), context || {})
+    root.tabletSwitcherState = Object.assign({}, root.tabletSwitcherState, { phase: "ready", cardCount: cards.length, reason: "cards-refreshed" })
+    root.tabletSwitcherRevision++
+    return cards
+  }
+
+  function beginTabletSwitcherSwipe(index, point) {
+    root.tabletSwitcherState = TabletSwitcherModel.begin(root.tabletSwitcherState, index, point, root.tabletSwitcherOptions(), Date.now())
+    root.tabletSwitcherRevision++
+    return root.tabletSwitcherState
+  }
+
+  function updateTabletSwitcherSwipe(point) {
+    root.tabletSwitcherState = TabletSwitcherModel.update(root.tabletSwitcherState, point, root.tabletSwitcherOptions(), Date.now())
+    root.tabletSwitcherRevision++
+    return root.tabletSwitcherState
+  }
+
+  function endTabletSwitcherSwipe(point, velocity, index, window) {
+    var result = TabletSwitcherModel.end(root.tabletSwitcherState, point, velocity, root.tabletSwitcherOptions(), Date.now())
+    root.tabletSwitcherState = result.state
+    root.tabletSwitcherRevision++
+    if (result.decision.action === "close" && root.tabletSwitcherOptions().closeOnSwipe === true) {
+      var target = window || root.clients[Math.max(0, Math.min(root.clients.length - 1, Number(index === undefined ? result.state.index : index)))]
+      result.closed = root.closeSwitcherWindow(target)
+    }
+    return result
+  }
+
+  function tabletSwitcherSummary() {
+    var state = TabletSwitcherModel.summary(root.tabletSwitcherState)
+    state.mode = root.tabletSwitcherMode() ? "large-cards" : "coverflow"
+    state.enabled = root.tabletSwitcherOptions().enabled === true
+    return state
+  }
+
+  function layoutPersistenceSummary() {
+    return LayoutPersistenceModel.summary(root.layoutPersistenceState)
   }
 
   function multitaskingOptions() {
@@ -2887,6 +3013,7 @@ Item {
     next.push(result.group)
     root.windowGroups = WindowGroupsModel.normalizeList(next)
     if (result.group.persistent !== false) root.persistWindowGroups()
+    if (result.group.type === "app-pair") root.rememberManagedLayout(result.group, "saved")
     root.multitaskingRecord({ type: "group-create", ok: true, groupId: result.group.id, groupType: result.group.type, appCount: result.group.apps.length, memberCount: result.group.runtime.memberIds.length })
     return result.group
   }
@@ -2901,6 +3028,7 @@ Item {
     if (!group) return root.multitaskingRecord({ type: "group-remove", ok: false, reason: "group-not-found" })
     root.windowGroups = WindowGroupsModel.removeGroup(root.windowGroups, group.id)
     root.persistWindowGroups()
+    if (group.type === "app-pair") root.removePersistedLayout(group.id)
     return root.multitaskingRecord({ type: "group-remove", ok: true, groupId: group.id })
   }
 
@@ -3385,7 +3513,10 @@ Item {
     var result = SplitViewModel.commit(root.splitViewState, applied)
     root.splitViewState = result.state
     if (!result.ok && result.rolledBack && applied.applied > 0) root.applySplitPair(result.pair, root.splitViewWindows)
-    if (result.ok) root.syncSplitWindowGroup(root.splitViewWindows, { ratio: root.splitViewState.ratioName })
+    if (result.ok) {
+      var splitGroup = root.syncSplitWindowGroup(root.splitViewWindows, { ratio: root.splitViewState.ratioName })
+      if (splitGroup) root.rememberManagedLayout(splitGroup, "recent")
+    }
     return root.multitaskingRecord({ type: "split-commit", ok: result.ok, reason: result.reason || "committed", rolledBack: result.rolledBack === true, applied: applied })
   }
 

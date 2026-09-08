@@ -457,6 +457,46 @@ class LayoutEngineTests(unittest.TestCase):
         self.assertFalse(result["hasTitle"])
         self.assertFalse(result["hasAddress"])
 
+    def test_tablet_switcher_uses_bounded_transient_cards_and_explicit_swipe_actions(self) -> None:
+        result = self.run_node(
+            "const T=require('./shell/models/TabletSwitcher.js'); "
+            "const windows=[{address:'0x1',pid:11,appId:'org.one.App',title:'Private one',workspace:{id:2},monitor:'DP-1'},"
+            "{address:'0x2',pid:12,appId:'org.two.App',title:'Two',workspace:{id:2},monitor:'DP-1'},"
+            "{address:'0x3',pid:13,appId:'org.three.App',title:'Three',workspace:{id:3},monitor:'DP-1'},"
+            "{appId:'org.four.App',title:'Title must not become identity',workspace:{id:2},monitor:'DP-1'},"
+            "{address:'0x5',pid:15,appId:'org.five.App',title:'Minimized',workspace:{id:2},monitor:'DP-1',minimized:true}]; "
+            "const cards=T.selectable(windows,{scope:'current-workspace',maxCards:3},{workspaceId:2,monitorName:'DP-1'}); "
+            "let state=T.begin(T.emptyState(),0,{x:0,y:0},{touchSwipe:true},100); state=T.update(state,{x:-120,y:2},{touchSwipe:true},120); "
+            "const selected=T.end(state,{x:-120,y:2},0,{touchSwipe:true},140); "
+            "const close=T.decideSwipe(0,-160,0,{closeOnSwipe:true}); const disabled=T.begin(T.emptyState(),0,{x:0,y:0},{touchSwipe:false},100); "
+            "console.log(JSON.stringify({cards:cards.map(c=>({key:c.key,appId:c.appId,caption:c.caption})),selected:selected.decision,close,disabled:{phase:disabled.phase,reason:disabled.reason}}));"
+        )
+        self.assertEqual(len(result["cards"]), 3)
+        self.assertEqual(result["cards"][0]["key"], "address:0x1")
+        self.assertEqual(result["selected"]["action"], "select")
+        self.assertEqual(result["selected"]["delta"], 1)
+        self.assertEqual(result["close"]["action"], "close")
+        self.assertEqual(result["disabled"]["phase"], "blocked")
+        self.assertNotIn("Title must not become identity", result["cards"][2]["key"])
+
+    def test_layout_persistence_is_metadata_only_bounded_and_deduplicated(self) -> None:
+        result = self.run_node(
+            "const P=require('./shell/models/LayoutPersistence.js'); "
+            "const group={id:'pair-1',type:'app-pair',name:'Pair',apps:['org.one.App','org.two.App'],"
+            "layout:{id:'split',orientation:'auto',ratio:'40/60',slots:[{appId:'org.one.App',zoneId:'left'},{appId:'org.two.App',zoneId:'right'}]},"
+            "preferences:{monitorPolicy:'original',workspacePolicy:'active',targetWorkspace:'2'},runtime:{memberIds:['address:0x1'],members:[{identity:'address:0x1'}]}}; "
+            "let state=P.save(P.emptyState(),group,{now:100}); state=P.rememberRecent(state,group,{now:200}); "
+            "const persisted=P.persistable(state); const raw=JSON.stringify(persisted); const restored=P.restore(raw); "
+            "const capped=P.restore({schemaVersion:1,maxSaved:0,maxRecent:0,saved:[group],recent:[group]}); "
+            "console.log(JSON.stringify({raw,summary:P.summary(restored.state),removed:P.summary(P.remove(restored.state,'pair-1')),capped:{saved:capped.state.saved.length,recent:capped.state.recent.length},safe:/address:|runtime|identity|pid|title|Private/.test(raw)}));"
+        )
+        self.assertFalse(result["safe"])
+        self.assertEqual(result["summary"]["savedCount"], 1)
+        self.assertEqual(result["summary"]["recentCount"], 1)
+        self.assertEqual(result["removed"]["savedCount"], 0)
+        self.assertEqual(result["removed"]["recentCount"], 1)
+        self.assertEqual(result["capped"], {"saved": 0, "recent": 0})
+
 
 if __name__ == "__main__":
     unittest.main()
