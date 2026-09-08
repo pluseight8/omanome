@@ -18,12 +18,13 @@ Item {
   property string activeView: "overview"
   property string payloadView: ""
   property bool transientOverlay: false
+  property bool contextMenu: false
 
   function sourceFor(view) {
     var name = String(view || "overview")
-    var known = ["overview", "launcher", "quicksettings", "keyboard", "clipboard", "notifications", "switcher", "settings", "forcequit", "onboarding", "workspace-overlay"]
+    var known = ["overview", "launcher", "quicksettings", "keyboard", "clipboard", "notifications", "switcher", "settings", "control-center", "forcequit", "onboarding", "workspace-overlay"]
     if (known.indexOf(name) < 0) name = "overview"
-    return Qt.resolvedUrl("views/" + ({ overview: "Overview.qml", launcher: "Launcher.qml", quicksettings: "QuickSettings.qml", keyboard: "Osk.qml", clipboard: "Clipboard.qml", notifications: "Notifications.qml", switcher: "Switcher.qml", settings: "Settings.qml", forcequit: "ForceQuit.qml", onboarding: "Onboarding.qml", "workspace-overlay": "WorkspaceSwitcher.qml" }[name]))
+    return Qt.resolvedUrl("views/" + ({ overview: "Overview.qml", launcher: "Launcher.qml", quicksettings: "QuickSettings.qml", keyboard: "Osk.qml", clipboard: "Clipboard.qml", notifications: "Notifications.qml", switcher: "Switcher.qml", settings: "Settings.qml", "control-center": "ControlCenter.qml", forcequit: "ForceQuit.qml", onboarding: "Onboarding.qml", "workspace-overlay": "WorkspaceSwitcher.qml" }[name]))
   }
 
   function open(payloadJson) {
@@ -31,14 +32,15 @@ Item {
     try { payload = JSON.parse(String(payloadJson || "{}")) || {} } catch (error) { payload = {} }
     if (payload.view) root.activeView = String(payload.view)
     else if (root.service && typeof root.service.needsOnboarding === "function" && root.service.needsOnboarding()) root.activeView = "onboarding"
-    root.transientOverlay = root.activeView === "workspace-overlay" || payload.transient === true
+    root.contextMenu = payload.contextMenu === true
+    root.transientOverlay = root.activeView === "workspace-overlay" || root.activeView === "control-center" || payload.transient === true
     if (payload.deepLink) root.payloadView = String(payload.deepLink)
     root.opened = true
     if (root.service) root.service.recordInput("touch")
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
-  function close() { root.opened = false; root.transientOverlay = false; if (root.service && root.service.workspaceSwitcherState) root.service.workspaceSwitcherState = Object.assign({}, root.service.workspaceSwitcherState, { phase: "idle", progress: 0, committed: false, reason: "overlay-closed" }) }
+  function close() { root.opened = false; root.transientOverlay = false; root.contextMenu = false; if (root.service && root.service.workspaceSwitcherState) root.service.workspaceSwitcherState = Object.assign({}, root.service.workspaceSwitcherState, { phase: "idle", progress: 0, committed: false, reason: "overlay-closed" }) }
   function showWorkspaceOverlay() { root.activeView = "workspace-overlay"; root.transientOverlay = true; root.opened = true; Qt.callLater(function() { keyCatcher.forceActiveFocus() }) }
   function toggle() { root.opened ? root.close() : root.open("{}") }
 
@@ -68,8 +70,8 @@ Item {
 
       Surface {
         id: card
-        width: root.transientOverlay ? Math.min(parent.width - Style.space(32), Style.space(680)) : Math.min(parent.width - Style.space(32), Style.space(1220))
-        height: root.transientOverlay ? Math.min(parent.height - Style.space(32), Style.space(280)) : Math.min(parent.height - Style.space(32), Style.space(800))
+        width: root.activeView === "control-center" ? Math.min(parent.width - Style.space(32), Style.space(560)) : root.transientOverlay ? Math.min(parent.width - Style.space(32), Style.space(680)) : Math.min(parent.width - Style.space(32), Style.space(1220))
+        height: root.activeView === "control-center" ? Math.min(parent.height - Style.space(32), Style.space(720)) : root.transientOverlay ? Math.min(parent.height - Style.space(32), Style.space(280)) : Math.min(parent.height - Style.space(32), Style.space(800))
         anchors.centerIn: parent
         surfaceRadius: Style.space(root.service && root.service.cfg("appearance.radius", 18) || 18)
         surfaceColor: Color.menu.background

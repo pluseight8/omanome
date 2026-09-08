@@ -24,6 +24,7 @@ import "models/Responsive.js" as ResponsiveModel
 import "models/Input.js" as InputModel
 import "models/OskPolicy.js" as OskPolicy
 import "models/TabletMode.js" as TabletModeModel
+import "models/FeatureState.js" as FeatureStateModel
 import "models/ProcessPolicy.js" as ProcessPolicy
 import "models/LayoutEngine.js" as LayoutEngineModel
 import "models/SnapAssist.js" as SnapAssistModel
@@ -95,6 +96,11 @@ Item {
   property bool configRecoveryRunning: false
   property string configRecoveryOutput: ""
   property bool safeMode: false
+  property bool masterEnabled: true
+  property bool suspended: false
+  property string adaptiveProfile: "auto"
+  property var featureStates: []
+  property var featureStateSummary: ({ total: 0, available: 0, active: 0, partial: false, states: [] })
   property bool shuttingDown: false
   property bool annotationVisible: false
 
@@ -237,6 +243,140 @@ Item {
     return Config.get(root.config, path, fallback)
   }
 
+  // Master OFF and Suspend are runtime policies, not uninstall operations.
+  // Keep this predicate in the service so every enhancement backend shares the
+  // same fail-closed boundary while the status/control surfaces remain alive.
+  function enhancementsActive() {
+    return !root.shuttingDown && root.masterEnabled && !root.suspended && !root.safeMode
+  }
+
+  function featureCapabilities() {
+    var devices = root.inputDeviceState && Array.isArray(root.inputDeviceState.devices) ? root.inputDeviceState.devices : []
+    var touchpad = false
+    for (var i = 0; i < devices.length; i++) {
+      if (devices[i] && (devices[i].role === "touchpad" || devices[i].role === "trackpad")) {
+        touchpad = true
+        break
+      }
+    }
+    return {
+      touchscreen: root.hasTouchscreen,
+      touchpad: touchpad,
+      stylus: root.hasStylus,
+      tabletSwitch: root.tabletSwitchAvailable,
+      rotation: root.systemState && root.systemState.rotationAvailable === true,
+      osk: root.inputTextBackendAvailable || root.wtypeAvailable,
+      textInput: root.inputTextBackendAvailable || root.wtypeAvailable,
+      effects: root.effectBackend && (root.effectBackend.layerRulesAvailable === true || root.companionState.loaded === true)
+    }
+  }
+
+  function featureStateContext() {
+    return {
+      config: root.config,
+      profile: root.adaptiveProfile,
+      masterEnabled: root.masterEnabled,
+      suspended: root.suspended,
+      safeMode: root.safeMode,
+      capabilities: root.featureCapabilities(),
+      compositorAvailable: root.hyprlandAvailable,
+      rotationAvailable: root.systemState && root.systemState.rotationAvailable === true,
+      effectsAvailable: root.effectBackend && (root.effectBackend.layerRulesAvailable === true || root.companionState.loaded === true),
+      notificationsAvailable: true,
+      clipboardAvailable: true,
+      accessibility: {
+        reducedMotion: root.cfg("accessibility.reducedMotion", false) === true || root.cfg("general.reduceMotion", false) === true,
+        reduceTransparency: root.cfg("accessibility.reduceTransparency", false) === true
+      }
+    }
+  }
+
+  function refreshFeatureStates() {
+    var summary = FeatureStateModel.summary(root.featureStateContext())
+    root.featureStates = summary.states
+    root.featureStateSummary = summary
+    return summary
+  }
+
+  function featureState(id) {
+    var name = String(id || "")
+    for (var i = 0; i < root.featureStates.length; i++) {
+      if (root.featureStates[i] && root.featureStates[i].id === name) return root.featureStates[i]
+    }
+    return FeatureStateModel.state(root.featureStateContext(), name)
+  }
+
+  function featureEnabled(id) {
+    var row = root.featureState(id)
+    return !!row && row.effectiveEnabled === true
+  }
+
+  function releaseOmanomeInput(reason) {
+    // stopNativeInputBackend sends a protocol-level reset before closing the
+    // single helper. EOF is also a release boundary in the helper, so both
+    // the normal and the crash/teardown paths avoid stuck modifiers.
+    root.cancelFallbackInput()
+    root.stopNativeInputBackend(String(reason || "enhancements-disabled"))
+    root.oskAutoShown = false
+    root.inputTextFocusActive = false
+    root.inputSecureContext = false
+    if (root.panel && root.panel.opened && root.panel.activeView === "keyboard") root.panel.close()
+  }
+
+  function disableEnhancements(reason) {
+    root.releaseOmanomeInput(reason)
+    root.stopClipboardWatchers()
+    if (deviceMonitorProcess.running) deviceMonitorProcess.running = false
+    if (sessionMonitorProcess.running) sessionMonitorProcess.running = false
+    if (root.gestureState && root.gestureState.phase !== "idle") root.cancelGesture(String(reason || "enhancements-disabled"))
+    if (root.snapAssistState && root.snapAssistState.active === true) root.cancelSnapAssist(String(reason || "enhancements-disabled"))
+    if (root.splitViewState && root.splitViewState.phase === "dragging") root.rollbackSplitView(String(reason || "enhancements-disabled"))
+    root.annotationVisible = false
+    root.requestWobblyBackend(false)
+    root.applyTouchIntegration()
+    root.applyBlurRules()
+    root.refreshIntegrations()
+  }
+
+  function enableEnhancements() {
+    if (!root.enhancementsActive()) return false
+    root.startInputBackendProbe()
+    root.startDeviceMonitor()
+    root.startSessionMonitor()
+    root.startClipboardWatchers()
+    root.refreshIntegrations()
+    root.refreshRotationBackend()
+    root.refreshEffectBackend()
+    root.reconcileWobblyBackend()
+    root.applyTouchIntegration()
+    root.reconcileOskPolicy()
+    return true
+  }
+
+  function setMasterEnabled(enabled) {
+    var value = enabled === true
+    root.setConfig("controlCenter.masterEnabled", value)
+    return root.masterEnabled === value
+  }
+
+  function setSuspended(value) {
+    var next = value === true
+    root.setConfig("controlCenter.suspended", next)
+    return root.suspended === next
+  }
+
+  function setAdaptiveProfile(profile) {
+    var value = FeatureStateModel.normalizedProfile(profile)
+    root.setConfig("adaptive.profile", value)
+    return root.adaptiveProfile === value
+  }
+
+  function toggleFeature(id) {
+    var row = root.featureState(id)
+    if (!FeatureStateModel.canToggle(row)) return false
+    return root.setConfig(row.configPath, row.userEnabled !== true)
+  }
+
   function sourcePath(relative) {
     var base = root.pluginRoot
     if (!base && root.manifest && root.manifest.__sourceDir) base = String(root.manifest.__sourceDir)
@@ -277,7 +417,7 @@ Item {
 
   function startInputBackendProbe() {
     var nativePolicy = String(root.cfg("input.nativeBackend", "auto"))
-    if (root.safeMode || nativePolicy === "disabled" || nativePolicy === "fallback" || root.cfg("input.safeModeDisableNative", false) === true) {
+    if (!root.masterEnabled || root.suspended || root.safeMode || nativePolicy === "disabled" || nativePolicy === "fallback" || root.cfg("input.safeModeDisableNative", false) === true) {
       root.inputBackendReason = "native-backend-disabled-by-policy"
       return false
     }
@@ -293,12 +433,12 @@ Item {
   function nativeInputReady() {
     var nativePolicy = String(root.cfg("input.nativeBackend", "auto"))
     var lifecycle = root.lifecycleState || {}
-    return !root.shuttingDown && lifecycle.phase !== "suspended" && lifecycle.locked !== true && nativePolicy !== "disabled" && nativePolicy !== "fallback" && inputBackendAvailable && inputBackendProcess.running && inputBackendPath !== "" && inputBackendSession !== ""
+    return !root.shuttingDown && root.masterEnabled && !root.suspended && !root.safeMode && lifecycle.phase !== "suspended" && lifecycle.locked !== true && nativePolicy !== "disabled" && nativePolicy !== "fallback" && inputBackendAvailable && inputBackendProcess.running && inputBackendPath !== "" && inputBackendSession !== ""
   }
 
   function inputDispatchAllowed() {
     var lifecycle = root.lifecycleState || {}
-    return !root.shuttingDown && lifecycle.phase !== "suspended" && lifecycle.locked !== true
+    return !root.shuttingDown && root.masterEnabled && !root.suspended && !root.safeMode && lifecycle.phase !== "suspended" && lifecycle.locked !== true
   }
 
   function cancelFallbackInput() {
@@ -365,7 +505,7 @@ Item {
 
   function oskPolicySource() {
     return {
-      autoShow: root.inputTextBackendAvailable && root.cfg("keyboard.enabled", true) === true && root.cfg("keyboard.autoShow", true) === true,
+      autoShow: root.masterEnabled && !root.suspended && !root.safeMode && root.inputTextBackendAvailable && root.cfg("keyboard.enabled", true) === true && root.cfg("keyboard.autoShow", true) === true,
       textFocus: root.inputTextFocusActive,
       secure: root.inputSecureContext,
       securePolicy: "allow",
@@ -402,6 +542,11 @@ Item {
   }
 
   function reconcileOskPolicy() {
+    if (!root.masterEnabled || root.suspended || root.safeMode) {
+      root.applyOskPolicyVisibility(false)
+      root.oskPolicyState = { visible: false, pending: false, pendingSince: 0, reason: !root.masterEnabled ? "master-disabled" : (root.suspended ? "suspended" : "safe-mode") }
+      return root.oskPolicyState
+    }
     var decision = OskPolicy.transition(root.oskPolicySource(), root.oskPolicyState, Date.now())
     root.oskPolicyState = decision.state
     if (decision.pending) {
@@ -552,7 +697,7 @@ Item {
   function startNativeInputBackend() {
     var nativePolicy = String(root.cfg("input.nativeBackend", "auto"))
     var lifecycle = root.lifecycleState || {}
-    if (root.shuttingDown || lifecycle.phase === "suspended" || lifecycle.locked === true || nativePolicy === "disabled" || nativePolicy === "fallback" || !root.inputBackendPath || inputBackendProcess.running || root.inputRestartState.blocked) return false
+    if (root.shuttingDown || !root.masterEnabled || root.suspended || root.safeMode || lifecycle.phase === "suspended" || lifecycle.locked === true || nativePolicy === "disabled" || nativePolicy === "fallback" || !root.inputBackendPath || inputBackendProcess.running || root.inputRestartState.blocked) return false
     root.nextInputBackendSession()
     inputBackendProcess.command = [root.inputBackendPath]
     inputBackendProcess.running = true
@@ -770,7 +915,7 @@ Item {
   }
 
   function rotationBackendWanted() {
-    if (!root.configReady || !root.cfg("rotation.enabled", true)) return false
+    if (!root.configReady || !root.enhancementsActive() || !root.cfg("rotation.enabled", true)) return false
     return root.cfg("rotation.orientation", "auto") === "auto" && root.systemState.rotationSensorAvailable === true && !root.cfg("rotation.lock", false)
   }
 
@@ -849,6 +994,11 @@ Item {
   }
 
   function refreshIntegrations() {
+    if (!root.enhancementsActive()) {
+      root.notificationService = null
+      integrationRefresh.stop()
+      return
+    }
     if (root.shell && typeof root.shell.firstPartyServiceFor === "function")
       root.notificationService = root.cfg("notifications.enabled", true) ? root.shell.firstPartyServiceFor("omarchy.notifications") : null
     if (root.notificationService === null) integrationRefresh.restart()
@@ -860,7 +1010,7 @@ Item {
   }
 
   function previewRequested() {
-    if (root.cfg("effects.enabled", true) === false || root.cfg("altTab.livePreview", "auto") === "never" || root.safeMode === true) return false
+    if (!root.enhancementsActive() || root.cfg("effects.enabled", true) === false || root.cfg("altTab.livePreview", "auto") === "never") return false
     if (root.systemState.batteryState === "discharging" && root.cfg("performance.disableOnBattery", true) === true) return false
     return true
   }
@@ -953,6 +1103,7 @@ Item {
     var result = EffectsModel.effectiveBlur(root.cfg("blur", {}), String(surface || "settings"), root.performanceContext())
     var decision = root.appRuleDecision()
     if (decision.disableBlur) result.enabled = false
+    if (!root.enhancementsActive()) result.enabled = false
     result.ruleDisabled = decision.disableBlur
     return result
   }
@@ -987,7 +1138,7 @@ Item {
   }
 
   function wobblyPolicyAllows() {
-    if (root.safeMode || root.cfg("effects.enabled", true) === false) return false
+    if (!root.enhancementsActive() || root.cfg("effects.enabled", true) === false) return false
     var effects = root.cfg("effects", {})
     if (root.systemState.batteryState === "discharging" && effects.disableOnBattery !== false) return false
     if (root.fullscreenActive() && effects.disableOnFullscreen !== false) return false
@@ -1208,7 +1359,7 @@ Item {
   function applyBlurRules() {
     if (!root.hyprlandAvailable || root.effectBackend.layerRulesAvailable !== true) return false
     var context = root.performanceContext()
-    var rules = root.safeMode ? [] : EffectsModel.layerRules(root.cfg("blur", {}), root.effectBackend, context)
+    var rules = root.enhancementsActive() ? EffectsModel.layerRules(root.cfg("blur", {}), root.effectBackend, context) : []
     var commands = []
     var namespaces = {}
     for (var surfaceIndex = 0; surfaceIndex < EffectsModel.SURFACES.length; surfaceIndex++) {
@@ -1217,7 +1368,7 @@ Item {
     }
     for (var namespace in namespaces) commands.push("keyword layerrule unset,namespace:" + namespace)
     for (var i = 0; i < rules.length; i++) if (rules[i].enabled) commands.push("keyword layerrule " + rules[i].rule)
-    var signature = JSON.stringify({ rules: commands, mode: root.safeMode })
+    var signature = JSON.stringify({ rules: commands, mode: root.safeMode, enabled: root.enhancementsActive() })
     if (signature === root.blurRuleSignature) return true
     root.blurRuleSignature = signature
     return commands.length > 0 ? root.execute(["hyprctl", "--batch", commands.join(";")]) : false
@@ -1354,6 +1505,10 @@ Item {
       root.configMigration = { applied: loaded.applied || [], from: loaded.from, to: loaded.to }
       root.safeMode = false
     }
+    root.masterEnabled = root.cfg("controlCenter.masterEnabled", true) === true
+    root.suspended = root.cfg("controlCenter.suspended", false) === true
+    root.adaptiveProfile = FeatureStateModel.normalizedProfile(root.cfg("adaptive.profile", "auto"))
+    root.refreshFeatureStates()
     root.loadWindowGroups()
     root.loadLayoutPersistence()
     root._loadingConfig = false
@@ -1381,60 +1536,80 @@ Item {
   }
 
   function setConfig(path, value) {
-    root.config = Config.set(root.config, path, value)
+    var configPath = String(path)
+    root.config = Config.set(root.config, configPath, value)
     root.saveConfig()
-    root.configUpdated(String(path))
-    if (String(path) === "multitasking.groups") root.loadWindowGroups()
-    if (String(path) === "multitasking.layoutPersistence") root.loadLayoutPersistence()
-    if (String(path).indexOf("multitasking.sessionRestore") === 0 || String(path) === "multitasking.groups") root.prepareWindowGroupRestore()
-    if (String(path) === "keyboard.layout") root.setInputLanguage(String(value || "auto"))
-    if (String(path).indexOf("clipboard.") === 0 || String(path).indexOf("privacy.clipboard") === 0) {
+    root.configUpdated(configPath)
+    if (configPath === "controlCenter.masterEnabled") {
+      root.masterEnabled = value === true
+      if (!root.masterEnabled) root.disableEnhancements("master-disabled")
+      else root.enableEnhancements()
+    } else if (configPath === "controlCenter.suspended") {
+      root.suspended = value === true
+      if (root.suspended) root.disableEnhancements("suspended")
+      else root.enableEnhancements()
+    }
+    if (configPath === "adaptive.profile") root.adaptiveProfile = FeatureStateModel.normalizedProfile(value)
+    if (configPath === "multitasking.groups") root.loadWindowGroups()
+    if (configPath === "multitasking.layoutPersistence") root.loadLayoutPersistence()
+    if (configPath.indexOf("multitasking.sessionRestore") === 0 || configPath === "multitasking.groups") root.prepareWindowGroupRestore()
+    if (configPath === "keyboard.layout") root.setInputLanguage(String(value || "auto"))
+    if (configPath.indexOf("clipboard.") === 0 || configPath.indexOf("privacy.clipboard") === 0) {
       if (root.cfg("clipboard.privateMode", false) || root.cfg("privacy.clipboardPrivate", false)) root.stopClipboardWatchers()
       else root.startClipboardWatchers()
       root.pruneClipboard()
     }
-    if (String(path).indexOf("general.mode") === 0 || String(path).indexOf("tabletMode.") === 0 || String(path).indexOf("accessibility.") === 0 || String(path).indexOf("general.largeUi") === 0) {
+    if (configPath.indexOf("general.mode") === 0 || configPath.indexOf("tabletMode.") === 0 || configPath.indexOf("accessibility.") === 0 || configPath.indexOf("general.largeUi") === 0 || configPath.indexOf("adaptive.") === 0) {
       root.detectedMode = root.computeMode()
       root.updateResponsiveContext()
     }
-    if (String(path).indexOf("keyboard.") === 0 || String(path).indexOf("stylus.showOskOnTextField") === 0 || String(path).indexOf("tabletMode.") === 0)
+    if (configPath.indexOf("keyboard.") === 0 || configPath.indexOf("stylus.showOskOnTextField") === 0 || configPath.indexOf("tabletMode.") === 0 || configPath === "controlCenter.masterEnabled" || configPath === "controlCenter.suspended")
       root.reconcileOskPolicy()
-    if (String(path).indexOf("touch.") === 0) root.applyTouchIntegration()
-    if (String(path).indexOf("rotation.") === 0) root.refreshRotationBackend()
-    if (String(path).indexOf("input.") === 0) {
-      if (String(path) === "input.deviceHotplug" && root.cfg("input.deviceHotplug", true) !== true && deviceMonitorProcess.running)
+    if (configPath.indexOf("touch.") === 0) root.applyTouchIntegration()
+    if (configPath.indexOf("rotation.") === 0) root.refreshRotationBackend()
+    if (configPath.indexOf("input.") === 0) {
+      if (configPath === "input.deviceHotplug" && root.cfg("input.deviceHotplug", true) !== true && deviceMonitorProcess.running)
         deviceMonitorProcess.running = false
       else if (root.cfg("input.deviceHotplug", true) === true) root.startDeviceMonitor()
-      if (String(path) === "input.nativeBackend" || String(path) === "input.safeModeDisableNative") {
+      if (configPath === "input.nativeBackend" || configPath === "input.safeModeDisableNative") {
         var nativePolicy = String(root.cfg("input.nativeBackend", "auto"))
         if (nativePolicy === "fallback" || nativePolicy === "disabled" || root.cfg("input.safeModeDisableNative", false) === true) {
           root.stopNativeInputBackend("native-backend-disabled-by-policy")
         } else root.startInputBackendProbe()
       }
-      if (String(path).indexOf("input.deviceMappings") === 0 || String(path) === "input.defaultOutput") root.updateInputMapping()
+      if (configPath.indexOf("input.deviceMappings") === 0 || configPath === "input.defaultOutput") root.updateInputMapping()
     }
-    if (String(path).indexOf("stylus.") === 0) root.refreshStylusInputPolicy()
-    if (String(path).indexOf("notifications.enabled") === 0) root.refreshIntegrations()
-    if (String(path) === "wobbly.enabled") {
+    if (configPath === "multitasking.snapAssist.enabled" && value === false && root.snapAssistState.active === true)
+      root.cancelSnapAssist("snap-assist-disabled")
+    if (configPath === "multitasking.splitView.enabled" && value === false && root.splitViewState && root.splitViewState.phase === "dragging")
+      root.rollbackSplitView("split-view-disabled")
+    if (configPath.indexOf("stylus.") === 0) root.refreshStylusInputPolicy()
+    if (configPath.indexOf("notifications.enabled") === 0) root.refreshIntegrations()
+    if (configPath === "wobbly.enabled") {
       root.wobblyBackendFailed = false
       root.requestWobblyBackend(root.wobblyDesired())
-    } else if (String(path).indexOf("wobbly.") === 0) {
+    } else if (configPath.indexOf("wobbly.") === 0) {
       root.wobblyConfigSynced = false
       root.wobblyConfigFailed = false
       wobblyConfigDebounce.restart()
     }
-    if (String(path).indexOf("effects.") === 0 || String(path).indexOf("performance.") === 0 || String(path).indexOf("general.reduceMotion") === 0)
+    if (configPath.indexOf("effects.") === 0 || configPath.indexOf("performance.") === 0 || configPath.indexOf("general.reduceMotion") === 0)
       root.reconcileWobblyBackend()
-    if (String(path).indexOf("blur.") === 0 || String(path).indexOf("performance.") === 0 || String(path).indexOf("effects.") === 0 || String(path).indexOf("applicationRules.") === 0 || String(path).indexOf("animations.") === 0) {
+    if (configPath.indexOf("blur.") === 0 || configPath.indexOf("performance.") === 0 || configPath.indexOf("effects.") === 0 || configPath.indexOf("applicationRules.") === 0 || configPath.indexOf("animations.") === 0) {
       root.performanceState = PerformanceModel.snapshot(root.cfg("performance", {}), root.performanceContext())
       root.applyBlurRules()
     }
+    root.refreshFeatureStates()
     root.stateRevision++
     root.stateUpdated()
+    return true
   }
 
   function resetConfig() {
     root.config = Config.defaults()
+    root.masterEnabled = true
+    root.suspended = false
+    root.adaptiveProfile = "auto"
     root.loadWindowGroups()
     root.saveConfig()
     root.startClipboardWatchers()
@@ -1448,6 +1623,7 @@ Item {
     root.wobblyConfigFailed = false
     root.applyBlurRules()
     root.prepareWindowGroupRestore()
+    root.refreshFeatureStates()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -1555,6 +1731,7 @@ Item {
     root.detectedMode = root.computeMode()
     root.updateResponsiveContext()
     root.reconcileOskPolicy()
+    root.refreshFeatureStates()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -1588,6 +1765,7 @@ Item {
     root.performanceState = PerformanceModel.snapshot(root.cfg("performance", {}), root.performanceContext())
     root.reconcileWobblyBackend()
     root.applyBlurRules()
+    root.refreshFeatureStates()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -2035,6 +2213,7 @@ Item {
     root.detectedMode = root.computeMode()
     root.updateResponsiveContext()
     root.reconcileOskPolicy()
+    root.refreshFeatureStates()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -2048,12 +2227,13 @@ Item {
     root.inputDeviceMonitorAvailable = true
     root.inputDeviceMonitorReason = "udev-event-stream"
     deviceRefreshDebounce.restart()
+    root.refreshFeatureStates()
     root.stateRevision++
     root.stateUpdated()
   }
 
   function startDeviceMonitor() {
-    if (root.shuttingDown || !root.configReady || root.safeMode || root.cfg("input.deviceHotplug", true) !== true || deviceMonitorProcess.running) return false
+    if (root.shuttingDown || !root.configReady || root.safeMode || !root.masterEnabled || root.suspended || root.cfg("input.deviceHotplug", true) !== true || deviceMonitorProcess.running) return false
     if (!root.sourcePath("input/device-monitor.sh")) return false
     deviceMonitorProcess.command = ["bash", root.sourcePath("input/device-monitor.sh")]
     deviceMonitorProcess.running = true
@@ -2061,7 +2241,7 @@ Item {
   }
 
   function startSessionMonitor() {
-    if (root.shuttingDown || !root.configReady || root.safeMode || sessionMonitorProcess.running) return false
+    if (root.shuttingDown || !root.configReady || root.safeMode || !root.masterEnabled || root.suspended || sessionMonitorProcess.running) return false
     if (!root.sourcePath("input/session-monitor.sh")) return false
     sessionMonitorProcess.command = ["bash", root.sourcePath("input/session-monitor.sh")]
     sessionMonitorProcess.running = true
@@ -2183,7 +2363,14 @@ Item {
       quickshell: String(Quickshell.env("QUICKSHELL_VERSION") || "host-provided"),
       service: "ready",
       safeMode: root.safeMode,
+      enabled: root.masterEnabled,
+      suspended: root.suspended,
+      profile: root.adaptiveProfile,
       mode: root.detectedMode,
+      effectiveMode: root.detectedMode,
+      transitioning: false,
+      keyboardState: root.hasPhysicalKeyboard ? "connected" : "disconnected",
+      features: root.featureStateSummary,
       requestedMode: root.cfg("general.mode", "automatic"),
       lastInput: root.lastInput,
       inputCandidate: root.inputCandidate,
@@ -2358,6 +2545,13 @@ Item {
       quickshell: String(Quickshell.env("QUICKSHELL_VERSION") || "host-provided"),
       wayland: String(Quickshell.env("WAYLAND_DISPLAY") || "unavailable"),
       mode: root.detectedMode,
+      enabled: root.masterEnabled,
+      suspended: root.suspended,
+      profile: root.adaptiveProfile,
+      effectiveMode: root.detectedMode,
+      transitioning: false,
+      keyboardState: root.hasPhysicalKeyboard ? "connected" : "disconnected",
+      features: root.featureStateSummary,
       input: { last: root.lastInput, pending: root.inputCandidate, touchscreen: root.hasTouchscreen, stylus: root.hasStylus, physicalKeyboard: root.hasPhysicalKeyboard, detachableKeyboard: root.hasDetachableKeyboard, bluetoothKeyboard: root.hasBluetoothKeyboard, deviceBackend: root.inputDeviceState.backend, hotplug: root.inputDeviceMonitorAvailable, stylusInput: root.stylusInputState, stylusProvider: root.stylusProviderState, palm: root.stylusPalmState, mapping: root.inputMappingState },
       tabletMode: { mode: root.detectedMode, reason: root.tabletModeState.reason, switchAvailable: root.tabletSwitchAvailable, switchActive: root.tabletSwitchActive, profile: root.tabletProfile },
       onboarding: { completed: root.cfg("onboarding.completed", false) === true, skipped: root.cfg("onboarding.skipped", false) === true, version: Number(root.cfg("onboarding.version", 1)) },
@@ -2712,7 +2906,7 @@ Item {
     var navigation = root.cfg("multitasking.workspaceNavigation", {})
     var gestures = root.cfg("multitasking.gestures", {})
     return {
-      enabled: root.cfg("multitasking.enabled", true) !== false && gestures.enabled !== false && root.safeMode !== true,
+      enabled: root.enhancementsActive() && root.cfg("multitasking.enabled", true) !== false && gestures.enabled !== false,
       showOverlay: navigation.showOverlay !== false,
       maxWorkspaces: WorkspaceSwitcherModel.MAX_WORKSPACES,
       thresholdPx: Math.max(1, Number(root.cfg("touch.threshold", 96))),
@@ -2858,8 +3052,11 @@ Item {
     var snap = root.cfg("multitasking.snapAssist", {})
     var split = root.cfg("multitasking.splitView", {})
     var customLayouts = root.cfg("multitasking.customLayouts", [])
+    var active = root.enhancementsActive() && root.cfg("multitasking.enabled", true) !== false
     return {
-      enabled: root.cfg("multitasking.enabled", true) !== false && snap.enabled !== false,
+      enabled: active && snap.enabled !== false,
+      snapAssistEnabled: active && snap.enabled !== false,
+      splitViewEnabled: active && split.enabled !== false,
       gap: Number(root.cfg("multitasking.gap", 12)),
       layouts: root.cfg("multitasking.layouts", []),
       customLayouts: Array.isArray(customLayouts) ? customLayouts : [],
@@ -3032,6 +3229,10 @@ Item {
     if (source.width === undefined) source.width = Number(monitor.width || 0)
     if (source.height === undefined) source.height = Number(monitor.height || 0)
     if (source.edgeWidth === undefined) source.edgeWidth = Number(root.cfg("touch.edgeWidth", 36))
+    if (!root.enhancementsActive() || settings.enabled === false) {
+      root.gestureState = GestureCoordinatorModel.cancel(root.gestureState, !root.enhancementsActive() ? "enhancements-disabled" : "gestures-disabled")
+      return root.gestureState
+    }
     root.recordInput(source.inputKind)
     var result = GestureCoordinatorModel.begin(source, settings, root.gestureContext(source.context || {}), Date.now(), root.gestureState)
     root.gestureState = result
@@ -3372,8 +3573,8 @@ Item {
   function launchAppPair(groupId, options) {
     var group = root.windowGroupById(groupId)
     if (!group || group.type !== "app-pair") return root.multitaskingRecord({ type: "app-pair-launch", ok: false, reason: "app-pair-not-found" })
-    if (root.cfg("multitasking.enabled", true) === false || root.safeMode)
-      return root.multitaskingRecord({ type: "app-pair-launch", ok: false, reason: root.safeMode ? "safe-mode" : "disabled" })
+    if (!root.enhancementsActive() || root.cfg("multitasking.enabled", true) === false || root.cfg("multitasking.splitView.enabled", true) === false)
+      return root.multitaskingRecord({ type: "app-pair-launch", ok: false, reason: root.safeMode ? "safe-mode" : (!root.enhancementsActive() ? "enhancements-disabled" : "split-view-disabled") })
     if (root.multitaskingLaunch || root.multitaskingPairLaunch)
       return root.multitaskingRecord({ type: "app-pair-launch", ok: false, reason: "launch-request-active" })
     var settings = Object.assign({}, options || {})
@@ -3421,8 +3622,8 @@ Item {
   function beginSnapAssist(window, kind, start, options) {
     var settings = Object.assign(root.multitaskingOptions(), options || {})
     SnapAssistModel.setLayoutEngine(LayoutEngineModel)
-    if (settings.enabled === false || root.safeMode) {
-      root.snapAssistState = Object.assign(SnapAssistModel.emptyState(), { phase: "blocked", reason: root.safeMode ? "safe-mode" : "disabled" })
+    if (settings.enabled === false) {
+      root.snapAssistState = Object.assign(SnapAssistModel.emptyState(), { phase: "blocked", reason: root.safeMode ? "safe-mode" : (!root.enhancementsActive() ? "enhancements-disabled" : "disabled") })
       root.multitaskingRecord({ type: "snap-begin", ok: false, reason: root.snapAssistState.reason })
       return false
     }
@@ -3565,6 +3766,10 @@ Item {
       return null
     }
     var settings = Object.assign(root.multitaskingOptions(), options || {})
+    if (settings.splitViewEnabled !== true) {
+      root.multitaskingRecord({ type: "split-create", ok: false, reason: root.safeMode ? "safe-mode" : (!root.enhancementsActive() ? "enhancements-disabled" : "split-view-disabled") })
+      return null
+    }
     var monitor = settings.monitor || root.multitaskingMonitorForWindow(list[0])
     root.splitViewWindows = list.slice(0, 2)
     root.splitViewState = SplitViewModel.createState(monitor, ids, settings)
@@ -3682,6 +3887,7 @@ Item {
   function beginSplitDividerDrag(point, options) {
     SplitViewModel.setLayoutEngine(LayoutEngineModel)
     if (!root.splitViewState) return root.multitaskingRecord({ type: "split-begin", ok: false, reason: "split-view-unavailable" })
+    if (root.multitaskingOptions().splitViewEnabled !== true) return root.multitaskingRecord({ type: "split-begin", ok: false, reason: "split-view-disabled" })
     root.splitViewState = SplitViewModel.beginDividerDrag(root.splitViewState, point, Object.assign(root.multitaskingOptions(), options || {}))
     root.multitaskingRecord({ type: "split-begin", ok: root.splitViewState.phase === "dragging", reason: root.splitViewState.error || "ready" })
     return root.splitViewState
@@ -3974,7 +4180,7 @@ Item {
   }
 
   function startClipboardWatchers() {
-    if (root.shuttingDown || !root.configReady || !root.cfg("clipboard.enabled", true) || root.cfg("clipboard.privateMode", false) || root.cfg("privacy.clipboardPrivate", false)) return
+    if (!root.enhancementsActive() || !root.configReady || !root.cfg("clipboard.enabled", true) || root.cfg("clipboard.privateMode", false) || root.cfg("privacy.clipboardPrivate", false)) return
     if (!root.captureScript) root.reloadPaths()
     if (ProcessPolicy.stable(root.clipboardRestartState, Date.now(), root.clipboardRestartPolicy))
       root.clipboardRestartState = { consecutiveFailures: 0, startedAt: 0, blocked: false }
@@ -4061,7 +4267,7 @@ Item {
 
   function applyTouchIntegration() {
     var touchConfig = root.cfg("touch", {})
-    var enabled = TouchModel.workspaceSwipeEnabled(touchConfig, root.clients)
+    var enabled = root.enhancementsActive() && TouchModel.workspaceSwipeEnabled(touchConfig, root.clients)
     root.applyHyprSetting("gestures:workspace_swipe_touch", enabled)
     if (!enabled) return
     root.applyHyprSetting("gestures:workspace_swipe_distance", Math.max(1, Number(root.cfg("touch.threshold", 96))))
@@ -4747,7 +4953,7 @@ Item {
     id: clipboardMaintenance
     interval: 300000
     repeat: true
-    running: root.configReady && root.cfg("clipboard.enabled", true)
+    running: root.enhancementsActive() && root.configReady && root.cfg("clipboard.enabled", true)
     onTriggered: root.pruneClipboard()
   }
 
@@ -4805,21 +5011,21 @@ Item {
 
   Loader {
     id: dockLoader
-    active: root.configReady && root.cfg("dock.enabled", true)
+    active: root.enhancementsActive() && root.configReady && root.cfg("dock.enabled", true)
     source: Qt.resolvedUrl("views/Dock.qml")
     onLoaded: if (item && "service" in item) item.service = root
   }
 
   Loader {
     id: windowControlsLoader
-    active: root.configReady && root.cfg("windowControls.enabled", true)
+    active: root.enhancementsActive() && root.configReady && root.cfg("windowControls.enabled", true)
     source: Qt.resolvedUrl("views/WindowControls.qml")
     onLoaded: if (item && "service" in item) item.service = root
   }
 
   Loader {
     id: annotationLoader
-    active: root.annotationVisible
+    active: root.enhancementsActive() && root.annotationVisible
     source: Qt.resolvedUrl("views/Annotation.qml")
     onLoaded: {
       if (item && "service" in item) item.service = root
@@ -4887,6 +5093,17 @@ Item {
 
     function ping(): string { return "ok" }
     function status(): string { return root.statusJson() }
+    function enable(): string { return root.setMasterEnabled(true) ? "ok" : "unavailable" }
+    function disable(): string { return root.setMasterEnabled(false) ? "ok" : "unavailable" }
+    function suspend(): string { return root.setSuspended(true) ? "ok" : "unavailable" }
+    function resume(): string { return root.setSuspended(false) ? "ok" : "unavailable" }
+    function feature(id: string, enabled: string): string {
+      var row = root.featureState(id)
+      if (!row || !row.available) return "unavailable"
+      if (enabled === "toggle") return root.toggleFeature(id) ? "ok" : "unavailable"
+      return root.setConfig(row.configPath, enabled === "true") ? "ok" : "unavailable"
+    }
+    function profile(name: string): string { return root.setAdaptiveProfile(name) ? "ok" : "unavailable" }
     function open(view: string): string { return root.open(view || "overview") ? "ok" : "unavailable" }
     function toggle(view: string): string { return root.toggle(view || "overview") ? "ok" : "unavailable" }
     function input(text: string): string { return root.typeText(text) ? "ok" : "unavailable" }
@@ -4915,6 +5132,7 @@ Item {
   Component.onCompleted: {
     SnapAssistModel.setLayoutEngine(LayoutEngineModel)
     SplitViewModel.setLayoutEngine(LayoutEngineModel)
+    root.refreshFeatureStates()
     root.reloadPaths()
     root.refreshIntegrations()
     root.ensureDirectories()

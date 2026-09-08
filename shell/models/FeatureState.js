@@ -106,7 +106,7 @@ function availabilityFor(def, context) {
   var explicit = object(source.availability)
   var direct = explicit[def.id]
   if (direct !== undefined) {
-    if (typeof direct === "object") {
+    if (direct && typeof direct === "object") {
       return { available: direct.available !== false, reason: string(direct.reason || "") }
     }
     return { available: bool(direct), reason: string(source.availabilityReasons && source.availabilityReasons[def.id] || "") }
