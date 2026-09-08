@@ -28,6 +28,7 @@ import "models/OskPolicy.js" as OskPolicy
 import "models/TabletMode.js" as TabletModeModel
 import "models/FeatureState.js" as FeatureStateModel
 import "models/AdaptiveMode.js" as AdaptiveModeModel
+import "models/ModeTransitionCoordinator.js" as ModeTransitionModel
 import "models/ProcessPolicy.js" as ProcessPolicy
 import "models/LayoutEngine.js" as LayoutEngineModel
 import "models/SnapAssist.js" as SnapAssistModel
@@ -213,6 +214,9 @@ Item {
   property string detectedMode: "desktop"
   property string effectiveMode: "desktop"
   property var adaptiveState: AdaptiveModeModel.effective("auto", Config.defaults(), { baseMode: "desktop", currentMode: "desktop" })
+  property var modeTransitionState: ModeTransitionModel.emptyState()
+  property var modeTransitionComponents: []
+  property string nextModeTransitionReason: ""
   property var componentPolicy: ({ mode: "desktop", density: "compact", touchTargetSize: 40, osk: "suppressed", oskAutoShow: false, dock: "desktop", dockReveal: true, gestures: "conservative", windowControls: "optional", snapAssist: true, splitView: true, rotation: "preserve", quickSettings: "compact", overview: "compact", launcher: "compact", notificationPopups: true, notificationDensity: "compact", effects: "normal", previews: true, backgroundWork: "normal", animations: "enabled", animationPreset: "smooth", reason: "desktop mode" })
   property string lastError: ""
   property int stateRevision: 0
@@ -292,12 +296,13 @@ Item {
   }
 
   function refreshAdaptiveState() {
+    var previousMode = root.effectiveMode
     var adaptive = root.cfg("adaptive", {})
     var state = AdaptiveModeModel.effective(root.adaptiveProfile, root.config, {
       baseMode: root.detectedMode,
       currentMode: root.effectiveMode,
       signals: root.adaptiveSignals(),
-      transitioning: root.postureState && root.postureState.candidate !== "",
+      transitioning: (root.postureState && root.postureState.candidate !== "") || (root.modeTransitionState && root.modeTransitionState.active === true),
       adaptiveEnabled: adaptive.enabled !== false,
       automaticTransitions: adaptive.automaticTransitions !== false,
       reducedMotion: root.cfg("general.reduceMotion", false) === true || root.cfg("accessibility.reducedMotion", false) === true || root.cfg("animations.reducedMotion", false) === true
@@ -305,6 +310,12 @@ Item {
     root.adaptiveState = state
     root.effectiveMode = String(state.effectiveMode || root.detectedMode || "desktop")
     root.componentPolicy = state.componentPolicy || root.componentPolicy
+    if (previousMode !== root.effectiveMode)
+      root.startModeTransition(previousMode, root.effectiveMode, root.modeTransitionReason())
+    else {
+      root.refreshModeTransitionComponents()
+      root.nextModeTransitionReason = ""
+    }
     return state
   }
 
@@ -381,6 +392,8 @@ Item {
       reason: String(reason || "device-snapshot")
     }, Date.now())
     root.keyboardTransitionState = observed.state
+    if (observed.changed && observed.event && observed.event.type && observed.event.type !== "none")
+      root.nextModeTransitionReason = String(observed.event.type)
     if (observed.pending) {
       keyboardTransitionTimer.interval = Math.max(20, Number(observed.delayMs || 80))
       keyboardTransitionTimer.restart()
@@ -392,6 +405,65 @@ Item {
 
   function keyboardTransitionSummary() {
     return KeyboardTransitionsModel.summary(root.keyboardTransitionState)
+  }
+
+  function modeTransitionReason() {
+    if (root.nextModeTransitionReason !== "") return root.nextModeTransitionReason
+    var event = root.keyboardTransitionState && root.keyboardTransitionState.event ? root.keyboardTransitionState.event : {}
+    if (["keyboard-attached", "keyboard-detached", "keyboard-changed"].indexOf(String(event.type || "")) >= 0)
+      return String(event.type)
+    if (root.adaptiveProfile !== "auto") return "manual-profile"
+    return "posture-change"
+  }
+
+  function refreshModeTransitionComponents() {
+    root.modeTransitionComponents = ModeTransitionModel.allComponents(root.modeTransitionState, root.componentPolicy)
+    return root.modeTransitionComponents
+  }
+
+  function startModeTransition(fromMode, toMode, reason) {
+    var result = ModeTransitionModel.begin(root.modeTransitionState, fromMode, toMode, reason || root.modeTransitionReason(), Date.now(), root.config, {
+      enabled: root.enhancementsActive(),
+      reducedMotion: root.cfg("general.reduceMotion", false) === true || root.cfg("accessibility.reducedMotion", false) === true || root.cfg("animations.reducedMotion", false) === true,
+      preset: root.cfg("adaptive.transition.animationPreset", root.cfg("animations.preset", "smooth")),
+      durationMs: root.cfg("adaptive.transition.durationMs", 260)
+    })
+    root.modeTransitionState = result.state
+    root.refreshModeTransitionComponents()
+    root.nextModeTransitionReason = ""
+    if (result.state.active) modeTransitionTimer.restart()
+    else modeTransitionTimer.stop()
+    return result
+  }
+
+  function tickModeTransition() {
+    var result = ModeTransitionModel.tick(root.modeTransitionState, Date.now())
+    root.modeTransitionState = result.state
+    root.refreshModeTransitionComponents()
+    if (!result.state.active) {
+      modeTransitionTimer.stop()
+      root.stateRevision++
+      root.stateUpdated()
+    }
+    return result
+  }
+
+  function cancelModeTransition(reason) {
+    var result = ModeTransitionModel.cancel(root.modeTransitionState, reason || "cancelled", Date.now())
+    root.modeTransitionState = result.state
+    root.refreshModeTransitionComponents()
+    modeTransitionTimer.stop()
+    root.stateRevision++
+    root.stateUpdated()
+    return result
+  }
+
+  function componentTransition(component) {
+    return ModeTransitionModel.componentState(root.modeTransitionState, component, root.componentPolicy)
+  }
+
+  function modeTransitionSummary() {
+    return ModeTransitionModel.summary(root.modeTransitionState)
   }
 
   function releaseOmanomeInput(reason) {
@@ -450,6 +522,7 @@ Item {
 
   function setAdaptiveProfile(profile) {
     var value = FeatureStateModel.normalizedProfile(profile)
+    root.nextModeTransitionReason = "manual-profile"
     root.setConfig("adaptive.profile", value)
     return root.adaptiveProfile === value
   }
@@ -2451,7 +2524,8 @@ Item {
       profile: root.adaptiveProfile,
       mode: root.detectedMode,
       effectiveMode: root.effectiveMode,
-      transitioning: root.adaptiveState && root.adaptiveState.transitioning === true,
+      transitioning: (root.adaptiveState && root.adaptiveState.transitioning === true) || (root.modeTransitionState && root.modeTransitionState.active === true),
+      modeTransition: root.modeTransitionSummary(),
       keyboardState: String(root.keyboardTransitionState.phase || (root.hasPhysicalKeyboard ? "Connected" : "Disconnected")).toLowerCase(),
       keyboardStable: root.keyboardTransitionState.modeReady !== false,
       keyboardTransition: root.keyboardTransitionSummary(),
@@ -2635,8 +2709,11 @@ Item {
       suspended: root.suspended,
       profile: root.adaptiveProfile,
       effectiveMode: root.effectiveMode,
-      transitioning: root.adaptiveState && root.adaptiveState.transitioning === true,
-      keyboardState: root.hasPhysicalKeyboard ? "connected" : "disconnected",
+      transitioning: (root.adaptiveState && root.adaptiveState.transitioning === true) || (root.modeTransitionState && root.modeTransitionState.active === true),
+      modeTransition: root.modeTransitionSummary(),
+      keyboardState: String(root.keyboardTransitionState.phase || (root.hasPhysicalKeyboard ? "Connected" : "Disconnected")).toLowerCase(),
+      keyboardStable: root.keyboardTransitionState.modeReady !== false,
+      keyboardTransition: root.keyboardTransitionSummary(),
       features: root.featureStateSummary,
       input: { last: root.lastInput, pending: root.inputCandidate, touchscreen: root.hasTouchscreen, stylus: root.hasStylus, physicalKeyboard: root.hasPhysicalKeyboard, detachableKeyboard: root.hasDetachableKeyboard, bluetoothKeyboard: root.hasBluetoothKeyboard, deviceBackend: root.inputDeviceState.backend, hotplug: root.inputDeviceMonitorAvailable, stylusInput: root.stylusInputState, stylusProvider: root.stylusProviderState, palm: root.stylusPalmState, mapping: root.inputMappingState },
       tabletMode: { mode: root.effectiveMode, reason: root.tabletModeState.reason, switchAvailable: root.tabletSwitchAvailable, switchActive: root.tabletSwitchActive, profile: root.tabletProfile },
@@ -4636,6 +4713,15 @@ Item {
   }
 
   Timer {
+    id: modeTransitionTimer
+    // performance: allow-fast-timer — local Qt-style choreography only; no
+    // no subprocess, no compositor IPC, and no config write occurs per frame.
+    interval: 16
+    repeat: true
+    onTriggered: root.tickModeTransition()
+  }
+
+  Timer {
     id: postureTransition
     interval: 320
     repeat: false
@@ -5154,7 +5240,7 @@ Item {
     var timers = [
       performanceSnapshotTimeout, configWriteDebounce, processRegistryWriteDebounce,
       clipboardWriteDebounce, deviceRefreshDebounce, postureTransition,
-      keyboardTransitionTimer, orientationTransition, wobblyConfigDebounce, clipboardRestart, rotationRestart,
+      keyboardTransitionTimer, modeTransitionTimer, orientationTransition, wobblyConfigDebounce, clipboardRestart, rotationRestart,
       inputBackendRestart, oskPolicyTimer, clipboardMaintenance, integrationRefresh,
       systemRefresh, systemFallbackRefresh, inputFlush, inputModeCommit, effectRefresh,
       initialConfigSave, deviceRefresh, multitaskingLaunchTimeout

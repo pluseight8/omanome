@@ -18,6 +18,7 @@ Item {
     service: root.service
     viewportWidth: root.width
     viewportHeight: root.height
+    transitionComponent: "quick-settings"
   }
 
   readonly property bool portrait: tokens.orientation === "portrait"

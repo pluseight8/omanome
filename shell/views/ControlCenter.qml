@@ -19,6 +19,7 @@ Item {
     service: root.service
     viewportWidth: root.width
     viewportHeight: root.height
+    transitionComponent: "quick-settings"
   }
 
   function text(key, fallback) { return root.service ? root.service.tr(key, fallback) : fallback }

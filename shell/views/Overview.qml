@@ -46,6 +46,7 @@ Item {
     service: root.service
     viewportWidth: root.width
     viewportHeight: root.height
+    transitionComponent: "overview"
   }
 
   function refresh() {

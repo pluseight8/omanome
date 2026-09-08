@@ -69,6 +69,7 @@ Item {
     service: root.service
     viewportWidth: root.width
     viewportHeight: root.height
+    transitionComponent: "settings"
   }
 
   readonly property bool compactLayout: tokens.portrait || root.width < tokens.space(760)

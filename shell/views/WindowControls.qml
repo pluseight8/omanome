@@ -14,6 +14,23 @@ Item {
   property var service: null
   property var activeWindow: null
   property int revision: 0
+  readonly property var modeTransition: service && typeof service.componentTransition === "function"
+                                        ? service.componentTransition("window-controls") : ({ active: false, progress: 1, fromMode: "desktop", toMode: "desktop" })
+
+  function transitionVisible() {
+    if (!root.modeTransition.active) return false
+    return String(root.modeTransition.fromMode || "desktop") !== "desktop" || String(root.modeTransition.toMode || "desktop") !== "desktop"
+  }
+
+  function transitionOpacity() {
+    if (!root.modeTransition.active) return 1
+    var progress = Math.max(0, Math.min(1, Number(root.modeTransition.progress || 0)))
+    var fromDesktop = String(root.modeTransition.fromMode || "desktop") === "desktop"
+    var toDesktop = String(root.modeTransition.toMode || "desktop") === "desktop"
+    if (fromDesktop && !toDesktop) return progress
+    if (!fromDesktop && toDesktop) return 1 - progress
+    return 1
+  }
 
   function refresh() {
     try { root.activeWindow = ToplevelManager.activeToplevel } catch (error) { root.activeWindow = null }
@@ -56,7 +73,8 @@ Item {
         id: controlsWindow
         required property var modelData
         screen: modelData
-        visible: root.activeWindow !== null && root.belongsTo(modelData) && root.service.tabletProfile.windowControls === true && (root.service.cfg("windowControls.show", "tablet") !== "tablet" || root.service.effectiveMode !== "desktop" || root.service.componentPolicy.windowControls === "always")
+        visible: root.activeWindow !== null && root.belongsTo(modelData) && (root.service.tabletProfile.windowControls === true || root.transitionVisible()) && (root.service.cfg("windowControls.show", "tablet") !== "tablet" || root.service.effectiveMode !== "desktop" || root.service.componentPolicy.windowControls === "always" || root.transitionVisible())
+        opacity: root.transitionOpacity()
         anchors { top: true; bottom: true; left: true; right: true }
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore

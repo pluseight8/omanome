@@ -12,6 +12,7 @@ QtObject {
   property real viewportWidth: 1280
   property real viewportHeight: 720
   property real viewportScale: 1
+  property string transitionComponent: "settings"
   property string inputKind: service ? String(service.lastInput || "keyboard") : "keyboard"
   property string mode: service ? String(service.effectiveMode || service.detectedMode || "desktop") : "desktop"
   property bool largeUi: service ? service.cfg("general.largeUi", false) === true : false
@@ -33,6 +34,20 @@ QtObject {
   readonly property bool touchLike: context.touchLike === true
   readonly property real densityScale: Number(context.densityScale || 1)
   readonly property real targetSize: Number(context.targetSize || 44)
+  readonly property var transition: service && typeof service.componentTransition === "function"
+                                      ? service.componentTransition(transitionComponent) : ({ active: false, progress: 1, fromMode: mode, toMode: mode, reduceMotion: reducedMotion, reason: "not-available" })
+  readonly property real transitionProgress: Math.max(0, Math.min(1, Number(transition.progress || 0)))
+  readonly property real transitionedTargetSize: {
+    var from = String(transition.fromMode || mode)
+    var to = String(transition.toMode || mode)
+    function sizeFor(value) {
+      if (value === "tablet") return 52
+      if (value === "hybrid") return 48
+      return 40
+    }
+    if (!transition.active || from === to) return targetSize
+    return Math.max(targetSize, sizeFor(from) + (sizeFor(to) - sizeFor(from)) * transitionProgress)
+  }
 
   function space(value) { return Style.space(Math.max(0, Number(value || 0)) * densityScale) }
   function radius(value) { return Style.space(Math.max(0, Number(value || 0)) * Math.min(1.08, densityScale)) }
@@ -40,5 +55,5 @@ QtObject {
     if (reducedMotion) return 0
     return Math.max(0, Math.round(Number(value || 0) * Number(service ? service.cfg("animations.durationScale", 1) : 1)))
   }
-  function target(value) { return Style.space(Math.max(Number(value || 0), targetSize)) }
+  function target(value) { return Style.space(Math.max(Number(value || 0), transitionedTargetSize)) }
 }

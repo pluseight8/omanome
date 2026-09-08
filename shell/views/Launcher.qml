@@ -76,6 +76,7 @@ Item {
     service: root.service
     viewportWidth: root.width
     viewportHeight: root.height
+    transitionComponent: "launcher"
   }
 
   function favoriteIds() {

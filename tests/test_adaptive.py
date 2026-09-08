@@ -203,6 +203,42 @@ class AdaptiveStateTests(unittest.TestCase):
         self.assertIn("keyboardTransition: root.keyboardTransitionSummary()", service)
         self.assertIn("root.keyboardTransitionState.modeReady !== false", service)
 
+    def test_mode_transition_coordinator_reverses_without_frame_ipc(self) -> None:
+        result = self.run_node(
+            "const M=require('./shell/models/ModeTransitionCoordinator.js'); "
+            "const config={adaptive:{transition:{enabled:true,durationMs:260}},animations:{enabled:true}}; "
+            "let first=M.begin(M.emptyState(),'tablet','desktop','keyboard-attached',0,config,{}); "
+            "let middle=M.tick(first.state,100); "
+            "let reversed=M.begin(middle.state,'desktop','tablet','keyboard-detached',100,config,{}); "
+            "let end=M.tick(reversed.state,360); "
+            "const reduced=M.begin(M.emptyState(),'desktop','tablet','reduced-motion',0,config,{reducedMotion:true}); "
+            "const components=M.allComponents(end.state,{quickSettings:'large',windowControls:'always'},['dock','quick-settings','window-controls']); "
+            "console.log(JSON.stringify({first:M.summary(first.state),middle:M.summary(middle.state),reversed:M.summary(reversed.state),end:M.summary(end.state),reduced:M.summary(reduced.state),components}));"
+        )
+        self.assertEqual(result["first"]["phase"], "running")
+        self.assertGreater(result["middle"]["progress"], 0)
+        self.assertTrue(result["reversed"]["interrupted"])
+        self.assertEqual(result["reversed"]["fromMode"], "desktop")
+        self.assertEqual(result["reversed"]["toMode"], "tablet")
+        self.assertEqual(result["end"]["phase"], "completed")
+        self.assertEqual(result["end"]["progress"], 1)
+        self.assertEqual(result["reduced"]["durationMs"], 1)
+        self.assertFalse(result["reduced"]["active"])
+        self.assertEqual([row["component"] for row in result["components"]], ["dock", "quick-settings", "window-controls"])
+        self.assertTrue(all("fromMode" in row and "toMode" in row and "reason" in row for row in result["components"]))
+
+    def test_mode_transition_service_is_local_and_accessible_to_components(self) -> None:
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        tokens = (ROOT / "shell/components/DesignTokens.qml").read_text(encoding="utf-8")
+        self.assertIn('"models/ModeTransitionCoordinator.js" as ModeTransitionModel', service)
+        self.assertIn("ModeTransitionModel.begin", service)
+        self.assertIn("ModeTransitionModel.tick", service)
+        self.assertIn("ModeTransitionModel.componentState", service)
+        self.assertIn("modeTransitionTimer", service)
+        self.assertIn("no compositor IPC", service)
+        self.assertIn("componentTransition", service)
+        self.assertIn("transitionComponent", tokens)
+
 
 if __name__ == "__main__":
     unittest.main()

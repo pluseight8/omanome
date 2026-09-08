@@ -82,6 +82,7 @@ Item {
           service: root.service
           viewportWidth: card.width
           viewportHeight: card.height
+          transitionComponent: root.activeView === "quicksettings" ? "quick-settings" : root.activeView === "overview" ? "overview" : root.activeView === "launcher" ? "launcher" : root.activeView === "keyboard" ? "osk" : "settings"
         }
 
         MouseArea { anchors.fill: parent; onClicked: {} }
