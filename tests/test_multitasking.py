@@ -255,6 +255,68 @@ class LayoutEngineTests(unittest.TestCase):
         self.assertEqual(result["expired"]["result"]["status"], "timeout")
         self.assertEqual(result["expired"]["request"]["reason"], "launch-timeout")
 
+    def test_window_group_snapshot_keeps_app_layout_and_drops_runtime_identity(self) -> None:
+        result = self.run_node(
+            "const G=require('./shell/models/WindowGroups.js'); "
+            "const created=G.createGroup('app-pair',[{address:'0x1',pid:11,appId:'org.browser.App',title:'Private tab',workspace:2,monitorName:'tablet'},{address:'0x2',pid:12,appId:'org.chat.App',title:'Secret chat',workspace:2,monitorName:'tablet'}],{now:1234,ratio:'40/60',monitorPolicy:'original'},1234); "
+            "const raw=JSON.stringify(created.metadata); console.log(JSON.stringify({ok:created.ok,apps:created.metadata.apps,ratio:created.metadata.layout.ratio,hasAddress:raw.indexOf('0x1')>=0,hasPid:raw.indexOf('11')>=0,hasTitle:raw.indexOf('Private')>=0,roundTrip:G.restore(G.serialize([created.group])).groups}));"
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["apps"], ["org.browser.App", "org.chat.App"])
+        self.assertEqual(result["ratio"], "40/60")
+        self.assertFalse(result["hasAddress"])
+        self.assertFalse(result["hasPid"])
+        self.assertFalse(result["hasTitle"])
+        self.assertEqual(result["roundTrip"][0]["apps"], result["apps"])
+        self.assertNotIn("runtime", result["roundTrip"][0])
+
+    def test_window_group_reconcile_requires_choice_for_duplicate_app_windows(self) -> None:
+        result = self.run_node(
+            "const G=require('./shell/models/WindowGroups.js'); "
+            "const pair=G.createGroup('app-pair',[],{apps:['org.browser.App','org.chat.App'],id:'pair-1'},100); "
+            "const duplicate=G.reconcileGroup(pair.group,[{address:'0xa',pid:20,appId:'org.browser.App'},{address:'0xb',pid:21,appId:'org.browser.App'},{address:'0xc',pid:22,appId:'org.chat.App'}],200,{}); "
+            "const unique=G.reconcileGroup(pair.group,[{address:'0xa',pid:20,appId:'org.browser.App'},{address:'0xc',pid:22,appId:'org.chat.App'}],200,{}); "
+            "console.log(JSON.stringify({created:pair.ok,duplicate:duplicate.status,ambiguous:duplicate.ambiguous,unique:unique.status,bound:unique.bound.map(x=>x.identity)}));"
+        )
+        self.assertTrue(result["created"])
+        self.assertEqual(result["duplicate"], "ambiguous")
+        self.assertEqual(result["ambiguous"][0]["appId"], "org.browser.App")
+        self.assertEqual(result["unique"], "active")
+        self.assertEqual(result["bound"], ["address:0xa", "address:0xc"])
+
+    def test_split_group_breaks_on_closed_member_and_move_plan_is_bounded(self) -> None:
+        result = self.run_node(
+            "const G=require('./shell/models/WindowGroups.js'); "
+            "const pair=G.createGroup('split-pair',[{address:'0x1',pid:31,appId:'org.editor.App'},{address:'0x2',pid:32,appId:'org.files.App'}],{id:'split-1',closePolicy:'expand'},300); "
+            "const state=G.reconcileGroup(pair.group,[{address:'0x1',pid:31,appId:'org.editor.App'}],400,{}); "
+            "const plan=G.movePlan(pair.group,'workspace-3','HDMI-A-1'); const detached=G.detachMember(pair.group,'address:0x2','window-closed'); "
+            "console.log(JSON.stringify({status:state.status,event:state.event,plan,broken:detached.broken,remaining:detached.remaining.map(x=>x.identity)}));"
+        )
+        self.assertEqual(result["status"], "broken")
+        self.assertEqual(result["event"]["reason"], "member-closed")
+        self.assertEqual(result["event"]["closePolicy"], "expand")
+        self.assertEqual(result["plan"]["memberIds"], ["address:0x1", "address:0x2"])
+        self.assertEqual(result["plan"]["workspaceId"], "workspace-3")
+        self.assertTrue(result["broken"])
+        self.assertEqual(result["remaining"], ["address:0x1"])
+
+    def test_session_restore_policy_never_auto_launches_for_off_or_ask(self) -> None:
+        result = self.run_node(
+            "const G=require('./shell/models/WindowGroups.js'); "
+            "const pair=G.createGroup('app-pair',[],{apps:['org.one.App','org.two.App'],id:'pair-restore'},500); "
+            "const off=G.restorePlan([pair.group],[], 'off', 600, {}); const ask=G.restorePlan([pair.group],[], 'ask', 600, {}); const automatic=G.restorePlan([pair.group],[], 'automatic', 600, {}); "
+            "console.log(JSON.stringify({off:off.decision,ask:ask.decision,automatic:automatic.decision,offPlan:off.plans[0],askPlan:ask.plans[0],autoPlan:automatic.plans[0]}));"
+        )
+        self.assertFalse(result["off"]["allowed"])
+        self.assertFalse(result["off"]["autoLaunch"])
+        self.assertEqual(result["offPlan"]["status"], "skipped")
+        self.assertTrue(result["ask"]["requiresConfirmation"])
+        self.assertFalse(result["ask"]["autoLaunch"])
+        self.assertEqual(result["askPlan"]["status"], "awaiting-confirmation")
+        self.assertTrue(result["automatic"]["allowed"])
+        self.assertTrue(result["automatic"]["autoLaunch"])
+        self.assertEqual(result["autoPlan"]["status"], "ready")
+
 
 if __name__ == "__main__":
     unittest.main()
