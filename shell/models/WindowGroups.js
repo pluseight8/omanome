@@ -223,6 +223,7 @@ function normalizeGroup(value, index) {
     createdAt: boundedTime(source.createdAt),
     updatedAt: boundedTime(source.updatedAt),
     order: Math.max(0, Math.min(MAX_GROUPS - 1, Math.round(number(source.order, index || 0)))),
+    persistent: source.persistent !== false,
     runtime: runtime
   }
 }
@@ -239,7 +240,8 @@ function metadata(group, index) {
     preferences: clone(source.preferences),
     createdAt: source.createdAt,
     updatedAt: source.updatedAt,
-    order: source.order
+    order: source.order,
+    persistent: source.persistent !== false
   }
 }
 
@@ -301,8 +303,12 @@ function snapshot(group, index) {
   return metadata(group, index || 0)
 }
 
+function metadataList(values) {
+  return normalizeList(values).map(function(item, index) { return metadata(item, index) })
+}
+
 function serialize(values) {
-  var groups = normalizeList(values).map(function(item, index) { return metadata(item, index) })
+  var groups = metadataList(values)
   return JSON.stringify({ schemaVersion: GROUPS_SCHEMA_VERSION, groups: groups })
 }
 
@@ -519,6 +525,7 @@ var api = {
   normalizeList: normalizeList,
   createGroup: createGroup,
   snapshot: snapshot,
+  metadataList: metadataList,
   serialize: serialize,
   restore: restore,
   expectedApps: expectedApps,
