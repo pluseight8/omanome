@@ -167,6 +167,7 @@ Item {
   property var windowGroups: []
   property var windowGroupEvents: []
   property var windowGroupRestorePlan: null
+  property var multitaskingPairLaunch: null
   property string blurRuleSignature: ""
   property string lastInput: "keyboard"
   property string inputCandidate: ""
@@ -2186,6 +2187,13 @@ Item {
           deadline: Number(root.multitaskingLaunch.deadline || 0),
           attempts: Number(root.multitaskingLaunch.attempts || 0)
         } : null,
+        pairLaunch: root.multitaskingPairLaunch ? {
+          groupId: String(root.multitaskingPairLaunch.groupId || ""),
+          phase: String(root.multitaskingPairLaunch.phase || "queued"),
+          appIds: Array.isArray(root.multitaskingPairLaunch.appIds) ? root.multitaskingPairLaunch.appIds.slice(0, 2) : [],
+          nextIndex: Number(root.multitaskingPairLaunch.nextIndex || 0),
+          deadline: Number(root.multitaskingPairLaunch.deadline || 0)
+        } : null,
         groups: root.windowGroupSummaries(),
         sessionRestore: root.windowGroupRestoreSummary()
       },
@@ -2230,6 +2238,7 @@ Item {
         lastAction: String(root.multitaskingLastAction.type || "none"),
         launchPending: !!root.multitaskingLaunch,
         launchAppId: root.multitaskingLaunch ? String(root.multitaskingLaunch.appId || "") : "",
+        pairLaunchPending: !!root.multitaskingPairLaunch,
         groups: root.windowGroupSummaries(),
         sessionRestore: root.windowGroupRestoreSummary()
       },
@@ -2586,6 +2595,18 @@ Item {
     return root.removeWindowGroup(groupId)
   }
 
+  function updateWindowGroupRuntime(groupId, windows) {
+    var group = root.windowGroupById(groupId)
+    if (!group) return { ok: false, reason: "group-not-found" }
+    var outcome = WindowGroupsModel.reconcileGroup(group, windows, Date.now(), { duplicatePolicy: "ask" })
+    var next = Array.isArray(root.windowGroups) ? root.windowGroups.slice() : []
+    for (var i = 0; i < next.length; i++) {
+      if (String(next[i].id || "") === String(groupId)) { next[i] = outcome.group; break }
+    }
+    root.windowGroups = WindowGroupsModel.normalizeList(next)
+    return outcome
+  }
+
   function reconcileWindowGroups() {
     var result = WindowGroupsModel.reconcile(
       root.windowGroups,
@@ -2636,6 +2657,121 @@ Item {
     }
     root.windowGroups = WindowGroupsModel.normalizeList(next)
     return root.windowGroups[found < 0 ? root.windowGroups.length - 1 : found]
+  }
+
+  function multitaskingWindowsForApp(appId) {
+    var key = WindowMatcherModel.appId(appId)
+    var result = []
+    var list = Array.isArray(root.clients) ? root.clients : []
+    for (var i = 0; i < list.length; i++) {
+      if (WindowMatcherModel.appId(list[i]) !== key) continue
+      if (root.multitaskingWindowIdentity(list[i])) result.push(list[i])
+    }
+    return result
+  }
+
+  function startNextMultitaskingPairLaunch() {
+    var state = root.multitaskingPairLaunch
+    if (!state) return { ok: false, reason: "pair-launch-unavailable" }
+    var index = Math.max(0, Math.floor(Number(state.nextIndex || 0)))
+    while (index < state.appIds.length && state.windowIds[index]) index++
+    if (index >= state.appIds.length) return root.finishMultitaskingPairLaunch(true, "all-apps-ready")
+    var now = Date.now()
+    var remaining = Math.max(0, Number(state.deadline || 0) - now)
+    if (remaining < 500) return root.finishMultitaskingPairLaunch(false, "launch-timeout")
+    var request = WindowMatcherModel.begin(state.appIds[index], root.clients, now, {
+      timeoutMs: Math.min(Number(state.timeoutMs || 12000), remaining),
+      workspaceId: state.workspaceId,
+      monitorName: state.monitorName
+    })
+    if (request.status !== "pending") return root.finishMultitaskingPairLaunch(false, request.reason || "launch-request-rejected")
+    state.nextIndex = index
+    state.phase = "launching"
+    state.currentAppId = state.appIds[index]
+    root.multitaskingPairLaunch = state
+    root.multitaskingLaunch = request
+    root.multitaskingLaunchTarget = { type: "pair", groupId: state.groupId, index: index, appId: state.appIds[index] }
+    if (!root.launchApp(state.appIds[index])) {
+      root.multitaskingLaunch = null
+      root.multitaskingLaunchTarget = null
+      return root.finishMultitaskingPairLaunch(false, "launch-rejected")
+    }
+    multitaskingLaunchTimeout.interval = request.timeoutMs
+    multitaskingLaunchTimeout.restart()
+    return { ok: true, pending: true, appId: state.appIds[index], deadline: request.deadline, index: index }
+  }
+
+  function finishMultitaskingPairLaunch(ok, reason) {
+    var state = root.multitaskingPairLaunch
+    if (!state) return root.multitaskingRecord({ type: "app-pair-launch", ok: false, reason: "pair-launch-unavailable" })
+    multitaskingLaunchTimeout.stop()
+    root.multitaskingLaunch = null
+    root.multitaskingLaunchTarget = null
+    root.multitaskingPairLaunch = null
+    var windows = []
+    var missing = []
+    for (var i = 0; i < state.appIds.length; i++) {
+      var window = state.windowIds[i] ? root.windowForMultitaskingId(state.windowIds[i]) : null
+      if (window) windows.push(window)
+      else missing.push(state.appIds[i])
+    }
+    if (!ok || missing.length > 0) {
+      if (windows.length > 0) root.updateWindowGroupRuntime(state.groupId, windows)
+      return root.multitaskingRecord({ type: "app-pair-launch", ok: false, partial: windows.length > 0, reason: reason || "launch-incomplete", groupId: state.groupId, missingApps: missing })
+    }
+    var settings = Object.assign({}, state.options || {}, { ratio: state.ratio, defaultRatio: state.ratio })
+    var applied = root.splitWindows(windows, settings)
+    if (applied) root.updateWindowGroupRuntime(state.groupId, windows)
+    return root.multitaskingRecord({ type: "app-pair-launch", ok: applied === true, reason: applied ? "committed" : "split-apply-failed", groupId: state.groupId, appCount: windows.length })
+  }
+
+  function launchAppPair(groupId, options) {
+    var group = root.windowGroupById(groupId)
+    if (!group || group.type !== "app-pair") return root.multitaskingRecord({ type: "app-pair-launch", ok: false, reason: "app-pair-not-found" })
+    if (root.cfg("multitasking.enabled", true) === false || root.safeMode)
+      return root.multitaskingRecord({ type: "app-pair-launch", ok: false, reason: root.safeMode ? "safe-mode" : "disabled" })
+    if (root.multitaskingLaunch || root.multitaskingPairLaunch)
+      return root.multitaskingRecord({ type: "app-pair-launch", ok: false, reason: "launch-request-active" })
+    var settings = Object.assign({}, options || {})
+    var appIds = WindowGroupsModel.expectedApps(group).slice(0, 2)
+    if (appIds.length < 2) return root.multitaskingRecord({ type: "app-pair-launch", ok: false, reason: "two-application-identities-required" })
+    var duplicatePolicy = String(group.preferences && group.preferences.duplicatePolicy || "ask")
+    var windowIds = ["", ""]
+    var duplicates = []
+    for (var i = 0; i < appIds.length; i++) {
+      var rows = root.multitaskingWindowsForApp(appIds[i])
+      if (rows.length > 1 && duplicatePolicy !== "first") { duplicates.push(appIds[i]); continue }
+      if (rows.length > 0) windowIds[i] = root.multitaskingWindowIdentity(rows[0])
+    }
+    if (duplicates.length > 0)
+      return root.multitaskingRecord({ type: "app-pair-launch", ok: false, reason: "duplicate-window-choice-required", groupId: group.id, duplicateApps: duplicates })
+    var missing = windowIds.filter(function(value) { return !value }).length
+    if (missing === 0) {
+      var existingWindows = windowIds.map(function(value) { return root.windowForMultitaskingId(value) })
+      var direct = root.splitWindows(existingWindows, Object.assign(settings, { ratio: group.layout.ratio, defaultRatio: group.layout.ratio }))
+      if (direct) root.updateWindowGroupRuntime(group.id, existingWindows)
+      return root.multitaskingRecord({ type: "app-pair-launch", ok: direct === true, reason: direct ? "committed" : "split-apply-failed", groupId: group.id, appCount: existingWindows.length })
+    }
+    var now = Date.now()
+    var timeoutMs = Math.max(500, Math.min(15000, Math.floor(Number(settings.timeoutMs || root.cfg("multitasking.launchTimeoutMs", 12000)))))
+    root.multitaskingPairLaunch = {
+      groupId: group.id,
+      appIds: appIds,
+      windowIds: windowIds,
+      nextIndex: 0,
+      currentAppId: "",
+      startedAt: now,
+      timeoutMs: timeoutMs,
+      deadline: now + timeoutMs,
+      workspaceId: group.preferences && group.preferences.targetWorkspace || "",
+      monitorName: group.preferences && group.preferences.originalMonitor || "",
+      ratio: group.layout.ratio,
+      options: settings,
+      phase: "queued"
+    }
+    var next = root.startNextMultitaskingPairLaunch()
+    if (!next || next.ok !== true) return next
+    return root.multitaskingRecord({ type: "app-pair-launch", ok: true, pending: true, groupId: group.id, appId: next.appId, deadline: next.deadline })
   }
 
   function beginSnapAssist(window, kind, start, options) {
@@ -2711,7 +2847,10 @@ Item {
   function windowForMultitaskingId(id) {
     var wanted = String(id || "")
     var list = Array.isArray(root.clients) ? root.clients : []
-    for (var i = 0; i < list.length; i++) if (root.multitaskingWindowIdentity(list[i]) === wanted) return list[i]
+    for (var i = 0; i < list.length; i++) {
+      if (root.multitaskingWindowIdentity(list[i]) === wanted) return list[i]
+      if (WindowMatcherModel.identity(list[i]) === wanted) return list[i]
+    }
     return null
   }
 
@@ -2872,6 +3011,20 @@ Item {
     var target = root.multitaskingLaunchTarget
     root.multitaskingLaunch = null
     root.multitaskingLaunchTarget = null
+    if (target && target.type === "pair") {
+      if (resolved.result.status === "timeout") return root.finishMultitaskingPairLaunch(false, "launch-timeout")
+      var pairWindow = root.windowForMultitaskingId(resolved.result.windowId)
+      if (!pairWindow) return root.finishMultitaskingPairLaunch(false, "matched-window-disappeared")
+      var pairState = root.multitaskingPairLaunch
+      if (!pairState) return root.multitaskingRecord({ type: "app-pair-launch", ok: false, reason: "pair-launch-state-missing" })
+      pairState.windowIds[target.index] = resolved.result.windowId
+      pairState.nextIndex = Number(target.index) + 1
+      root.multitaskingPairLaunch = pairState
+      var nextPair = root.startNextMultitaskingPairLaunch()
+      if (nextPair && nextPair.pending === true)
+        return root.multitaskingRecord({ type: "app-pair-launch", ok: true, pending: true, groupId: pairState.groupId, appId: nextPair.appId, deadline: nextPair.deadline })
+      return nextPair
+    }
     if (resolved.result.status === "timeout")
       return root.multitaskingRecord({ type: target && target.type === "split" ? "launch-to-split" : "launch-to-slot", ok: false, reason: "launch-timeout", appId: target && target.appId || "" })
     var window = root.windowForMultitaskingId(resolved.result.windowId)
@@ -4044,6 +4197,7 @@ Item {
     root.pendingCommands = ({})
     root.multitaskingLaunch = null
     root.multitaskingLaunchTarget = null
+    root.multitaskingPairLaunch = null
     root.inputNativePending = 0
     root.ownedProcesses = []
     var processes = [

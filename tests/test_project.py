@@ -718,10 +718,13 @@ class OmanomeProjectTests(unittest.TestCase):
         schema = json.loads((ROOT / "config/schema.json").read_text(encoding="utf-8"))
 
         self.assertIn('import "models/WindowGroups.js" as WindowGroupsModel', service)
-        for marker in ("loadWindowGroups", "persistWindowGroups", "reconcileWindowGroups", "createWindowGroup", "saveAppPair", "breakWindowGroup", "windowGroupSummaries"):
+        for marker in ("loadWindowGroups", "persistWindowGroups", "reconcileWindowGroups", "createWindowGroup", "saveAppPair", "breakWindowGroup", "windowGroupSummaries", "launchAppPair", "startNextMultitaskingPairLaunch", "finishMultitaskingPairLaunch"):
             self.assertIn(marker, service)
         self.assertIn("WindowGroupsModel.metadataList", service)
         self.assertIn("root.reconcileWindowGroups()", service)
+        self.assertIn("multitaskingPairLaunch", service)
+        self.assertIn("duplicate-window-choice-required", service)
+        self.assertIn("launch-timeout", service)
         self.assertIn("multitasking", defaults)
         self.assertIn("multitasking", schema["properties"])
         self.assertIn("sessionRestore", defaults["multitasking"])
