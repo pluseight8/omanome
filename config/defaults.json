@@ -63,7 +63,10 @@
       "trigger": "external-monitor-and-keyboard",
       "profile": "desktop",
       "keepTouch": true,
-      "restoreAutoState": true
+      "restoreAutoState": true,
+      "rotation": "preserve",
+      "debounceMs": 180,
+      "stabilityMs": 260
     }
   },
   "tabletMode": {

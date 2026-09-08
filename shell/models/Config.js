@@ -6,7 +6,7 @@ function defaults() {
     general: { mode: "automatic", profile: "Desktop", language: "system", reduceMotion: false, largeUi: false, inputDebounceMs: 320 },
     appearance: { theme: "follow-omarchy", accent: "follow-omarchy", radius: 18, opacity: 0.96, density: "comfortable" },
     controlCenter: { enabled: true, masterEnabled: true, suspended: false, widget: { enabled: true, position: "right", clickAction: "control-center", rightClickAction: "context-menu", longPressAction: "context-menu", showLabel: false }, compactToggles: ["master", "mode", "gestures", "osk", "rotation"], visibleModules: ["touch-mode", "tablet-ui", "osk", "gestures", "snap-assist", "split-view", "dock", "window-controls", "rotation", "stylus", "notifications", "clipboard", "effects"], moduleOrder: ["touch-mode", "tablet-ui", "osk", "gestures", "snap-assist", "split-view", "dock", "window-controls", "rotation", "stylus", "notifications", "clipboard", "effects"], osd: { enabled: true, compact: true, durationMs: 2600 } },
-    adaptive: { enabled: true, profile: "auto", automaticTransitions: true, externalKeyboardPolicy: "hybrid", unknownKeyboardPolicy: "hybrid", transition: { enabled: true, debounceMs: 260, stabilityMs: 420, durationMs: 260, oskPolicy: "hide-on-attach", showOsd: true }, profiles: { custom: { mode: "auto", featureOverrides: {}, componentBehavior: {} } }, deviceRules: [], dockedMode: { enabled: true, trigger: "external-monitor-and-keyboard", profile: "desktop", keepTouch: true, restoreAutoState: true } },
+    adaptive: { enabled: true, profile: "auto", automaticTransitions: true, externalKeyboardPolicy: "hybrid", unknownKeyboardPolicy: "hybrid", transition: { enabled: true, debounceMs: 260, stabilityMs: 420, durationMs: 260, oskPolicy: "hide-on-attach", showOsd: true }, profiles: { custom: { mode: "auto", featureOverrides: {}, componentBehavior: {} } }, deviceRules: [], dockedMode: { enabled: true, trigger: "external-monitor-and-keyboard", profile: "desktop", keepTouch: true, restoreAutoState: true, rotation: "preserve", debounceMs: 180, stabilityMs: 260 } },
     tabletMode: { enabled: true, touchTarget: 48, autoFromTouch: true, autoFromStylus: true, physicalKeyboardExit: true, transitionDuration: 180, dockPreference: "adaptive", windowControls: "touch", gestures: true, posture: { auto: true, debounceMs: 320, minimumDwellMs: 900, laptopSuppressAutoShow: true, autoRotateInLaptop: false } },
     input: { schemaVersion: 1, nativeBackend: "auto", allowWtypeFallback: true, suppressOskOnPhysicalKeyboard: true, suppressOskOnDetachableKeyboard: true, suppressOskOnBluetoothKeyboard: true, deviceHotplug: true, safeModeDisableNative: false, defaultOutput: "", deviceMappings: {} },
     onboarding: { completed: false, skipped: false, version: 1, privacyAcknowledged: false },
@@ -215,6 +215,10 @@ function normalizeAdaptiveOneTwo(source, report) {
     source.adaptive.deviceRules = []
     changed = true
   }
+  if (!isObject(source.adaptive.dockedMode)) {
+    source.adaptive.dockedMode = clone(templates.adaptive.dockedMode)
+    changed = true
+  } else if (fillMissing(source.adaptive.dockedMode, templates.adaptive.dockedMode)) changed = true
   if (changed && report && report.applied.indexOf("adaptive-1.2-defaults") < 0) report.applied.push("adaptive-1.2-defaults")
 }
 

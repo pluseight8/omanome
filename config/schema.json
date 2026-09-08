@@ -43,18 +43,29 @@
         "profiles": {
           "type": "object",
           "properties": {
-            "custom": {
-              "type": "object",
-              "properties": {
-                "mode": { "enum": ["auto", "desktop", "tablet", "hybrid"] },
-                "featureOverrides": { "type": "object" },
-                "componentBehavior": { "type": "object" }
-              }
-            }
+            "auto": { "$ref": "#/$defs/profile" },
+            "desktop": { "$ref": "#/$defs/profile" },
+            "tablet": { "$ref": "#/$defs/profile" },
+            "hybrid": { "$ref": "#/$defs/profile" },
+            "presentation": { "$ref": "#/$defs/profile" },
+            "gaming": { "$ref": "#/$defs/profile" },
+            "custom": { "$ref": "#/$defs/profile" }
           }
         },
         "deviceRules": { "type": "array" },
-        "dockedMode": { "type": "object" }
+        "dockedMode": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "trigger": { "enum": ["external-monitor-and-keyboard", "external-monitor"] },
+            "profile": { "enum": ["desktop", "tablet", "hybrid"] },
+            "keepTouch": { "type": "boolean" },
+            "restoreAutoState": { "type": "boolean" },
+            "rotation": { "enum": ["preserve", "auto", "locked", "unchanged"] },
+            "debounceMs": { "type": "integer", "minimum": 80, "maximum": 1500 },
+            "stabilityMs": { "type": "integer", "minimum": 0, "maximum": 1500 }
+          }
+        }
       }
     },
     "tabletMode": { "type": "object" },
@@ -120,6 +131,16 @@
     "updates": { "type": "object" },
     "recovery": { "type": "object" },
     "diagnostics": { "type": "object" }
+  },
+  "$defs": {
+    "profile": {
+      "type": "object",
+      "properties": {
+        "mode": { "enum": ["auto", "desktop", "tablet", "hybrid"] },
+        "featureOverrides": { "type": "object" },
+        "componentBehavior": { "type": "object" }
+      }
+    }
   },
   "additionalProperties": true
 }

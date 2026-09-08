@@ -29,6 +29,7 @@ import "models/TabletMode.js" as TabletModeModel
 import "models/FeatureState.js" as FeatureStateModel
 import "models/AdaptiveMode.js" as AdaptiveModeModel
 import "models/ModeTransitionCoordinator.js" as ModeTransitionModel
+import "models/DockedMode.js" as DockedModeModel
 import "models/ProcessPolicy.js" as ProcessPolicy
 import "models/LayoutEngine.js" as LayoutEngineModel
 import "models/SnapAssist.js" as SnapAssistModel
@@ -210,13 +211,14 @@ Item {
   property var responsiveState: ResponsiveModel.context(1280, 720, 1, "keyboard", "desktop", {})
   property var tabletModeState: ({ mode: "desktop", reason: "not probed", signals: {} })
   property var postureState: ({ current: "", candidate: "", candidateSince: 0, lastChangedAt: 0, reason: "not-evaluated" })
-  property var tabletProfile: ({ mode: "desktop", tabletLike: false, touchTarget: 44, dockPosition: "bottom", oskAutoShow: false, windowControls: false, gestures: false, quickSettingsDensity: "comfortable", launcherDensity: "compact" })
+  property var tabletProfile: ({ mode: "desktop", tabletLike: false, touchTarget: 44, dockPosition: "bottom", oskAutoShow: false, windowControls: false, gestures: false, quickSettingsDensity: "comfortable", launcherDensity: "compact", docked: false, dockedKeepTouch: false, rotationPolicy: "preserve" })
   property string detectedMode: "desktop"
   property string effectiveMode: "desktop"
   property var adaptiveState: AdaptiveModeModel.effective("auto", Config.defaults(), { baseMode: "desktop", currentMode: "desktop" })
   property var modeTransitionState: ModeTransitionModel.emptyState()
   property var modeTransitionComponents: []
   property string nextModeTransitionReason: ""
+  property var dockedModeState: DockedModeModel.emptyState()
   property var componentPolicy: ({ mode: "desktop", density: "compact", touchTargetSize: 40, osk: "suppressed", oskAutoShow: false, dock: "desktop", dockReveal: true, gestures: "conservative", windowControls: "optional", snapAssist: true, splitView: true, rotation: "preserve", quickSettings: "compact", overview: "compact", launcher: "compact", notificationPopups: true, notificationDensity: "compact", effects: "normal", previews: true, backgroundWork: "normal", animations: "enabled", animationPreset: "smooth", reason: "desktop mode" })
   property string lastError: ""
   property int stateRevision: 0
@@ -286,22 +288,53 @@ Item {
     var signals = InputDevicesModel.postureSignals(root.devices, root.inputDeviceState, root.lastInput)
     signals.stylus = root.hasStylus && root.cfg("stylus.enabled", true) === true
     signals.orientation = root.orientation
-    signals.externalMonitor = Array.isArray(root.monitors) && root.monitors.length > 1
+    signals.monitorInventory = DockedModeModel.inventory(root.monitors)
+    signals.externalMonitor = signals.monitorInventory.externalMonitor === true
+    signals.externalMonitorCount = signals.monitorInventory.externalCount
+    signals.monitorCount = signals.monitorInventory.monitorCount
     var keyboard = root.keyboardModeSignals()
     signals.physicalKeyboard = keyboard.physicalKeyboard
     signals.detachableKeyboard = keyboard.detachableKeyboard
     signals.bluetoothKeyboard = keyboard.bluetoothKeyboard
     signals.externalKeyboard = keyboard.externalKeyboard
+    signals.keyboardCount = keyboard.keyboardCount
+    signals.keyboardStable = keyboard.keyboardStable
+    signals.keyboardPending = keyboard.keyboardPending
     return signals
+  }
+
+  function observeDockedMode(reason) {
+    var adaptive = root.cfg("adaptive", {})
+    var observed = DockedModeModel.observe(root.dockedModeState, root.adaptiveSignals(), root.config, {
+      selectedProfile: root.adaptiveProfile,
+      adaptiveEnabled: adaptive.enabled !== false,
+      automaticTransitions: adaptive.automaticTransitions !== false,
+      autoMode: root.detectedMode,
+      reason: String(reason || "adaptive-signal")
+    }, Date.now())
+    root.dockedModeState = observed.state
+    if (observed.pending) {
+      dockedModeTimer.interval = Math.max(80, Number(observed.delayMs || 440))
+      dockedModeTimer.restart()
+    } else {
+      dockedModeTimer.stop()
+    }
+    return observed
+  }
+
+  function dockedModeSummary() {
+    return DockedModeModel.summary(root.dockedModeState)
   }
 
   function refreshAdaptiveState() {
     var previousMode = root.effectiveMode
     var adaptive = root.cfg("adaptive", {})
+    root.observeDockedMode("adaptive-refresh")
     var state = AdaptiveModeModel.effective(root.adaptiveProfile, root.config, {
       baseMode: root.detectedMode,
       currentMode: root.effectiveMode,
       signals: root.adaptiveSignals(),
+      dockedState: root.dockedModeState,
       transitioning: (root.postureState && root.postureState.candidate !== "") || (root.modeTransitionState && root.modeTransitionState.active === true),
       adaptiveEnabled: adaptive.enabled !== false,
       automaticTransitions: adaptive.automaticTransitions !== false,
@@ -370,7 +403,10 @@ Item {
       physicalKeyboard: root.hasPhysicalKeyboard,
       detachableKeyboard: root.hasDetachableKeyboard,
       bluetoothKeyboard: root.hasBluetoothKeyboard,
-      externalKeyboard: root.keyboardDevices.some(function(device) { return device && device.connected === true && device.formFactorRelation !== "built-in" })
+      externalKeyboard: root.keyboardDevices.some(function(device) { return device && device.connected === true && device.formFactorRelation !== "built-in" }),
+      keyboardCount: root.keyboardDevices.filter(function(device) { return device && device.connected === true }).length,
+      keyboardStable: true,
+      keyboardPending: false
     }
     var state = root.keyboardTransitionState || {}
     if (state.initialized === true && state.stableSignals) {
@@ -379,6 +415,9 @@ Item {
       actual.detachableKeyboard = stable.detachableKeyboard === true
       actual.bluetoothKeyboard = stable.bluetoothKeyboard === true
       actual.externalKeyboard = stable.externalKeyboard === true
+      actual.keyboardCount = Number(state.connectedCount || stable.activeCount || 0)
+      actual.keyboardStable = state.modeReady !== false
+      actual.keyboardPending = state.pending === true
     }
     return actual
   }
@@ -1848,7 +1887,10 @@ Item {
       windowControls: policy.windowControls !== "hidden" && policy.windowControls !== "optional" && root.effectiveMode !== "desktop",
       gestures: policy.gestures !== "disabled" && profile.gestures,
       quickSettingsDensity: String(policy.quickSettings || profile.quickSettingsDensity),
-      launcherDensity: String(policy.launcher || profile.launcherDensity)
+      launcherDensity: String(policy.launcher || profile.launcherDensity),
+      docked: policy.docked === true,
+      dockedKeepTouch: policy.dockedKeepTouch === true,
+      rotationPolicy: String(policy.rotation || profile.rotation || "preserve")
     })
     root.refreshFeatureStates()
   }
@@ -2526,6 +2568,7 @@ Item {
       effectiveMode: root.effectiveMode,
       transitioning: (root.adaptiveState && root.adaptiveState.transitioning === true) || (root.modeTransitionState && root.modeTransitionState.active === true),
       modeTransition: root.modeTransitionSummary(),
+      dockedMode: root.dockedModeSummary(),
       keyboardState: String(root.keyboardTransitionState.phase || (root.hasPhysicalKeyboard ? "Connected" : "Disconnected")).toLowerCase(),
       keyboardStable: root.keyboardTransitionState.modeReady !== false,
       keyboardTransition: root.keyboardTransitionSummary(),
@@ -2711,6 +2754,7 @@ Item {
       effectiveMode: root.effectiveMode,
       transitioning: (root.adaptiveState && root.adaptiveState.transitioning === true) || (root.modeTransitionState && root.modeTransitionState.active === true),
       modeTransition: root.modeTransitionSummary(),
+      dockedMode: root.dockedModeSummary(),
       keyboardState: String(root.keyboardTransitionState.phase || (root.hasPhysicalKeyboard ? "Connected" : "Disconnected")).toLowerCase(),
       keyboardStable: root.keyboardTransitionState.modeReady !== false,
       keyboardTransition: root.keyboardTransitionSummary(),
@@ -4715,10 +4759,23 @@ Item {
   Timer {
     id: modeTransitionTimer
     // performance: allow-fast-timer — local Qt-style choreography only; no
-    // no subprocess, no compositor IPC, and no config write occurs per frame.
+    // subprocess, no compositor IPC, and no config write occurs per frame.
     interval: 16
     repeat: true
     onTriggered: root.tickModeTransition()
+  }
+
+  Timer {
+    id: dockedModeTimer
+    // Event-driven monitor/keyboard stability window; this is not a poll.
+    interval: 440
+    repeat: false
+    onTriggered: {
+      root.updateResponsiveContext()
+      root.reconcileOskPolicy()
+      root.stateRevision++
+      root.stateUpdated()
+    }
   }
 
   Timer {
@@ -5240,7 +5297,7 @@ Item {
     var timers = [
       performanceSnapshotTimeout, configWriteDebounce, processRegistryWriteDebounce,
       clipboardWriteDebounce, deviceRefreshDebounce, postureTransition,
-      keyboardTransitionTimer, modeTransitionTimer, orientationTransition, wobblyConfigDebounce, clipboardRestart, rotationRestart,
+      keyboardTransitionTimer, modeTransitionTimer, dockedModeTimer, orientationTransition, wobblyConfigDebounce, clipboardRestart, rotationRestart,
       inputBackendRestart, oskPolicyTimer, clipboardMaintenance, integrationRefresh,
       systemRefresh, systemFallbackRefresh, inputFlush, inputModeCommit, effectRefresh,
       initialConfigSave, deviceRefresh, multitaskingLaunchTimeout

@@ -86,7 +86,11 @@ function normalizeSignals(context) {
     lidState: token(value("lidState", "")),
     orientation: token(value("orientation", "landscape")) || "landscape",
     lastInput: token(value("lastInput", "keyboard")) || "keyboard",
-    externalMonitor: bool(value("externalMonitor", false))
+    externalMonitor: bool(value("externalMonitor", false)),
+    externalMonitorCount: Math.max(0, Number(value("externalMonitorCount", 0) || 0)),
+    monitorCount: Math.max(0, Number(value("monitorCount", 0) || 0)),
+    keyboardCount: Math.max(0, Number(value("keyboardCount", 0) || 0)),
+    keyboardStable: value("keyboardStable", true) !== false
   }
 }
 
@@ -115,6 +119,13 @@ function currentMode(context, fallback) {
   return normalizedMode(source.currentMode || source.effectiveMode) || fallback
 }
 
+function dockedModeOverride(context) {
+  var source = object(context)
+  var docked = object(source.dockedState)
+  if (source.adaptiveEnabled === false || source.automaticTransitions === false || docked.active !== true) return ""
+  return normalizedMode(docked.targetMode)
+}
+
 function customProfile(config) {
   var adaptive = adaptiveConfig(config)
   var profilesConfig = object(adaptive.profiles)
@@ -136,6 +147,8 @@ function mode(profile, context) {
     if (!customMode) customMode = normalizedMode(custom.behavior.mode || custom.behavior.effectiveMode)
     if (customMode) return customMode
   }
+  var docked = dockedModeOverride(source)
+  if (name === "auto" && docked) return docked
   return followAuto ? base : previous
 }
 
@@ -237,62 +250,102 @@ function normalizeTarget(value, fallback) {
   return fallback
 }
 
-function applyCustomPolicy(policy, config) {
-  var custom = customProfile(config)
-  var behavior = custom.behavior
+function applyBehaviorPolicy(policy, behavior) {
+  var source = object(behavior)
   var value
-  value = customValue(behavior, ["density"])
+  value = customValue(source, ["density"])
   if (value !== undefined && ["compact", "comfortable", "large"].indexOf(token(value)) >= 0) policy.density = token(value)
-  value = customValue(behavior, ["touchTargetSize", "touchTargets", "targetSize", "touchTarget"])
+  value = customValue(source, ["touchTargetSize", "touchTargets", "targetSize", "touchTarget"])
   if (value !== undefined) policy.touchTargetSize = normalizeTarget(value, policy.touchTargetSize)
-  value = customValue(behavior, ["osk", "oskPolicy", "keyboard"])
+  value = customValue(source, ["touchControls", "touchPolicy", "touch"])
+  if (value !== undefined) policy.touch = token(typeof value === "object" ? value.mode || value.policy : value) || policy.touch
+  value = customValue(source, ["osk", "oskPolicy", "keyboard"])
   if (value !== undefined) {
     if (typeof value === "object") {
       policy.osk = token(value.mode || value.policy || policy.osk)
       if (value.autoShow !== undefined) policy.oskAutoShow = value.autoShow === true
     } else policy.osk = token(value) || policy.osk
   }
-  value = customValue(behavior, ["dock", "dockBehavior"])
+  value = customValue(source, ["dock", "dockBehavior"])
   if (value !== undefined) policy.dock = token(typeof value === "object" ? value.mode || value.behavior : value) || policy.dock
-  value = customValue(behavior, ["dockReveal", "revealDock"])
+  value = customValue(source, ["dockReveal", "revealDock"])
   if (value !== undefined) policy.dockReveal = value === true
-  value = customValue(behavior, ["gestures", "gesturePolicy"])
+  value = customValue(source, ["gestures", "gesturePolicy"])
   if (value !== undefined) policy.gestures = token(value) || policy.gestures
-  value = customValue(behavior, ["windowControls", "windowControlPolicy"])
+  value = customValue(source, ["windowControls", "windowControlPolicy"])
   if (value !== undefined) policy.windowControls = token(typeof value === "object" ? value.mode || value.policy : value) || policy.windowControls
-  value = customValue(behavior, ["snapAssist", "snap"])
+  value = customValue(source, ["snapAssist", "snap"])
   if (value !== undefined) policy.snapAssist = value === true
-  value = customValue(behavior, ["splitView", "split"])
+  value = customValue(source, ["splitView", "split"])
   if (value !== undefined) policy.splitView = value === true
-  value = customValue(behavior, ["rotation", "rotationPolicy"])
+  value = customValue(source, ["rotation", "rotationPolicy"])
   if (value !== undefined) policy.rotation = token(value) || policy.rotation
-  value = customValue(behavior, ["quickSettings", "quickSettingsDensity"])
+  value = customValue(source, ["quickSettings", "quickSettingsDensity"])
   if (value !== undefined) policy.quickSettings = token(value) || policy.quickSettings
-  value = customValue(behavior, ["overview", "overviewDensity"])
+  value = customValue(source, ["overview", "overviewDensity"])
   if (value !== undefined) policy.overview = token(value) || policy.overview
-  value = customValue(behavior, ["launcher", "launcherDensity"])
+  value = customValue(source, ["launcher", "launcherDensity"])
   if (value !== undefined) policy.launcher = token(value) || policy.launcher
-  value = customValue(behavior, ["notificationPopups", "notifications"])
+  value = customValue(source, ["notificationPopups", "notifications"])
   if (value !== undefined) {
     if (typeof value === "object") {
       if (value.popups !== undefined) policy.notificationPopups = value.popups === true
       if (value.density !== undefined) policy.notificationDensity = token(value.density)
     } else policy.notificationPopups = value === true
   }
-  value = customValue(behavior, ["effects", "effectsPolicy"])
+  value = customValue(source, ["effects", "effectsPolicy"])
   if (value !== undefined) policy.effects = token(value) || policy.effects
-  value = customValue(behavior, ["previews", "preview"])
+  value = customValue(source, ["previews", "preview"])
   if (value !== undefined) policy.previews = value === true
-  value = customValue(behavior, ["backgroundWork", "work"])
+  value = customValue(source, ["backgroundWork", "work"])
   if (value !== undefined) policy.backgroundWork = token(value) || policy.backgroundWork
-  value = customValue(behavior, ["animations", "animationPolicy"])
+  value = customValue(source, ["animations", "animationPolicy"])
   if (value !== undefined) {
     if (typeof value === "boolean") policy.animations = value ? "enabled" : "disabled"
     else policy.animations = token(value) || policy.animations
   }
-  value = customValue(behavior, ["animationPreset", "animationStyle"])
+  value = customValue(source, ["animationPreset", "animationStyle"])
   if (value !== undefined) policy.animationPreset = token(value) || policy.animationPreset
   return policy
+}
+
+function applyCustomPolicy(policy, config) {
+  return applyBehaviorPolicy(policy, customProfile(config).behavior)
+}
+
+function profileBehavior(config, profile) {
+  var adaptive = adaptiveConfig(config)
+  var profilesConfig = object(adaptive.profiles)
+  var profileConfig = object(profilesConfig[normalizedProfile(profile)])
+  return object(profileConfig.componentBehavior || profileConfig.components)
+}
+
+function applyDockedPolicy(policy, dockedState) {
+  var docked = object(dockedState)
+  if (docked.active !== true) return policy
+  var keepTouch = docked.keepTouch !== false
+  policy.docked = true
+  policy.dockedProfile = normalizedMode(docked.targetMode) || "desktop"
+  policy.dockedKeepTouch = keepTouch
+  policy.touch = keepTouch ? "preserve" : "conservative"
+  policy.osk = "suppressed"
+  policy.oskAutoShow = false
+  policy.rotation = token(docked.rotationPolicy || policy.rotation || "preserve")
+  policy.reason = "docked mode"
+  return policy
+}
+
+function accessibilityTarget(config) {
+  var source = object(config)
+  var accessibility = object(source.accessibility)
+  var general = object(source.general)
+  var value = accessibility.touchTargetSize
+  var target = 0
+  if (typeof value === "number" && isFinite(value)) target = value
+  else if (["large", "extra-large", "extra-large-touch"].indexOf(token(value)) >= 0) target = token(value) === "large" ? 52 : 60
+  else if (token(value) === "comfortable" || token(value) === "medium") target = 48
+  if (accessibility.largeUi === true || general.largeUi === true) target = Math.max(target, 48)
+  return Math.max(0, Math.min(64, Math.round(target)))
 }
 
 function componentPolicy(profile, effectiveMode, config, context) {
@@ -305,6 +358,10 @@ function componentPolicy(profile, effectiveMode, config, context) {
     config = source.config || config
   }
   var policy = modePolicy(current)
+  policy.docked = false
+  policy.dockedProfile = ""
+  policy.dockedKeepTouch = false
+  policy.touch = "adaptive"
   if (name === "presentation") {
     policy.gestures = "disabled"
     policy.dockReveal = false
@@ -327,14 +384,16 @@ function componentPolicy(profile, effectiveMode, config, context) {
     policy = applyCustomPolicy(policy, config || {})
     policy.reason = "custom profile"
   }
+  if (name !== "custom") policy = applyBehaviorPolicy(policy, profileBehavior(config || {}, name))
   var reducedMotion = object(source).reducedMotion === true
   if (reducedMotion) {
     policy.animations = "reduced"
     policy.animationPreset = "minimal"
   }
   policy.mode = normalizedMode(current) || "desktop"
-  policy.touchTargetSize = normalizeTarget(policy.touchTargetSize, policy.mode === "tablet" ? 52 : policy.mode === "hybrid" ? 48 : 40)
+  policy.touchTargetSize = Math.max(normalizeTarget(policy.touchTargetSize, policy.mode === "tablet" ? 52 : policy.mode === "hybrid" ? 48 : 40), accessibilityTarget(config || {}))
   policy.oskAutoShow = policy.osk === "auto" && policy.oskAutoShow !== false
+  if (name === "auto") policy = applyDockedPolicy(policy, object(source).dockedState)
   return policy
 }
 
@@ -342,7 +401,7 @@ function autoOverrides(profile, effectiveMode, config, context) {
   if (normalizedProfile(profile) !== "auto") return {}
   var source = object(context)
   if (source.adaptiveEnabled === false || source.automaticTransitions === false) return {}
-  if (effectiveMode === "desktop") return { "tablet-ui": { enabled: false, reason: "Automatic desktop mode" } }
+  if (effectiveMode === "desktop") return { "tablet-ui": { enabled: false, reason: object(source).dockedState.active === true ? "Docked mode" : "Automatic desktop mode" } }
   return { "tablet-ui": { enabled: true, reason: "Automatic " + effectiveMode + " mode" } }
 }
 
@@ -359,6 +418,8 @@ function effective(profile, config, context) {
   var previous = currentMode(enriched, base)
   var resolved = mode(selected, enriched)
   var policy = componentPolicy(selected, resolved, config || {}, enriched)
+  var docked = object(enriched.dockedState)
+  var dockedActive = selected === "auto" && docked.active === true
   return {
     profile: selected,
     sourceMode: base,
@@ -370,8 +431,10 @@ function effective(profile, config, context) {
     adaptiveEnabled: enriched.adaptiveEnabled,
     automaticTransitions: enriched.automaticTransitions,
     automatic: selected === "auto" && enriched.adaptiveEnabled && enriched.automaticTransitions,
-    reason: selected === "auto" ? (enriched.adaptiveEnabled && enriched.automaticTransitions ? "automatic posture and capability policy" : "automatic transitions disabled") : selected + " profile",
+    reason: dockedActive ? "docked mode" : selected === "auto" ? (enriched.adaptiveEnabled && enriched.automaticTransitions ? "automatic posture and capability policy" : "automatic transitions disabled") : selected + " profile",
     signals: normalizeSignals(enriched),
+    docked: dockedActive,
+    dockedState: docked,
     componentPolicy: policy,
     autoOverrides: autoOverrides(selected, resolved, config || {}, enriched)
   }

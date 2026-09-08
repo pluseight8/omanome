@@ -203,6 +203,63 @@ class AdaptiveStateTests(unittest.TestCase):
         self.assertIn("keyboardTransition: root.keyboardTransitionSummary()", service)
         self.assertIn("root.keyboardTransitionState.modeReady !== false", service)
 
+    def test_docked_mode_requires_external_monitor_and_stable_keyboard_then_restores_auto(self) -> None:
+        result = self.run_node(
+            "const C=require('./shell/models/Config.js'); const D=require('./shell/models/DockedMode.js'); const A=require('./shell/models/AdaptiveMode.js'); "
+            "const config=C.defaults(); const internal={name:'eDP-1',builtin:true}; const external={name:'HDMI-A-1'}; "
+            "const context={selectedProfile:'auto',adaptiveEnabled:true,automaticTransitions:true,autoMode:'tablet'}; "
+            "let initial=D.observe(D.emptyState(),{monitors:[internal],physicalKeyboard:false,keyboardStable:true},config,context,0); "
+            "let pending=D.observe(initial.state,{monitors:[internal,external],physicalKeyboard:true,keyboardCount:1,keyboardStable:true},config,context,500); "
+            "let docked=D.observe(pending.state,{monitors:[internal,external],physicalKeyboard:true,keyboardCount:1,keyboardStable:true},config,context,941); "
+            "let undocking=D.observe(docked.state,{monitors:[internal],physicalKeyboard:true,keyboardCount:1,keyboardStable:true},config,context,1500); "
+            "let restored=D.observe(undocking.state,{monitors:[internal],physicalKeyboard:true,keyboardCount:1,keyboardStable:true},config,context,1941); "
+            "const state=A.effective('auto',config,{baseMode:'tablet',signals:{touchscreen:true,physicalKeyboard:true,externalMonitor:true},dockedState:docked.state}); "
+            "const manual=D.resolve({monitors:[internal,external],physicalKeyboard:true,keyboardCount:1,keyboardStable:true},config,{selectedProfile:'tablet',adaptiveEnabled:true,automaticTransitions:true}); "
+            "console.log(JSON.stringify({pending:D.summary(pending.state),docked:D.summary(docked.state),undocking:D.summary(undocking.state),restored:D.summary(restored.state),effective:{mode:state.effectiveMode,policy:state.componentPolicy},manual}));"
+        )
+        self.assertTrue(result["pending"]["pending"])
+        self.assertEqual(result["pending"]["phase"], "docking")
+        self.assertTrue(result["docked"]["active"])
+        self.assertEqual(result["docked"]["targetMode"], "desktop")
+        self.assertEqual(result["docked"]["previousAutoMode"], "tablet")
+        self.assertEqual(result["effective"]["mode"], "desktop")
+        self.assertTrue(result["effective"]["policy"]["docked"])
+        self.assertTrue(result["effective"]["policy"]["dockedKeepTouch"])
+        self.assertEqual(result["effective"]["policy"]["osk"], "suppressed")
+        self.assertTrue(result["undocking"]["pending"])
+        self.assertFalse(result["restored"]["active"])
+        self.assertEqual(result["restored"]["restoredMode"], "tablet")
+        self.assertTrue(result["manual"]["suppressed"])
+        self.assertFalse(result["manual"]["active"])
+
+    def test_docked_mode_monitor_detection_is_conservative_and_profile_policies_are_component_scoped(self) -> None:
+        result = self.run_node(
+            "const C=require('./shell/models/Config.js'); const D=require('./shell/models/DockedMode.js'); const A=require('./shell/models/AdaptiveMode.js'); "
+            "const config=C.set(C.defaults(),'adaptive.profiles.tablet.componentBehavior',{quickSettings:'compact',windowControls:'always',touchTargetSize:60,osk:{mode:'manual',autoShow:false}}); "
+            "const policy=A.effective('tablet',config,{baseMode:'tablet'}).componentPolicy; "
+            "console.log(JSON.stringify({one:D.inventory([{name:'eDP-1',builtin:true}]),two:D.inventory([{name:'eDP-1',builtin:true},{name:'HDMI-A-1'}]),unknown:D.inventory([{name:'panel-a'},{name:'panel-b'}]),policy}));"
+        )
+        self.assertFalse(result["one"]["externalMonitor"])
+        self.assertEqual(result["two"]["externalMonitorCount"], 1)
+        self.assertTrue(result["two"]["externalMonitor"])
+        self.assertFalse(result["unknown"]["externalMonitor"])
+        self.assertEqual(result["policy"]["quickSettings"], "compact")
+        self.assertEqual(result["policy"]["windowControls"], "always")
+        self.assertEqual(result["policy"]["touchTargetSize"], 60)
+        self.assertEqual(result["policy"]["osk"], "manual")
+
+    def test_docked_mode_service_status_is_runtime_only_and_not_a_window_layout_trigger(self) -> None:
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        model = (ROOT / "shell/models/DockedMode.js").read_text(encoding="utf-8")
+        self.assertIn('"models/DockedMode.js" as DockedModeModel', service)
+        self.assertIn("DockedModeModel.observe", service)
+        self.assertIn("DockedModeModel.inventory", service)
+        self.assertIn("dockedModeTimer", service)
+        self.assertIn("dockedMode: root.dockedModeSummary()", service)
+        self.assertIn("never returned by the summary API", model)
+        self.assertNotIn("hyprctl", model)
+        self.assertNotIn("config.write", model)
+
     def test_mode_transition_coordinator_reverses_without_frame_ipc(self) -> None:
         result = self.run_node(
             "const M=require('./shell/models/ModeTransitionCoordinator.js'); "
