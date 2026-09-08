@@ -57,7 +57,9 @@ Commands:
   doctor                 Check Omarchy, Hyprland, Wayland and plugin safety
   logs                  Show recent user-session logs (payloads are not added)
   reload                Ask the existing Omarchy shell to rescan plugins
-  enable | disable       Enable or disable only the Omanome plugin
+  enable | disable       Temporarily enable or disable Omanome (master toggle)
+  master on | off        Set the Omanome master toggle explicitly
+  suspend | resume       Pause or resume runtime enhancements
   safe-mode              Disable Omanome and create a safe-mode marker
   setup                  Print optional dependencies and prepare user dirs
   install                Install this plugin from the official GitHub repo
@@ -71,6 +73,10 @@ Commands:
   recover                Recover an interrupted update transaction
   uninstall [--purge-settings] [--yes]
   version                Print Omanome version
+  mode-info [--json]     Explain policy, effective mode, input and dock state
+  feature list [--json]  List feature availability and effective state
+  feature enable|disable <id>
+                         Change one feature without changing other preferences
   input-info             Print native input protocol and fallback diagnostics
   stylus-info            Print capability inventory without changing input
   touch-info             Print touchscreen inventory without changing input
@@ -93,7 +99,7 @@ Commands:
   profiler               Watch the same owner-only performance snapshot
   watchdog [--watch]     Notify about sustained owner-only resource pressure
   performance reset      Reset local performance counters/state
-  devices                Print Hyprland's device inventory
+  devices [--json]       Print classified, privacy-safe device inventory
 EOF
 }
 
@@ -384,14 +390,38 @@ backup_config() {
   fi
 }
 
+sanitize_status_json() {
+  jq -c '
+    def scrub_event($value):
+      if ($value | type) == "object" then
+        ($value | del(.serial, .serialNumber, .serial_number, .address, .mac, .bluetoothAddress, .bluetooth_address, .path, .devpath, .devPath, .phys, .uniq, .uniqueId, .unique_id))
+      else null end;
+    del(.. | .serial?, .serialNumber?, .serial_number?, .address?, .mac?, .bluetoothAddress?, .bluetooth_address?, .devpath?, .devPath?, .phys?, .uniq?, .uniqueId?, .unique_id?)
+    | if (.keyboards | type) == "array" then
+        .keyboards = [.keyboards[] | {category:(.category // "external"),classification:(.classification // .formFactorRelation // "unknown"),transport:(.transport // "unknown"),connected:(.connected == true),behavior:(.behavior // "generic"),ignored:(.ignored == true),capabilities:(.capabilities // {})}]
+      else . end
+    | if (.inputDevices | type) == "object" then
+        .inputDevices = (.inputDevices | .mapping = (if (.mapping | type) == "array" then [.mapping[] | {role:(.role // "unknown"),output:(.output // "automatic")}] else [] end) | .lastEvent = scrub_event(.lastEvent))
+      else . end
+    | if (.keyboardTransition | type) == "object" then
+        .keyboardTransition = (.keyboardTransition | .event = (if (.event | type) == "object" then (.event | .deviceIds = []) else null end) | .lastEvent = scrub_event(.lastEvent))
+      else . end
+    | .schemaVersion = (.schemaVersion // 1)
+    | .privacy = ((.privacy // {}) + {bluetoothMacEmitted:false,serialsEmitted:false,ephemeralPathsEmitted:false,typedTextLogged:false})'
+}
+
 status_cmd() {
   local json=0
   for argument in "$@"; do [[ "$argument" == "--json" ]] && json=1; done
   if has omarchy-shell; then
     local result
     if result="$(omarchy-shell "$plugin_id" status 2>/dev/null)" && [[ -n "$result" ]]; then
+      local sanitized=""
+      if sanitized="$(printf '%s\n' "$result" | sanitize_status_json 2>/dev/null)"; then
+        result="$sanitized"
+      fi
       if [[ "$json" -eq 1 ]]; then
-        printf '%s\n' "$result" | jq -c 'if type == "object" then . else {serviceStatus:.} end' 2>/dev/null || jq -n --arg status "$result" '{serviceStatus:$status}'
+        printf '%s\n' "$result" | jq -c 'if type == "object" then . else {serviceStatus:.} end' 2>/dev/null || jq -n --arg status "$result" '{schemaVersion:1,serviceStatus:$status,privacy:{bluetoothMacEmitted:false,serialsEmitted:false,typedTextLogged:false}}'
       else
         printf '%s\n' "$result" | jq . 2>/dev/null || printf '%s\n' "$result"
       fi
@@ -409,7 +439,8 @@ status_cmd() {
     --arg transaction "$(if [[ -f "$transaction_file" ]]; then jq -r '.phase // "unknown"' "$transaction_file" 2>/dev/null || printf 'unknown'; else printf 'none'; fi)" \
     --argjson installed "$(if [[ -d "$installed_plugin_dir" ]]; then printf true; else printf false; fi)" \
     --argjson safeMode "$(if [[ -f "$omanome_config_dir/safe-mode" ]]; then printf true; else printf false; fi)" \
-    '{schemaVersion:1,version:$version,service:$shell,configPath:$config,pluginPath:$plugin,installed:$installed,safeMode:$safeMode,transaction:$transaction}'
+    --argjson configJson "$(if [[ -f "$config_path" ]]; then jq -c . "$config_path" 2>/dev/null || printf '{}'; else jq -c . "$repo_dir/config/defaults.json" 2>/dev/null || printf '{}'; fi)" \
+    '{schemaVersion:1,version:$version,service:$shell,configPath:$config,pluginPath:$plugin,installed:$installed,safeMode:$safeMode,transaction:$transaction,enabled:true,suspended:false,profile:($configJson.adaptive.profile // "auto"),mode:"unknown",effectiveMode:"unknown",transitioning:false,keyboardState:"unknown",keyboardStable:false,privacy:{bluetoothMacEmitted:false,serialsEmitted:false,typedTextLogged:false}}'
     return 0
   fi
   jq -n \
@@ -418,8 +449,271 @@ status_cmd() {
     --arg plugin "$installed_plugin_dir" \
     --arg shell "not running" \
     --argjson installed "$(if [[ -d "$installed_plugin_dir" ]]; then printf true; else printf false; fi)" \
-    '{version:$version, service:$shell, configPath:$config, pluginPath:$plugin, installed:$installed}'
+    --argjson configJson "$(if [[ -f "$config_path" ]]; then jq -c . "$config_path" 2>/dev/null || printf '{}'; else jq -c . "$repo_dir/config/defaults.json" 2>/dev/null || printf '{}'; fi)" \
+    '{schemaVersion:1,version:$version,service:$shell,configPath:$config,pluginPath:$plugin,installed:$installed,enabled:true,suspended:false,profile:($configJson.adaptive.profile // "auto"),mode:"unknown",effectiveMode:"unknown",transitioning:false,keyboardState:"unknown",keyboardStable:false,privacy:{bluetoothMacEmitted:false,serialsEmitted:false,typedTextLogged:false}}'
 }
+
+# The service owns runtime truth. Keep the CLI on the same IPC boundary as
+# the bar and Settings instead of probing hardware a second time or writing
+# transient mode state to disk.
+service_status_json() {
+  local result
+  has omarchy-shell || return 1
+  result="$(omarchy-shell "$plugin_id" status 2>/dev/null)" || return 1
+  [[ -n "$result" ]] || return 1
+  jq -ce 'select(type == "object")' <<<"$result" 2>/dev/null
+}
+
+service_control_cmd() {
+  local action="$1" method="" json=0
+  shift || true
+  for argument in "$@"; do [[ "$argument" == "--json" ]] && json=1; done
+  case "$action" in
+    enable|on) method="enable"; action="enable" ;;
+    disable|off) method="disable"; action="disable" ;;
+    suspend) method="suspend" ;;
+    resume) method="resume" ;;
+    *) die "unknown runtime control action: $action" ;;
+  esac
+
+  local result="" call_ok=0
+  if has omarchy-shell && result="$(omarchy-shell "$plugin_id" "$method" 2>/dev/null)"; then
+    local last_line="${result##*$'\n'}"
+    last_line="${last_line%$'\r'}"
+    [[ "$last_line" == "ok" ]] && call_ok=1
+  else
+    result="omarchy-shell is unavailable"
+  fi
+
+  if [[ "$json" -eq 1 ]]; then
+    jq -n --arg action "$action" --arg result "$result" --arg service "$plugin_id" --argjson ok "$(if [[ "$call_ok" -eq 1 ]]; then printf true; else printf false; fi)" \
+      '{schemaVersion:1,action:$action,ok:$ok,result:$result,service:$service,privacy:{typedTextLogged:false}}'
+  elif [[ "$call_ok" -eq 1 ]]; then
+    case "$action" in
+      enable) say "Omanome master toggle enabled." ;;
+      disable) say "Omanome master toggle disabled; input state was released by the service." ;;
+      suspend) say "Omanome enhancements suspended; the service remains available." ;;
+      resume) say "Omanome enhancements resumed." ;;
+    esac
+  else
+    say "omanome: failed to $action Omanome runtime: $result" >&2
+  fi
+  [[ "$call_ok" -eq 1 ]] || return "$EX_NETWORK"
+}
+
+mode_info_cmd() {
+  local json=0
+  for argument in "$@"; do [[ "$argument" == "--json" ]] && json=1; done
+
+  local service='{}' source="service" config='{}' service_result=""
+  if service_result="$(service_status_json 2>/dev/null)"; then service="$service_result"; else source="fallback"; service='{}'; fi
+  if [[ -f "$(config_file)" ]]; then
+    config="$(jq -c . "$(config_file)" 2>/dev/null || printf '{}')"
+  else
+    config="$(jq -c . "$repo_dir/config/defaults.json" 2>/dev/null || printf '{}')"
+  fi
+
+  local payload
+  payload="$(jq -n \
+    --arg version "$(manifest_value version)" \
+    --arg source "$source" \
+    --argjson service "$service" \
+    --argjson config "$config" '
+      def mode_id:
+        tostring | ascii_downcase | gsub("[_[:space:]]+"; "-")
+        | if . == "automatic" or . == "default" then "auto" else . end;
+      def mode_label($value):
+        if $value == "auto" then "Auto"
+        elif $value == "desktop" then "Desktop"
+        elif $value == "tablet" then "Tablet"
+        elif $value == "hybrid" then "Hybrid"
+        elif $value == "unknown" then "Unknown"
+        else ($value | tostring) end;
+      def useful_text($value):
+        ($value | tostring) as $text
+        | if $value == null or $text == "" or (["", "idle", "unknown", "not-evaluated"] | index($text) != null)
+          then null else $text end;
+      def service_bool($value): if $source == "service" then ($value == true) else null end;
+      ($service | if type == "object" then . else {} end) as $s
+      | ($config | if type == "object" then . else {} end) as $c
+      | (($s.profile // $c.adaptive.profile // $s.requestedMode // $c.general.mode // "auto") | mode_id) as $policyCandidate
+      | (if (["auto", "desktop", "tablet", "hybrid"] | index($policyCandidate)) == null then "auto" else $policyCandidate end) as $policyId
+      | (($s.effectiveMode // (if $source == "service" then $s.mode else null end) // "unknown") | mode_id) as $effectiveCandidate
+      | (if (["desktop", "tablet", "hybrid", "unknown"] | index($effectiveCandidate)) == null then "unknown" else $effectiveCandidate end) as $effectiveId
+      | (($s.posture.signals.posture // $s.posture.posture // $s.tabletMode.mode // $effectiveId) | mode_id) as $postureCandidate
+      | (if (["desktop", "tablet", "hybrid", "unknown"] | index($postureCandidate)) == null then $effectiveId else $postureCandidate end) as $postureId
+      | (($s.keyboardState // $s.keyboardTransition.phase // "") | tostring | ascii_downcase) as $keyboardPhase
+      | (if $source == "fallback" then "unknown"
+         elif $keyboardPhase == "disconnected" then "detached"
+         elif $keyboardPhase == "disconnecting" then "disconnecting"
+         elif $keyboardPhase == "connecting" then "connecting"
+         elif $keyboardPhase == "detached" then "detached"
+         elif $keyboardPhase == "connected" then "connected"
+         elif $s.physicalKeyboard == true or (($s.physicalKeyboardCount // 0) > 0) then "connected"
+         else "detached" end) as $keyboard
+      | (if $source == "service" then (($s.hasTouchscreen == true) or (($s.touch.count // 0) > 0)) else null end) as $touchPresent
+      | (if $touchPresent == null then "unknown" elif $touchPresent then "present" else "absent" end) as $touch
+      | (($s.dockedMode.externalMonitorCount // $s.externalMonitorCount // 0) | tonumber) as $externalCount
+      | (if $source == "service" then (($s.dockedMode.externalMonitor == true) or ($s.externalMonitor == true) or $externalCount > 0) else null end) as $externalMonitor
+      | (useful_text($s.dockedMode.reason)) as $dockedReason
+      | (useful_text($s.keyboardTransition.modeReason)) as $keyboardReason
+      | (useful_text($s.tabletMode.reason)) as $tabletReason
+      | (useful_text($s.modeTransition.reason)) as $transitionReason
+      | (if $source == "fallback" then "Omanome service is not running"
+         elif $s.safeMode == true then "Safe Mode is active"
+         elif $s.enabled == false then "Omanome master toggle is off"
+         elif $s.suspended == true then "Omanome is suspended"
+         elif $s.dockedMode.active == true and $dockedReason != null then $dockedReason
+         elif $transitionReason != null then $transitionReason
+         elif $keyboardReason != null then $keyboardReason
+         elif $tabletReason != null then $tabletReason
+         elif $policyId != "auto" then (mode_label($policyId) + " profile selected")
+         else "automatic posture and capability policy" end) as $reason
+      | {
+          schemaVersion: 1,
+          version: $version,
+          source: $source,
+          policy: mode_label($policyId),
+          policyId: $policyId,
+          effective: mode_label($effectiveId),
+          effectiveMode: $effectiveId,
+          keyboard: $keyboard,
+          keyboardState: $keyboard,
+          posture: mode_label($postureId),
+          postureId: $postureId,
+          touch: $touch,
+          touchPresent: $touchPresent,
+          externalMonitor: $externalMonitor,
+          externalMonitorCount: (if $source == "service" then $externalCount else null end),
+          reason: $reason,
+          enabled: (if $source == "service" then ($s.enabled == true) else null end),
+          suspended: (if $source == "service" then ($s.suspended == true) else null end),
+          transitioning: (if $source == "service" then ($s.transitioning == true) else null end),
+          docked: {
+            active: (if $source == "service" then ($s.dockedMode.active == true) else null end),
+            phase: (if $source == "service" then ($s.dockedMode.phase // "undocked") else "unknown" end)
+          },
+          keyboardDetails: {
+            connected: service_bool(($s.physicalKeyboard == true) or (($s.physicalKeyboardCount // 0) > 0)),
+            physical: service_bool($s.physicalKeyboard),
+            detachable: service_bool($s.detachableKeyboard),
+            bluetooth: service_bool($s.bluetoothKeyboard),
+            stable: (if $source == "service" then ($s.keyboardStable != false) else null end),
+            count: (if $source == "service" then ($s.physicalKeyboardCount // $s.keyboardTransition.connectedCount // 0) else null end)
+          },
+          preview: (if $source == "service" then ($s.adaptivePreview // {active:false}) else {active:false} end),
+          privacy: {bluetoothMacEmitted:false, serialsEmitted:false, ephemeralPathsEmitted:false, typedTextLogged:false}
+        }' )"
+
+  if [[ "$json" -eq 1 ]]; then
+    printf '%s\n' "$payload"
+  else
+    jq -r '"Policy: \(.policy)\nEffective: \(.effective)\nKeyboard: \(.keyboard)\nPosture: \(.posture)\nTouch: \(.touch)\nExternal monitor: " + (if .externalMonitor == null then "unknown" elif .externalMonitor then "yes" else "no" end) + "\nReason: \(.reason)"' <<<"$payload"
+  fi
+}
+
+feature_fallback_definitions() {
+  jq -n '
+    [
+      {id:"touch-mode",label:"Touch Mode",configPath:"touch.enabled",defaultEnabled:true},
+      {id:"tablet-ui",label:"Tablet UI",configPath:"tabletMode.enabled",defaultEnabled:true},
+      {id:"osk",label:"OSK",configPath:"keyboard.enabled",defaultEnabled:true},
+      {id:"gestures",label:"Gestures",configPath:"multitasking.gestures.enabled",defaultEnabled:true},
+      {id:"snap-assist",label:"Snap Assist",configPath:"multitasking.snapAssist.enabled",defaultEnabled:true},
+      {id:"split-view",label:"Split View",configPath:"multitasking.splitView.enabled",defaultEnabled:true},
+      {id:"dock",label:"Dock",configPath:"dock.enabled",defaultEnabled:true},
+      {id:"window-controls",label:"Window Controls",configPath:"windowControls.enabled",defaultEnabled:true},
+      {id:"rotation",label:"Rotation",configPath:"rotation.enabled",defaultEnabled:true},
+      {id:"stylus",label:"Stylus",configPath:"stylus.enabled",defaultEnabled:true},
+      {id:"notifications",label:"Notifications",configPath:"notifications.enabled",defaultEnabled:true},
+      {id:"clipboard",label:"Clipboard",configPath:"clipboard.enabled",defaultEnabled:true},
+      {id:"effects",label:"Effects",configPath:"effects.enabled",defaultEnabled:true}
+    ]'
+}
+
+feature_list_cmd() {
+  local json=0
+  for argument in "$@"; do [[ "$argument" == "--json" ]] && json=1; done
+  local service='{}' source="service" config='{}' definitions='[]' service_result=""
+  if service_result="$(service_status_json 2>/dev/null)"; then service="$service_result"; else source="fallback"; service='{}'; fi
+  if [[ -f "$(config_file)" ]]; then config="$(jq -c . "$(config_file)" 2>/dev/null || printf '{}')"; else config="$(jq -c . "$repo_dir/config/defaults.json" 2>/dev/null || printf '{}')"; fi
+  definitions="$(feature_fallback_definitions)"
+  local payload
+  payload="$(jq -n --arg source "$source" --arg profile "$(jq -r '.profile // .adaptive.profile // "auto"' <<<"$service" 2>/dev/null || printf 'auto')" --argjson service "$service" --argjson config "$config" --argjson definitions "$definitions" '
+    def safe_rows($value): if (($value.features.states | type) == "array") then $value.features.states else [] end;
+    def configured($path; $fallback):
+      (reduce (($path | split("."))[]) as $part ($config;
+        if (type == "object" and has($part)) then .[$part] else null end)) as $value
+      | if $value == null then $fallback else ($value != false) end;
+    if $source == "service" then
+      (safe_rows($service)) as $rows
+      | {schemaVersion:1,source:$source,profile:$profile,
+         summary:{total:($rows|length),available:([ $rows[] | select(.available == true) ]|length),active:([ $rows[] | select(.effectiveEnabled == true) ]|length),partial:([ $rows[] | select(.effectiveEnabled == true) ]|length) > 0 and ([ $rows[] | select(.available == true) ]|length) > ([ $rows[] | select(.effectiveEnabled == true) ]|length)},
+         features:($rows | map({id,label,configPath,available:(.available == true),enabled:(.effectiveEnabled == true),effectiveEnabled:(.effectiveEnabled == true),userEnabled:(.userEnabled == true),disabledReason:(.disabledReason // ""),temporarilySuppressed:(.temporarilySuppressed == true),overrideSource:(.overrideSource // "unknown"),profile:(.profile // $profile)})),
+         privacy:{bluetoothMacEmitted:false,serialsEmitted:false,typedTextLogged:false}}
+    else
+      ($definitions | map({id,label,configPath,available:null,enabled:null,effectiveEnabled:null,userEnabled:configured(.configPath;.defaultEnabled),disabledReason:"Omanome service is not running",temporarilySuppressed:false,overrideSource:"service-unavailable",profile:$profile})) as $rows
+      | {schemaVersion:1,source:$source,profile:$profile,summary:{total:($rows|length),available:0,active:0,partial:false},features:$rows,privacy:{bluetoothMacEmitted:false,serialsEmitted:false,typedTextLogged:false}}
+    end' )"
+  if [[ "$json" -eq 1 ]]; then
+    printf '%s\n' "$payload"
+  else
+    printf '%s\n' "$payload" | jq -r 'if (.features | length) == 0 then "No feature state is available." else (.features[] | "\(.id): " + (if .effectiveEnabled == true then "enabled" elif .effectiveEnabled == false then "disabled" else "unknown" end) + (if .disabledReason != "" then " — " + .disabledReason else "" end)) end'
+  fi
+}
+
+feature_control_cmd() {
+  local operation="$1" id="${2:-}" json=0 value=""
+  shift 2 || true
+  for argument in "$@"; do [[ "$argument" == "--json" ]] && json=1; done
+  [[ -n "$id" ]] || die "feature $operation requires a feature id"
+  case "$operation" in
+    enable) value="true" ;;
+    disable) value="false" ;;
+    toggle) value="toggle" ;;
+    *) die "unknown feature operation: $operation" ;;
+  esac
+  local result="" call_ok=0
+  if has omarchy-shell && result="$(omarchy-shell "$plugin_id" feature "$id" "$value" 2>/dev/null)"; then
+    local last_line="${result##*$'\n'}"
+    last_line="${last_line%$'\r'}"
+    [[ "$last_line" == "ok" ]] && call_ok=1
+  else
+    result="omarchy-shell is unavailable"
+  fi
+  if [[ "$json" -eq 1 ]]; then
+    jq -n --arg operation "$operation" --arg id "$id" --arg result "$result" --argjson ok "$(if [[ "$call_ok" -eq 1 ]]; then printf true; else printf false; fi)" '{schemaVersion:1,operation:$operation,feature:$id,ok:$ok,result:$result,privacy:{typedTextLogged:false}}'
+  elif [[ "$call_ok" -eq 1 ]]; then
+    say "Feature $id: $operation requested."
+  else
+    say "omanome: failed to $operation feature $id: $result" >&2
+  fi
+  [[ "$call_ok" -eq 1 ]] || return "$EX_NETWORK"
+}
+
+feature_cmd() {
+  local operation="${1:-list}"
+  shift || true
+  case "$operation" in
+    list) feature_list_cmd "$@" ;;
+    enable|disable|toggle) feature_control_cmd "$operation" "$@" ;;
+    *) usage >&2; die "unknown feature operation: $operation" ;;
+  esac
+}
+
+master_cmd() {
+  local operation="${1:-status}"
+  shift || true
+  case "$operation" in
+    on|enable) service_control_cmd enable "$@" ;;
+    off|disable) service_control_cmd disable "$@" ;;
+    status) status_cmd "$@" ;;
+    *) die "master expects on, off, or status" ;;
+  esac
+}
+
+suspend_cmd() { service_control_cmd suspend "$@"; }
+resume_cmd() { service_control_cmd resume "$@"; }
 
 doctor_cmd() {
   local json=0
@@ -499,13 +793,20 @@ reload_cmd() {
 }
 
 enable_cmd() {
+  if service_status_json >/dev/null 2>&1; then
+    service_control_cmd enable "$@"
+    return
+  fi
   has omarchy || die "omarchy is not installed"
-  safe_remove_file "$omanome_config_dir/safe-mode" "$omanome_config_dir"
   omarchy plugin enable "$plugin_id"
   reload_cmd || true
 }
 
 disable_cmd() {
+  if service_status_json >/dev/null 2>&1; then
+    service_control_cmd disable "$@"
+    return
+  fi
   has omarchy || die "omarchy is not installed"
   omarchy plugin disable "$plugin_id"
   reload_cmd || true
@@ -1474,9 +1775,71 @@ uninstall_cmd() {
   fi
 }
 
+sanitize_hypr_devices() {
+  jq -c '
+    def list($value): if ($value | type) == "array" then $value else [] end;
+    def bool_value($value): $value == true or $value == 1 or (($value | tostring | ascii_downcase) == "true");
+    def record($category): {
+      category: $category,
+      type: ((.type // .deviceType // .device_type // .kind // $category) | tostring),
+      classification: ((.classification // .formFactorRelation // .form_factor_relation // .role // "unknown") | tostring),
+      transport: ((.transport // .connection // .bus // .backend // "unknown") | tostring),
+      connected: (if .connected == null then true else bool_value(.connected) end),
+      capabilityEvidence: ((.capabilityEvidence // "inventory-only") | tostring)
+    };
+    {
+      keyboards: (list(.keyboards) | map(record("keyboard"))),
+      tablets: (list(.tablets // .tabletTools // .tablettools) | map(record("tablet"))),
+      touchDevices: (list(.touch // .touchDevices // .touchdevices) | map(record("touchscreen")))
+    }'
+}
+
 devices_cmd() {
-  has hyprctl || die "hyprctl is not installed"
-  hyprctl devices -j | jq .
+  local json=0
+  for argument in "$@"; do [[ "$argument" == "--json" ]] && json=1; done
+
+  local service='{}'
+  if service="$(service_status_json 2>/dev/null)"; then
+    local payload
+    payload="$(jq -n --argjson service "$service" '
+      def keyboard($item): {
+        category: ($item.category // "external"),
+        classification: ($item.classification // $item.formFactorRelation // "unknown"),
+        transport: ($item.transport // "unknown"),
+        connected: ($item.connected == true),
+        behavior: ($item.behavior // "generic"),
+        ignored: ($item.ignored == true),
+        capabilityEvidence: ($item.capabilityEvidence // "service"),
+        capabilities: {
+          normalKeyboard: ($item.capabilities.normalKeyboard == true),
+          functionRow: ($item.capabilities.functionRow == true),
+          numberRow: ($item.capabilities.numberRow == true),
+          modifiers: ($item.capabilities.modifiers == true),
+          navigation: ($item.capabilities.navigation == true)
+        }
+      };
+      ($service | if type == "object" then . else {} end) as $s
+      | {schemaVersion:1,source:"service",physicalKeyboards:(($s.keyboards // []) | map(keyboard(.))),
+         touchscreen:{present:($s.hasTouchscreen == true),count:(if $s.hasTouchscreen == true then 1 else 0 end)},
+         stylus:{present:($s.hasStylus == true),count:($s.stylusCount // (if $s.hasStylus == true then 1 else 0 end))},
+         dockedMode:{active:($s.dockedMode.active == true),externalMonitor:($s.dockedMode.externalMonitor == true),externalMonitorCount:($s.dockedMode.externalMonitorCount // 0)},
+         privacy:{bluetoothMacEmitted:false,serialsEmitted:false,ephemeralPathsEmitted:false,typedTextLogged:false}}')"
+    if [[ "$json" -eq 1 ]]; then printf '%s\n' "$payload"; else jq -r '"Physical keyboards: \(.physicalKeyboards | length)\n" + (.physicalKeyboards[]? | "- \(.classification), \(.transport), " + (if .connected then "connected" else "disconnected" end) + ", behavior=\(.behavior)") + "\nTouchscreen: " + (if .touchscreen.present then "present" else "absent" end) + "\nStylus: " + (if .stylus.present then "present" else "absent" end)' <<<"$payload"; fi
+    return 0
+  fi
+
+  local devices='{}' safe='{}' source="hyprland"
+  if has hyprctl; then devices="$(hyprctl devices -j 2>/dev/null || printf '{}')"; else source="unavailable"; fi
+  jq -e . >/dev/null 2>&1 <<<"$devices" || devices='{}'
+  safe="$(printf '%s\n' "$devices" | sanitize_hypr_devices)"
+  local payload
+  payload="$(jq -n --arg source "$source" --argjson devices "$safe" '
+    {schemaVersion:1,source:$source,physicalKeyboards:$devices.keyboards,
+     touchscreen:{present:(($devices.touchDevices | length) > 0),count:($devices.touchDevices | length)},
+     stylus:{present:(($devices.tablets | length) > 0),count:($devices.tablets | length)},
+     dockedMode:{active:false,externalMonitor:null,externalMonitorCount:null},
+     privacy:{bluetoothMacEmitted:false,serialsEmitted:false,ephemeralPathsEmitted:false,typedTextLogged:false}}')"
+  if [[ "$json" -eq 1 ]]; then printf '%s\n' "$payload"; else jq -r '"Physical keyboards: \(.physicalKeyboards | length)\n" + (.physicalKeyboards[]? | "- \(.classification), \(.transport), " + (if .connected then "connected" else "disconnected" end)) + "\nTouchscreen: " + (if .touchscreen.present then "present" else "absent" end) + "\nStylus: " + (if .stylus.present then "present" else "absent" end)' <<<"$payload"; fi
 }
 
 input_info_cmd() {
@@ -1532,31 +1895,33 @@ input_info_cmd() {
 }
 
 stylus_info_cmd() {
-  local devices='{}' native='{}'
+  local devices='{}' native='{}' safe='{}'
   if has hyprctl; then
     devices="$(hyprctl devices -j 2>/dev/null || printf '{}')"
   fi
   native="$(input_info_cmd 2>/dev/null || printf '{}')"
   jq -e . >/dev/null 2>&1 <<<"$devices" || devices='{}'
   jq -e . >/dev/null 2>&1 <<<"$native" || native='{}'
+  safe="$(printf '%s\n' "$devices" | sanitize_hypr_devices)"
   jq -n \
-    --argjson devices "$devices" \
+    --argjson devices "$safe" \
     --argjson native "$native" \
-    '{schemaVersion:1,nativeBackend:($native.nativeBackend // {status:"unavailable"}),protocolSupport:($native.protocolSupport // {}),stylus:($native.stylus // {count:0}),tablets:($devices.tablets // $devices.tabletTools // $devices.tablettools // []),touchDevices:($devices.touch // $devices.touchDevices // $devices.touchdevices // []),privacy:($native.privacy // {hardwareIdentifiersEmitted:false,typedTextLogged:false,surroundingTextPersisted:false})}'
+    '{schemaVersion:1,nativeBackend:($native.nativeBackend // {status:"unavailable"}),protocolSupport:($native.protocolSupport // {}),stylus:($native.stylus // {count:0}),tablets:($devices.tablets // []),touchDevices:($devices.touchDevices // []),privacy:(($native.privacy // {}) + {hardwareIdentifiersEmitted:false,typedTextLogged:false,surroundingTextPersisted:false,serialsEmitted:false,bluetoothMacEmitted:false})}'
 }
 
 touch_info_cmd() {
-  local devices='{}' native='{}'
+  local devices='{}' native='{}' safe='{}'
   if has hyprctl; then
     devices="$(hyprctl devices -j 2>/dev/null || printf '{}')"
   fi
   native="$(input_info_cmd 2>/dev/null || printf '{}')"
   jq -e . >/dev/null 2>&1 <<<"$devices" || devices='{}'
   jq -e . >/dev/null 2>&1 <<<"$native" || native='{}'
+  safe="$(printf '%s\n' "$devices" | sanitize_hypr_devices)"
   jq -n \
-    --argjson devices "$devices" \
+    --argjson devices "$safe" \
     --argjson native "$native" \
-    '{schemaVersion:1,nativeBackend:($native.nativeBackend // {status:"unavailable"}),protocolSupport:($native.protocolSupport // {}),touchscreen:($native.touchscreen // {count:0}),touchDevices:($devices.touch // $devices.touchDevices // $devices.touchdevices // []),modeReasoning:{touchscreenDetected:(($native.touchscreen.count // 0) > 0),physicalKeyboardDetected:($native.physicalKeyboard.detected // false),reason:(if (($native.touchscreen.count // 0) == 0) then "no touchscreen capability reported" elif ($native.physicalKeyboard.detected // false) then "touchscreen present; physical keyboard also detected" else "touchscreen present without physical keyboard" end)},privacy:($native.privacy // {hardwareIdentifiersEmitted:false,typedTextLogged:false,surroundingTextPersisted:false})}'
+    '{schemaVersion:1,nativeBackend:($native.nativeBackend // {status:"unavailable"}),protocolSupport:($native.protocolSupport // {}),touchscreen:($native.touchscreen // {count:0}),touchDevices:($devices.touchDevices // []),modeReasoning:{touchscreenDetected:(($native.touchscreen.count // 0) > 0),physicalKeyboardDetected:($native.physicalKeyboard.detected // false),reason:(if (($native.touchscreen.count // 0) == 0) then "no touchscreen capability reported" elif ($native.physicalKeyboard.detected // false) then "touchscreen present; physical keyboard also detected" else "touchscreen present without physical keyboard" end)},privacy:(($native.privacy // {}) + {hardwareIdentifiersEmitted:false,typedTextLogged:false,surroundingTextPersisted:false,serialsEmitted:false,bluetoothMacEmitted:false})}'
 }
 
 sensor_info_cmd() {
@@ -1626,6 +1991,8 @@ diagnostics_cmd() {
       # not disable redaction and never uploads data.
       support_bundle_cmd "${filtered[@]}" ;;
     doctor) doctor_cmd --json "$@" ;;
+    mode-info) mode_info_cmd "$@" ;;
+    feature-list|features) feature_list_cmd "$@" ;;
     *) usage >&2; die "unknown diagnostics operation: $operation" ;;
   esac
 }
@@ -1713,6 +2080,14 @@ case "$command_name" in
   recover) recover_cmd "$@" ;;
   uninstall) uninstall_cmd "$@" ;;
   devices) devices_cmd "$@" ;;
+  mode-info) mode_info_cmd "$@" ;;
+  master) master_cmd "$@" ;;
+  suspend) suspend_cmd "$@" ;;
+  resume) resume_cmd "$@" ;;
+  feature-list) feature_list_cmd "$@" ;;
+  feature)
+    feature_cmd "$@"
+    ;;
   input-info) input_info_cmd "$@" ;;
   stylus-info) stylus_info_cmd "$@" ;;
   touch-info) touch_info_cmd "$@" ;;

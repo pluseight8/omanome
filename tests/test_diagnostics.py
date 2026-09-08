@@ -268,6 +268,65 @@ class DiagnosticsTests(unittest.TestCase):
                 if operation == "touch-info":
                     self.assertIn("modeReasoning", payload)
 
+    def test_adaptive_cli_mode_features_controls_and_device_privacy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            shell = fake_bin / "omarchy-shell"
+            shell.write_text(
+                "#!/usr/bin/env bash\n"
+                "case \"${2:-}\" in\n"
+                "  status)\n"
+                "    printf '%s\\n' '{\"version\":\"1.2.0\",\"service\":\"ready\",\"enabled\":true,\"suspended\":false,\"profile\":\"auto\",\"mode\":\"tablet\",\"effectiveMode\":\"tablet\",\"transitioning\":false,\"keyboardState\":\"disconnected\",\"keyboardStable\":true,\"hasTouchscreen\":true,\"physicalKeyboard\":false,\"detachableKeyboard\":false,\"bluetoothKeyboard\":false,\"physicalKeyboardCount\":0,\"tabletMode\":{\"mode\":\"tablet\",\"reason\":\"touchscreen present without physical keyboard\"},\"dockedMode\":{\"active\":false,\"externalMonitor\":false,\"externalMonitorCount\":0,\"phase\":\"undocked\",\"reason\":\"not-evaluated\"},\"keyboardTransition\":{\"phase\":\"Disconnected\",\"modeReason\":\"keyboard detached\"},\"keyboards\":[{\"id\":\"aa:bb:cc:dd:ee:ff\",\"name\":\"PRIVATE-SERIAL-123\",\"classification\":\"detachable\",\"transport\":\"bluetooth\",\"connected\":false,\"behavior\":\"hybrid\",\"capabilities\":{\"normalKeyboard\":true}}],\"features\":{\"total\":2,\"available\":2,\"active\":1,\"partial\":true,\"states\":[{\"id\":\"gestures\",\"label\":\"Gestures\",\"configPath\":\"multitasking.gestures.enabled\",\"available\":true,\"effectiveEnabled\":true,\"userEnabled\":true,\"disabledReason\":\"\",\"temporarilySuppressed\":false,\"overrideSource\":\"user\",\"profile\":\"auto\"},{\"id\":\"snap-assist\",\"label\":\"Snap Assist\",\"configPath\":\"multitasking.snapAssist.enabled\",\"available\":true,\"effectiveEnabled\":false,\"userEnabled\":true,\"disabledReason\":\"Gaming profile\",\"temporarilySuppressed\":true,\"overrideSource\":\"profile\",\"profile\":\"gaming\"}]}}'\n"
+                "    ;;\n"
+                "  enable|disable|suspend|resume|feature) printf 'ok\\n' ;;\n"
+                "  *) exit 1 ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            shell.chmod(shell.stat().st_mode | stat.S_IXUSR)
+            env = os.environ.copy()
+            env.update(
+                {
+                    "HOME": str(root),
+                    "XDG_CONFIG_HOME": str(root / "config"),
+                    "XDG_STATE_HOME": str(root / "state"),
+                    "XDG_CACHE_HOME": str(root / "cache"),
+                    "PATH": f"{fake_bin}:{env['PATH']}",
+                }
+            )
+
+            mode = subprocess.run([str(CLI), "mode-info", "--json"], env=env, capture_output=True, text=True)
+            self.assertEqual(mode.returncode, 0, mode.stderr)
+            mode_payload = json.loads(mode.stdout)
+            self.assertEqual(mode_payload["policy"], "Auto")
+            self.assertEqual(mode_payload["effective"], "Tablet")
+            self.assertEqual(mode_payload["keyboard"], "detached")
+            self.assertEqual(mode_payload["posture"], "Tablet")
+            self.assertEqual(mode_payload["touch"], "present")
+            self.assertFalse(mode_payload["externalMonitor"])
+            self.assertFalse(mode_payload["privacy"]["serialsEmitted"])
+
+            feature_list = subprocess.run([str(CLI), "feature", "list", "--json"], env=env, capture_output=True, text=True)
+            self.assertEqual(feature_list.returncode, 0, feature_list.stderr)
+            feature_payload = json.loads(feature_list.stdout)
+            self.assertEqual(feature_payload["summary"]["total"], 2)
+            self.assertFalse(feature_payload["features"][1]["effectiveEnabled"])
+
+            for command in (("enable",), ("disable",), ("suspend",), ("resume",), ("master", "off"), ("feature", "disable", "gestures")):
+                with self.subTest(command=command):
+                    result = subprocess.run([str(CLI), *command, "--json"], env=env, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertTrue(json.loads(result.stdout)["ok"])
+
+            devices = subprocess.run([str(CLI), "devices", "--json"], env=env, capture_output=True, text=True)
+            self.assertEqual(devices.returncode, 0, devices.stderr)
+            device_payload = json.loads(devices.stdout)
+            self.assertEqual(device_payload["physicalKeyboards"][0]["classification"], "detachable")
+            self.assertNotIn("aa:bb:cc:dd:ee:ff", devices.stdout)
+            self.assertNotIn("PRIVATE-SERIAL-123", devices.stdout)
+
     def test_support_bundle_excludes_personal_config_values(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
