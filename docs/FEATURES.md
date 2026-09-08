@@ -1,4 +1,4 @@
-# Omanome 1.1 feature truth matrix
+# Omanome 1.2 feature truth matrix
 
 This document separates implemented contracts from capabilities that require a
 particular compositor, backend, or physical device. The status vocabulary is:
@@ -14,6 +14,10 @@ particular compositor, backend, or physical device. The status vocabulary is:
 
 | Feature | Implementation/backend | Runtime or fixture evidence | Hardware/certification status | Fallback and limitation |
 | --- | --- | --- | --- | --- |
+| Adaptive Control Center and master boundary | One service-owned popup/widget with master enable/disable, suspend/resume, compact toggles, ordered modules, OSD, and safe input release | `make adaptive-check`, CLI JSON contracts, QML/source checks | Stable portable contract; bar/widget and GUI acceptance remain host-dependent | Standard Omarchy bar stays active; disable and suspend are reversible and do not rewrite user settings |
+| Adaptive profiles and feature registry | Auto/Desktop/Tablet/Hybrid plus Presentation/Gaming/Custom overlays, per-component policy, capability/safety/user/profile precedence, and temporary preview | Adaptive model, settings, feature-state, and migration tests | Stable portable policy contract; physical posture and accessibility acceptance remain untested | Runtime transitions and previews are not persisted; unavailable features report reasons |
+| Keyboard attach/detach and identity | Capability-based built-in/USB/detachable/Bluetooth classification, opaque stable IDs, debounce/hysteresis, device rules, and reversible transition choreography | Keyboard/device/transition model tests, adaptive fixture, 100-event hotplug regression | Untested on physical keyboard combinations | No full Bluetooth address, serial, raw path, typed text, or title is emitted in status/diagnostics |
+| Docked mode | External-monitor and keyboard trigger, configured desktop/tablet/hybrid profile, preserved internal touch, rotation policy, and Auto-state restore | Docked model tests, adaptive fixture, portable safety gate | Untested on physical multi-monitor hardware | Missing capabilities keep Docked unavailable; undocking restores only a stable runtime state |
 | Standard bar and plugin coexistence | One Omarchy manifest with `service`, `bar-widget`, and `panel`; no replacement `bar` kind or second shell | `omarchy plugin validate .`, manifest tests, portable lifecycle E2E | Stable; physical certification not applicable | Existing bar, plugins, themes, and user Hyprland files remain outside Omanome ownership |
 | Overview, workspaces, launcher, App Grid, Dock | Native Quickshell views, foreign-toplevel activation, desktop entries, persisted favorites/folders, responsive layout | Node model tests, QML lint, manifest/fixture gates | Stable contract; GUI interaction still requires manual host acceptance | Empty or unavailable providers produce empty states; shell remains usable |
 | Snap Assist and layout engine | Event-driven `LayoutEngine` geometry for halves, thirds, quarters, portrait, gaps, reserved bar space, scale, and minimum size | `make multitasking-check`, Node geometry tests, portable fixture gate | Stable portable contract; physical drag acceptance remains untested | Preview is a bounded proposal; no continuous geometry forcing or fake screenshots |

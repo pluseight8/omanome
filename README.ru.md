@@ -2,12 +2,15 @@
 
 Omanome — открытый набор улучшений рабочего стола для актуального Omarchy Quattro на Hyprland. Он добавляет GNOME-подобный интерфейс для touchscreen и стилуса, но остаётся обычным Omarchy Shell Plugin: стандартная верхняя панель не заменяется, второй Quickshell не запускается, GNOME Shell и Mutter не нужны.
 
-Это запускаемая релизная фаза версии 1.1.0. Ядро использует публичные API Omarchy/Quickshell/Hyprland, а дополнительные compositor-возможности подключаются только через явные version-aware companion boundaries. Нативный Wayland input helper держит одно bounded-соединение с seat/keyboard/tablet, использует xkbcommon EN/RU и честно сообщает недоступные протоколы. Если настоящего backend нет, функция остаётся явно недоступной, а не подменяется декоративной имитацией.
+Это запускаемая релизная фаза версии 1.2.0. Ядро использует публичные API Omarchy/Quickshell/Hyprland, а дополнительные compositor-возможности подключаются только через явные version-aware companion boundaries. Нативный Wayland input helper держит одно bounded-соединение с seat/keyboard/tablet, использует xkbcommon EN/RU и честно сообщает недоступные протоколы. Если настоящего backend нет, функция остаётся явно недоступной, а не подменяется декоративной имитацией.
 
 ## Экраны и возможности
 
 - Manifest с `service`, `bar-widget` и `panel`; replacement-тип `bar` отсутствует.
 - Компактный Omanome widget в существующей панели Omarchy.
+- Адаптивный Control Center и bar widget с единым master-toggle,
+  suspend/resume, компактными toggles, порядком модулей и status OSD без
+  второго shell или replacement bar.
 - Единая ленивая панель: Overview, workspaces, launcher, Quick Settings, OSK, clipboard, notifications и Settings.
 - GNOME-подобный Overview с mosaic реальных окон, текущим workspace первым,
   dynamic/fixed strip и поиском по приложениям, окнам, настройкам и actions.
@@ -36,6 +39,9 @@ Omanome — открытый набор улучшений рабочего ст
   автоматический поворот подключается только при наличии sensor backend.
 - Опциональный dock в стиле Dash-to-Dock на нескольких мониторах: избранное, running indicators, контекстные действия, configurable position/mode и intelligent autohide.
 - Определение touchscreen/stylus через Hyprland, hysteresis ввода, logical-size responsive breakpoints, режимы Automatic/Desktop/Tablet/Hybrid и применение touch-жестов через IPC.
+- Adaptive-профили Auto/Desktop/Tablet/Hybrid, presentation/gaming overrides,
+  per-component policies, capability-based правила клавиатур и Docked mode
+  для связки внешнего монитора и клавиатуры.
 - English/Русский, профили, versioned config, import/export/reset и приватная история clipboard для текста/PNG.
 - Настоящий compositor-backed blur Omanome layer surfaces через Hyprland layer rules, с per-surface settings, adaptive quality и app-rule exclusions; стандартная панель Omarchy по умолчанию не изменяется.
 - Native foreign-toplevel Coverflow Alt-Tab с grouping/scope, общими animations и capability-gated live preview; в текущем окружении preview недоступен, потому что Quickshell не предоставляет texture provider.
@@ -100,6 +106,8 @@ omanome doctor
 omanome logs
 omanome reload
 omanome enable | disable
+omanome master on|off
+omanome suspend | resume
 omanome safe-mode
 omanome setup
 omanome install
@@ -112,10 +120,14 @@ omanome update --dry-run --json
 omanome rollback --list --json
 omanome recover --json
 omanome capabilities
+omanome mode-info [--json]
+omanome feature list [--json]
+omanome feature enable|disable <id>
 omanome input-info
 omanome hardware-test --fixture tests/fixtures/hardware-tablet.json --json
 omanome hardware-test --guided --session "$HOME/.local/state/omanome/hardware-session.json" --confirm-hardware --json
-omanome diagnostics bundle [output.tar.gz]
+omanome diagnostics bundle [output.tar.gz] [--private]
+omanome diagnostics export [output.tar.gz] [--private]
 omanome stylus-info
 omanome touch-info
 omanome sensor-info
@@ -141,6 +153,36 @@ ownership manifest и проверки symlink запрещают широкое
 `uninstall --yes` удаляет только Omanome, companion data, cache, state и, по
 выбору, настройки; Omarchy, стандартная панель, другие плагины, темы и
 пользовательский Hyprland не затрагиваются.
+
+## Adaptive Mode и Control Center
+
+Adaptive Mode — runtime-слой политики поверх существующих моделей tablet,
+input, multitasking, Dock, Overview, OSK, gestures и accessibility. Auto
+выбирает устойчивую desktop/tablet/hybrid-позу по capability- и posture-сигналам;
+Desktop, Tablet и Hybrid доступны как явные профили. Профили presentation,
+gaming и custom могут менять отдельные компоненты, не копируя и не заменяя
+глобальную конфигурацию.
+
+Control Center имеет единый master enable/disable и отдельную границу
+suspend/resume. Оба действия обратимы: при отключении или suspend нативный input
+безопасно освобождается, adaptive transitions останавливаются, а стандартные
+панель Omarchy и shell продолжают работать. Runtime-переходы, hotplug,
+временный preview и safety suppression не записываются в пользовательские
+настройки. Debounced event-driven поток устройств обрабатывает keyboard/display
+изменения без polling loop и subprocess на каждое событие.
+
+Правила клавиатур используют capability-based opaque identifiers. Можно
+запомнить поведение built-in, USB, detachable или Bluetooth-клавиатуры, не
+раскрывая полный Bluetooth address, serial, raw device path, typed text или
+window title в status и diagnostics. Команда
+omanome diagnostics export --private включает более строгую локальную
+редакцию и ничего не загружает.
+
+Docked mode включается по capability внешнего монитора и клавиатуры. Он может
+применить desktop-профиль, сохранив внутренний touch, а после undock вернуть
+последнее устойчивое Auto-состояние. При отсутствии capability действие
+помечается Unavailable; portable fixtures остаются Untested и не являются
+сертификацией железа.
 
 ## Производительность, ownership и high-CPU triage
 

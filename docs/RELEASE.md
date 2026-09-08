@@ -15,14 +15,14 @@ outside the release archive.
    host. Portable CI cannot certify a physical touchscreen, stylus, sensor, or
    loaded companion.
 4. Publish the commit to `main` and wait for the push Actions run to be green.
-5. For the 1.1.0 cut, the `Omanome Release` workflow observes the successful
+5. For the 1.2.0 cut, the `Omanome Release` workflow observes the successful
    `Omanome CI` run on `main`, reads the version from `manifest.json`, creates
-   or updates the annotated `v1.1.0` tag on that exact green commit, then
+   or updates the annotated `v1.2.0` tag on that exact green commit, then
    validates the tag, runs the portable and companion checks, creates a source
    archive plus SHA-256 checksum, and publishes the GitHub release. The
    workflow is version-agnostic for later semver cuts.
 
-The 1.1.0 release is a source release, not a hardware certification claim.
+The 1.2.0 release is a source release, not a hardware certification claim.
 Portable CI and the committed hardware/multitasking fixtures explicitly report
 `realHardwareValidated: false`; the target-device matrix in
 [`HARDWARE.md`](HARDWARE.md) remains a manual acceptance requirement.
@@ -30,9 +30,9 @@ Portable CI and the committed hardware/multitasking fixtures explicitly report
 After publication, verify all of the following:
 
 ```text
-tag: v1.1.0 points at the green main commit
-release: v1.1.0 is published, not draft or prerelease
-assets: omanome-1.1.0.tar.gz and omanome-1.1.0.tar.gz.sha256
+tag: v1.2.0 points at the green main commit
+release: v1.2.0 is published, not draft or prerelease
+assets: omanome-1.2.0.tar.gz and omanome-1.2.0.tar.gz.sha256
 archive: contains the source tree without .git metadata
 checksum: sha256sum matches the uploaded archive
 ```

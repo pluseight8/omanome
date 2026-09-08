@@ -21,6 +21,25 @@ surfaces while leaving the standard Omarchy shell in place. `omanome disable`
 is the stronger reversible stop. Re-enable with `omanome enable` after the
 diagnostic is complete.
 
+## Adaptive mode or Control Center behaves unexpectedly
+
+Inspect the effective runtime policy before changing configuration:
+
+```sh
+omanome mode-info --json
+omanome feature list --json
+omanome status --json
+```
+
+`mode-info` reports the selected profile, stable posture signals, keyboard
+state, Docked state, and transition reason. Use `omanome master off` for a
+reversible global stop, or `omanome suspend` when the service should remain
+loaded but native input and adaptive transitions must be paused. `omanome
+resume` restores runtime state. These actions do not write automatic posture
+changes into the user's config. If a keyboard or monitor is rapidly connecting
+and disconnecting, wait for the debounce window and inspect the last stable
+state; the event stream is intentionally bounded.
+
 ## OSK or text insertion is unavailable
 
 Run:
@@ -126,6 +145,12 @@ Create a bundle with:
 
 ```sh
 omanome diagnostics bundle /tmp/omanome-support.tar.gz
+```
+
+For sharing outside a trusted local review, use the stricter local policy:
+
+```sh
+omanome diagnostics export /tmp/omanome-private.tar.gz --private
 ```
 
 Review the archive before sharing it. It contains capability, version,

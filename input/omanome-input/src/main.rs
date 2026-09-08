@@ -809,7 +809,7 @@ fn named_keycode(value: &str) -> Option<u32> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::args().any(|arg| arg == "--version") {
-        println!("omanome-input {PROTOCOL_VERSION} (1.1.0)");
+        println!("omanome-input {PROTOCOL_VERSION} (1.2.0)");
         return Ok(());
     }
     if std::env::args().any(|arg| arg == "--protocol") {

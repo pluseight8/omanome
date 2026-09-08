@@ -29,6 +29,23 @@ not overwritten, while known older schemas migrate into schema 2. The ownership
 manifest records only exact Omanome paths; uninstall refuses mismatches,
 symlinks, and broad roots, and offers a no-write dry-run plan.
 
+## Adaptive state model
+
+The Control Center, Feature State Registry, Adaptive Mode, keyboard transition
+model, and Docked Mode share one service-owned runtime state boundary. Durable
+configuration contains user preferences, profile overlays, device rules, and
+escape-hatch toggles; detected posture, transition phases, preview state,
+temporary suppression, and hotplug snapshots remain in memory. Automatic
+transitions therefore do not churn the config file or create a new profile.
+
+Device and display changes arrive through one event-driven monitor and a
+debounced refresh lane. Keyboard identity is capability-based and opaque:
+status and support output receives only stable hashed identifiers and safe
+classification fields. The master-off and suspend paths cancel pending
+transitions and release native input before optional surfaces are disabled.
+Resume rehydrates runtime state from the existing config without changing the
+user's settings.
+
 ## Public APIs used
 
 - `DesktopEntries.applications` for launcher/dock entries;

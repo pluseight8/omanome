@@ -38,6 +38,13 @@ scenarios as `Untested` fixture evidence; it never simulates a touchscreen or
 stylus. `version-check` verifies that the manifest,
 companion descriptor, README, changelog, and release metadata agree.
 
+`adaptive-check` runs the 1.2 Control Center, feature registry, keyboard
+classification, transition, Docked mode, privacy boundary, and no-config-write
+contracts. `test_config_migration` proves that 1.1-style settings gain the new
+sections without losing user values; `test_update_lifecycle` proves rollback
+restores the exact pre-migration file. The adaptive fixture contains the eight
+interactive scenarios, but every row is `Untested` until an operator confirms
+real hardware.
 The runtime service coalesces Quick Settings into one state probe and only starts
 Wi-Fi, Bluetooth, and audio enumeration when their pickers are opened. Device
 inventory uses a slow compatibility snapshot plus one event-driven udev hotplug
@@ -60,6 +67,7 @@ The QML code is designed for the following manual matrix when hardware is availa
 | Apps | GTK, Qt, Electron, terminal, browser, fullscreen client, drawing application |
 | Lifecycle | disable, safe-mode, clean install, update check/dry-run, successful update, health-failure rollback, interrupted journal recovery, rollback inventory, uninstall with and without settings |
 | 1.1 performance/lifecycle | owner-only process snapshot and watchdog, strict identity, bounded restarts/backoff, search/write debounce, panel resource release, performance modes/migration, repeated open/close fixture, native input suspend/reconnect lifecycle, portable install/update/reload/rollback/uninstall E2E, multitasking no-polling/no-drag-subprocess gate |
+| 1.2 adaptive/lifecycle | Control Center master/suspend/resume, feature precedence, opaque keyboard identity, attach/detach reversal, Docked mode, 100-event hotplug stream, migration/rollback byte preservation, private diagnostic redaction, and adaptive fixture gate |
 | 0.7 lifecycle | transactional journal, bounded snapshots, config migration refusal, ownership manifest, dry-run/JSON uninstall, symlink refusal, support bundle redaction |
 | 0.6 surfaces retained | responsive Overview/App Grid/Dock, Settings deep links, onboarding migration, accessibility semantics, multi-signal Tablet Mode |
 | 0.6 effects retained | real layer-rule blur, native toplevel Coverflow, compositor-owned ScreencopyView streams, public-API Wobbly workbuffer renderer, external cube detection |

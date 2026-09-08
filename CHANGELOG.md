@@ -1,5 +1,47 @@
 # Changelog
 
+## 1.2.0
+
+### Highlights
+
+- Delivers the Adaptive Mode release while preserving the existing Omarchy bar,
+  Quickshell host, Hyprland ownership, accessibility settings, stylus paths,
+  Dock, Overview, and tablet multitasking.
+- Adds an adaptive Control Center with one master toggle, suspend/resume,
+  compact toggles, configurable modules, status OSD, and explicit escape
+  hatches for manual control.
+
+### Adaptive Mode
+
+- Adds Auto, Desktop, Tablet, Hybrid, Presentation, Gaming, and Custom profile
+  policy with per-component behavior, feature-state precedence, and temporary
+  previews that never become durable configuration.
+- Adds capability-based keyboard classification for built-in, USB, detachable,
+  and Bluetooth devices, explainable attach/detach transitions, keyboard rules,
+  and bounded stability/debounce handling.
+- Adds Docked mode for external monitor and keyboard combinations, preserving
+  internal touch when configured and restoring the last stable Auto state after
+  undocking.
+- Keeps all transition choreography event-driven and reversible: hotplug flaps,
+  transition reversal, master-off, suspend, and resume release native input
+  safely without competing animations or config churn.
+
+### Lifecycle, privacy, and validation
+
+- Completes the 1.1 to 1.2 configuration migration by adding Control Center and
+  Adaptive defaults while preserving existing multitasking, input, performance,
+  accessibility, stylus, Dock, Overview, and general profile values.
+- Rollback restores the exact pre-migration configuration bytes and removes
+  newly introduced adaptive state when returning to the previous checkout.
+- Status, feature, and mode diagnostics expose opaque device summaries only;
+  private support export applies stricter redaction for device paths, Bluetooth
+  addresses, serials, names, typed text, clipboard values, and window titles.
+- Adds a 100-event hotplug regression guard and portable adaptive fixture gate.
+  Fixture scenarios remain Untested and never count as physical hardware
+  certification.
+- Synchronizes the manifest, native helper, optional companion, README files,
+  release runbook, compatibility snapshot, and lifecycle fixtures at 1.2.0.
+
 ## 1.1.0
 
 ### Highlights

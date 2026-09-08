@@ -41,6 +41,19 @@ Its `portableSafety.result` can be `Pass` when the model and source contracts
 are safe, while every interactive scenario remains `Untested` with
 `realHardwareValidated: false`.
 
+## 1.2 Adaptive fixture gate
+
+The 1.2 adaptive gate follows the same rule:
+
+    python3 scripts/adaptive_check.py \
+      --fixture tests/fixtures/hardware-adaptive.json --json
+
+It checks the portable Control Center, feature registry, keyboard identity,
+transition reversal, Docked mode, master-input release, and event-stream
+contracts. The eight adaptive scenarios are rendered as `Untested` fixture
+rows until an operator runs them against real keyboard, display, and posture
+hardware. No fixture result can set `realHardwareValidated` to true.
+
 ## Real hardware session
 
 Run the probe from the active Wayland session. Store the session and report
@@ -108,6 +121,12 @@ handwriting.recognition. Multitasking targets are
 `multitasking.divider-drag`, `multitasking.dock-to-split`,
 `multitasking.overview-to-split`, `multitasking.portrait-split`,
 `multitasking.rotation`, and `multitasking.stylus-drag`.
+
+Adaptive targets are `adaptive.keyboard-attach`,
+`adaptive.keyboard-detach`, `adaptive.bluetooth-keyboard`,
+`adaptive.second-keyboard`, `adaptive.tablet-switch`,
+`adaptive.dock-undock`, `adaptive.external-monitor-keyboard`, and
+`adaptive.transition-reversal`.
 
 ## Certification matrix
 

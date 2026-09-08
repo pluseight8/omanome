@@ -72,8 +72,8 @@ class UpdateLifecycleTests(unittest.TestCase):
                 #!/usr/bin/env bash
                 url="${@: -1}"
                 case "$url" in
-                  */repos/pluseight8/omanome/releases/latest) printf '%s\\n' '{"tag_name":"v1.1.0","draft":false,"prerelease":false}' ;;
-                  */omanome/v1.1.0/manifest.json) printf '%s\\n' '{"version":"1.1.0"}' ;;
+                  */repos/pluseight8/omanome/releases/latest) printf '%s\\n' '{"tag_name":"v1.2.0","draft":false,"prerelease":false}' ;;
+                  */omanome/v1.2.0/manifest.json) printf '%s\\n' '{"version":"1.2.0"}' ;;
                   *) exit 1 ;;
                 esac
                 """
@@ -97,7 +97,7 @@ class UpdateLifecycleTests(unittest.TestCase):
                 fi
                 if [[ "$2" == "update" ]]; then
                   plugin="${XDG_CONFIG_HOME}/omarchy/plugins/io.omanome.shell/manifest.json"
-                  sed -i 's/"version": "0.9.0"/"version": "1.1.0"/' "$plugin"
+                  sed -i 's/"version": "0.9.0"/"version": "1.2.0"/' "$plugin"
                   exit 0
                 fi
                 if [[ "$2" == "remove" ]]; then
@@ -158,7 +158,7 @@ class UpdateLifecycleTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(json.loads(result.stdout)["updated"])
             manifest = json.loads((plugin / "manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["version"], "1.1.0")
+            self.assertEqual(manifest["version"], "1.2.0")
             history = list((pathlib.Path(temporary) / "state" / "omanome" / "transactions" / "history").glob("*.json"))
             self.assertEqual(len(history), 1)
             self.assertEqual(json.loads(history[0].read_text(encoding="utf-8"))["phase"], "committed")
@@ -171,9 +171,9 @@ class UpdateLifecycleTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             payload = json.loads(result.stdout)
             self.assertEqual(payload["channel"], "stable")
-            self.assertEqual(payload["latestVersion"], "1.1.0")
+            self.assertEqual(payload["latestVersion"], "1.2.0")
             args_log = (root / "git-args.log").read_text(encoding="utf-8")
-            self.assertIn("refs/tags/v1.1.0^{}", args_log)
+            self.assertIn("refs/tags/v1.2.0^{}", args_log)
             self.assertNotIn("refs/heads/main", args_log)
 
     def test_rollback_restores_pre_migration_1_1_config_without_adaptive_state(self) -> None:
@@ -202,7 +202,7 @@ class UpdateLifecycleTests(unittest.TestCase):
             self.assertIn("adaptive", migrated)
             self.assertEqual(migrated["adaptive"]["profile"], "tablet")
             self.assertEqual(migrated["dock"]["position"], "left")
-            self.assertEqual(json.loads((plugin / "manifest.json").read_text(encoding="utf-8"))["version"], "1.1.0")
+            self.assertEqual(json.loads((plugin / "manifest.json").read_text(encoding="utf-8"))["version"], "1.2.0")
 
             rollback = self.run_cli(env, "rollback", "--json")
             self.assertEqual(rollback.returncode, 0, rollback.stderr)
@@ -273,7 +273,7 @@ class UpdateLifecycleTests(unittest.TestCase):
             first_update = self.run_cli(env, "update", "--json")
             self.assertEqual(first_update.returncode, 0, first_update.stderr)
             self.assertTrue(json.loads(first_update.stdout)["updated"])
-            self.assertEqual(json.loads((plugin / "manifest.json").read_text(encoding="utf-8"))["version"], "1.1.0")
+            self.assertEqual(json.loads((plugin / "manifest.json").read_text(encoding="utf-8"))["version"], "1.2.0")
             self.assertTrue(list((root / "state" / "omanome" / "rollback").iterdir()))
 
             rollback = self.run_cli(env, "rollback")
@@ -283,7 +283,7 @@ class UpdateLifecycleTests(unittest.TestCase):
             second_update = self.run_cli(env, "update", "--json")
             self.assertEqual(second_update.returncode, 0, second_update.stderr)
             self.assertTrue(json.loads(second_update.stdout)["updated"])
-            self.assertEqual(json.loads((plugin / "manifest.json").read_text(encoding="utf-8"))["version"], "1.1.0")
+            self.assertEqual(json.loads((plugin / "manifest.json").read_text(encoding="utf-8"))["version"], "1.2.0")
 
             uninstall_plan = self.run_cli(env, "uninstall", "--dry-run", "--json")
             self.assertEqual(uninstall_plan.returncode, 0, uninstall_plan.stderr)

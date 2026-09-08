@@ -2,7 +2,7 @@
 
 Omanome is an open-source, GNOME-inspired touch and stylus enhancement suite for the current Omarchy Quattro shell on Hyprland. It is intentionally an Omarchy plugin, not a replacement desktop session: the standard Omarchy bar remains in charge of the top edge, the existing Quickshell process hosts the plugin, and all plugin state is namespaced under `io.omanome.shell`.
 
-This repository is the runnable 1.1.0 release. It uses public Omarchy/Quickshell/Hyprland interfaces for the core and explicit, version-aware optional compositor integrations for advanced effects. The native Wayland input helper owns one bounded seat/keyboard/tablet connection, supports xkbcommon EN/RU layouts, and reports unavailable compositor protocols honestly. Features without a real backend remain visibly unavailable rather than becoming fake overlays.
+This repository is the runnable 1.2.0 release. It uses public Omarchy/Quickshell/Hyprland interfaces for the core and explicit, version-aware optional compositor integrations for advanced effects. The native Wayland input helper owns one bounded seat/keyboard/tablet connection, supports xkbcommon EN/RU layouts, and reports unavailable compositor protocols honestly. Features without a real backend remain visibly unavailable rather than becoming fake overlays.
 
 ## What is Omanome
 
@@ -16,6 +16,9 @@ namespaced `io.omanome.shell` / `omanome` paths.
 
 - An Omarchy Quattro manifest with `service`, `bar-widget`, and `panel` entry points. It never declares the replacement `bar` kind.
 - A compact Omanome bar widget that is added to the existing Omarchy layout like any other widget.
+- An adaptive Control Center popup and bar widget with one master switch,
+  suspend/resume, compact toggles, module ordering, status OSD, and no second
+  shell or replacement bar.
 - One lazy-loaded panel with Overview, workspaces, launcher, quick settings, OSK, clipboard, notifications, and settings views.
 - GNOME-like Overview with current-workspace-first mosaic windows, dynamic/fixed
   workspace strip, real app/window/settings/action search, and native activation.
@@ -46,6 +49,9 @@ namespaced `io.omanome.shell` / `omanome` paths.
 - An optional multi-monitor Dash-to-Dock style surface using layer-shell and native `DesktopEntries`/foreign-toplevel objects, persisted favorites, running indicators, context actions, configurable position/mode, and intelligent autohide guardrails.
 - Touch-sized active-window controls in tablet or hybrid mode.
 - Tablet-mode detection from Hyprland device inventory, adaptive desktop/tablet/hybrid modes, stylus capability inventory, input hysteresis, responsive logical-size breakpoints, and touch gesture keyword integration through Hyprland IPC.
+- Adaptive Auto/Desktop/Tablet/Hybrid profiles with presentation and gaming
+  overrides, per-component policies, capability-based keyboard rules, and a
+  Docked mode for external monitor plus keyboard setups.
 - English/Russian UI strings, profiles, versioned configuration, import/export/reset, and privacy-aware clipboard history for text and PNG images.
 - Compositor-backed blur for Omanome layer surfaces through Hyprland layer rules, with per-surface settings, adaptive quality, battery/fullscreen policies, and application-rule exclusions. The standard Omarchy bar remains untouched by default.
 - Native foreign-toplevel Coverflow Alt-Tab with grouping, workspace scope, shared animations, and a capability-gated live-preview path; this environment reports previews unavailable because no real compositor texture provider is exposed.
@@ -56,7 +62,11 @@ namespaced `io.omanome.shell` / `omanome` paths.
 - A Wayland-native OSK surface driven by `wtype` (`virtual-keyboard-v1`), with English/Russian QWERTY, standard/floating/split/thumb/left-right one-handed layouts, numeric/symbols/emoji/editing layers, toolbar, key popup, long-press alternates, repeat settings, and a local handwriting canvas.
 - A persistent native `omanome-input` transport with bounded JSON IPC, xkbcommon EN/RU state, event-driven input/display hotplug, capability-based keyboard identity, detachable/Bluetooth classification, and explainable posture hysteresis. `omanome input-info` reports the actual native protocol and explicit fallback state.
 - Integration with Omarchy's native notification service for DND, popups, history, and dismissal.
-- Diagnostics and lifecycle commands: status, doctor, logs, enable/disable, safe mode, devices, stylus-info, touch-info, sensor-info, capabilities, hardware-test, redacted support bundles, GitHub install/update checks, transactional rollback/recovery, and ownership-safe uninstall.
+- Diagnostics and lifecycle commands: status, doctor, logs, enable/disable,
+  master/suspend/resume, mode-info, feature list/control, safe mode, devices,
+  stylus-info, touch-info, sensor-info, capabilities, hardware-test, redacted
+  support bundles, GitHub install/update checks, transactional
+  rollback/recovery, and ownership-safe uninstall.
 
 ## Requirements
 
@@ -125,6 +135,8 @@ omanome doctor
 omanome logs
 omanome reload
 omanome enable | disable
+omanome master on|off
+omanome suspend | resume
 omanome safe-mode
 omanome setup
 omanome install
@@ -137,10 +149,14 @@ omanome update --dry-run --json
 omanome rollback --list --json
 omanome recover --json
 omanome capabilities
+omanome mode-info [--json]
+omanome feature list [--json]
+omanome feature enable|disable <id>
 omanome input-info
 omanome hardware-test --fixture tests/fixtures/hardware-tablet.json --json
 omanome hardware-test --guided --session "$HOME/.local/state/omanome/hardware-session.json" --confirm-hardware --json
-omanome diagnostics bundle [output.tar.gz]
+omanome diagnostics bundle [output.tar.gz] [--private]
+omanome diagnostics export [output.tar.gz] [--private]
 omanome stylus-info
 omanome touch-info
 omanome sensor-info
@@ -173,6 +189,13 @@ only Omanome's plugin, companion data, cache, state, and optionally settings;
 it does not remove Omarchy, the standard bar, other plugins, themes, or user
 Hyprland files.
 
+mode-info explains the selected profile, effective mode, keyboard posture,
+Docked state, and transition reason. feature list exposes the effective
+availability of each registered feature and keeps user preference separate from
+temporary profile or safety suppression. master off and suspend release the
+native input boundary before stopping optional surfaces; resume restores the
+runtime state without rewriting the user's configuration.
+
 ## Performance, ownership and high-CPU triage
 
 The runtime has one explicit ownership boundary: Omanome-owned helpers carry
@@ -204,6 +227,35 @@ GPU signals; missing hardware telemetry does not become a fake metric. Expensive
 preview streams are budgeted, panel views are lazy, search is debounced, and
 closed panel views release their live preview resources. Legacy schema-2
 `performance.qualityPreset` values migrate to `performance.mode`.
+
+## Adaptive Mode and Control Center
+
+Adaptive Mode is a runtime policy layer over the existing tablet, input,
+multitasking, Dock, Overview, OSK, gesture, and accessibility models. Auto
+selects a stable desktop/tablet/hybrid posture from capability and posture
+signals; Desktop, Tablet, and Hybrid are explicit profiles. Presentation,
+gaming, and custom profiles can override individual component behavior without
+copying or replacing the global configuration.
+
+The Control Center has one master enable/disable switch and a separate
+suspend/resume boundary. Both are reversible: disabling or suspending releases
+native input safely, stops adaptive transitions, and leaves the standard Omarchy
+bar and shell running. Runtime mode changes, hotplug events, transition previews,
+and temporary safety suppression are not persisted as user settings. A
+debounced, event-driven device stream handles keyboard/display changes without
+polling loops or a subprocess per event.
+
+Keyboard policy uses capability-based, opaque identifiers. Device rules can
+remember a built-in, USB, detachable, or Bluetooth behavior without exposing a
+full Bluetooth address, serial number, raw device path, typed text, or window
+title in status or diagnostics. omanome diagnostics export --private applies
+the stricter local redaction policy and never uploads the archive.
+
+Docked mode is selected from external-monitor and keyboard capability signals.
+It can apply a desktop profile while preserving internal touch, and undocking
+restores the last stable Auto state when configured. If a monitor, keyboard, or
+compositor capability is absent, the affected action reports Unavailable;
+portable fixtures remain Untested and are never hardware certification.
 
 ## Stylus and tablet behavior
 
