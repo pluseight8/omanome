@@ -153,6 +153,66 @@ class LayoutEngineTests(unittest.TestCase):
         self.assertEqual(result["pen"]["phase"], "blocked")
         self.assertEqual(result["pen"]["reason"], "stylus-proximity-is-not-a-drag")
 
+    def test_split_divider_is_touch_sized_and_updates_both_slots(self) -> None:
+        result = self.run_node(
+            "const S=require('./shell/models/SplitView.js'); "
+            "let state=S.createState({name:'wide',x:0,y:0,width:1920,height:1080},['a','b'],{gap:20,ratio:'50/50'}); "
+            "const handle=S.dividerGeometry(state.pair,{dividerHandleSize:56}); "
+            "state=S.beginDividerDrag(state,{x:handle.center,y:540},{now:100}); "
+            "state=S.updateDividerDrag(state,{x:1400,y:540},{now:140}); "
+            "const committed=S.commit(state,{ok:true}); "
+            "console.log(JSON.stringify({axis:handle.axis,handle:handle.rect,ratio:committed.pair.ratio,first:committed.pair.slots[0].rect,second:committed.pair.slots[1].rect,phase:committed.state.phase}));"
+        )
+        self.assertEqual(result["axis"], "vertical")
+        self.assertGreaterEqual(result["handle"]["width"], 48)
+        self.assertGreater(result["ratio"], 0.6)
+        self.assertGreater(result["second"]["x"], result["first"]["x"] + result["first"]["width"])
+        self.assertEqual(result["phase"], "committed")
+
+    def test_portrait_divider_rotates_to_horizontal_and_preserves_logical_ratio(self) -> None:
+        result = self.run_node(
+            "const S=require('./shell/models/SplitView.js'); "
+            "let state=S.createState({name:'tablet',width:1080,height:1920},['one','two'],{ratio:'33/67',gap:12}); "
+            "const portrait=S.dividerGeometry(state.pair,{}); "
+            "const rotated=S.rotate(state,{name:'tablet',width:1920,height:1080},{gap:12}); "
+            "console.log(JSON.stringify({portraitAxis:portrait.axis,portraitRatio:state.ratio,rotatedAxis:rotated.pair.axis,rotatedRatio:rotated.ratio,ids:rotated.pair.slots.map(x=>x.windowId)}));"
+        )
+        self.assertEqual(result["portraitAxis"], "horizontal")
+        self.assertAlmostEqual(result["portraitRatio"], 1 / 3)
+        self.assertEqual(result["rotatedAxis"], "vertical")
+        self.assertAlmostEqual(result["rotatedRatio"], 1 / 3)
+        self.assertEqual(result["ids"], ["one", "two"])
+
+    def test_split_transaction_rolls_back_when_second_window_apply_fails(self) -> None:
+        result = self.run_node(
+            "const S=require('./shell/models/SplitView.js'); "
+            "let state=S.createState({name:'main',width:1600,height:1000},['a','b'],{ratio:'50/50'}); "
+            "const baseline=state.pair.slots.map(x=>x.rect); "
+            "state=S.beginDividerDrag(state,{x:S.dividerGeometry(state.pair,{}).center,y:500},{}); "
+            "state=S.updateDividerDrag(state,{x:1200,y:500},{}); "
+            "const failed=S.commit(state,{ok:false,reason:'second-window-failed'}); "
+            "console.log(JSON.stringify({ok:failed.ok,rolledBack:failed.rolledBack,reason:failed.reason,same:JSON.stringify(failed.pair.slots.map(x=>x.rect))===JSON.stringify(baseline),phase:failed.state.phase}));"
+        )
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["rolledBack"])
+        self.assertEqual(result["reason"], "second-window-failed")
+        self.assertTrue(result["same"])
+        self.assertEqual(result["phase"], "rolled-back")
+
+    def test_divider_autohide_is_event_driven_and_input_proximity_reveals_it(self) -> None:
+        result = self.run_node(
+            "const S=require('./shell/models/SplitView.js'); "
+            "let state=S.createState({name:'main',width:1600,height:1000},['a','b'],{dividerAutoHideMs:1000}); "
+            "state=S.notifyDividerInteraction(state,'touch',100); state=S.setDividerProximity(state,false,100); "
+            "const hidden=S.dividerVisibility(state,1200,{}); "
+            "const shown=S.dividerVisibility(S.notifyDividerInteraction(hidden,'stylus',1300),1300,{}); "
+            "console.log(JSON.stringify({hidden:hidden.divider,shown:shown.divider}));"
+        )
+        self.assertFalse(result["hidden"]["visible"])
+        self.assertLess(result["hidden"]["opacity"], 0.2)
+        self.assertTrue(result["shown"]["visible"])
+        self.assertEqual(result["shown"]["lastInputKind"], "stylus")
+
 
 if __name__ == "__main__":
     unittest.main()
