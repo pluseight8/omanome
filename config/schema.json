@@ -8,6 +8,43 @@
     "schemaVersion": { "const": 2 },
     "general": { "type": "object" },
     "appearance": { "type": "object" },
+    "controlCenter": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "masterEnabled": { "type": "boolean" },
+        "suspended": { "type": "boolean" },
+        "widget": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "position": { "enum": ["left", "center", "right"] },
+            "clickAction": { "type": "string" },
+            "rightClickAction": { "type": "string" },
+            "longPressAction": { "type": "string" },
+            "showLabel": { "type": "boolean" }
+          }
+        },
+        "compactToggles": { "type": "array", "items": { "type": "string" } },
+        "visibleModules": { "type": "array", "items": { "type": "string" } },
+        "moduleOrder": { "type": "array", "items": { "type": "string" } },
+        "osd": { "type": "object" }
+      }
+    },
+    "adaptive": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "profile": { "enum": ["auto", "desktop", "tablet", "hybrid", "presentation", "gaming", "custom"] },
+        "automaticTransitions": { "type": "boolean" },
+        "externalKeyboardPolicy": { "enum": ["nothing", "hide-osk", "hybrid", "desktop", "ask"] },
+        "unknownKeyboardPolicy": { "enum": ["ignore", "generic", "hybrid", "desktop", "ask"] },
+        "transition": { "type": "object" },
+        "profiles": { "type": "object" },
+        "deviceRules": { "type": "array" },
+        "dockedMode": { "type": "object" }
+      }
+    },
     "tabletMode": { "type": "object" },
     "input": {
       "type": "object",

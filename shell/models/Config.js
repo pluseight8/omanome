@@ -5,6 +5,8 @@ function defaults() {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     general: { mode: "automatic", profile: "Desktop", language: "system", reduceMotion: false, largeUi: false, inputDebounceMs: 320 },
     appearance: { theme: "follow-omarchy", accent: "follow-omarchy", radius: 18, opacity: 0.96, density: "comfortable" },
+    controlCenter: { enabled: true, masterEnabled: true, suspended: false, widget: { enabled: true, position: "right", clickAction: "control-center", rightClickAction: "context-menu", longPressAction: "context-menu", showLabel: false }, compactToggles: ["master", "mode", "gestures", "osk", "rotation"], visibleModules: ["touch-mode", "tablet-ui", "osk", "gestures", "snap-assist", "split-view", "dock", "window-controls", "rotation", "stylus", "notifications", "clipboard", "effects"], moduleOrder: ["touch-mode", "tablet-ui", "osk", "gestures", "snap-assist", "split-view", "dock", "window-controls", "rotation", "stylus", "notifications", "clipboard", "effects"], osd: { enabled: true, compact: true, durationMs: 2600 } },
+    adaptive: { enabled: true, profile: "auto", automaticTransitions: true, externalKeyboardPolicy: "hybrid", unknownKeyboardPolicy: "hybrid", transition: { enabled: true, debounceMs: 260, stabilityMs: 420, durationMs: 260, oskPolicy: "hide-on-attach", showOsd: true }, profiles: { custom: { featureOverrides: {}, componentBehavior: {} } }, deviceRules: [], dockedMode: { enabled: true, trigger: "external-monitor-and-keyboard", profile: "desktop", keepTouch: true, restoreAutoState: true } },
     tabletMode: { enabled: true, touchTarget: 48, autoFromTouch: true, autoFromStylus: true, physicalKeyboardExit: true, transitionDuration: 180, dockPreference: "adaptive", windowControls: "touch", gestures: true, posture: { auto: true, debounceMs: 320, minimumDwellMs: 900, laptopSuppressAutoShow: true, autoRotateInLaptop: false } },
     input: { schemaVersion: 1, nativeBackend: "auto", allowWtypeFallback: true, suppressOskOnPhysicalKeyboard: true, suppressOskOnDetachableKeyboard: true, suppressOskOnBluetoothKeyboard: true, deviceHotplug: true, safeModeDisableNative: false, defaultOutput: "", deviceMappings: {} },
     onboarding: { completed: false, skipped: false, version: 1, privacyAcknowledged: false },
@@ -16,7 +18,7 @@ function defaults() {
     dock: { enabled: true, position: "bottom", mode: "floating", iconSize: 48, minIconSize: 40, maxIconSize: 64, dynamicSizing: true, runningApplications: true, showLauncher: true, showSettings: false, showTrash: false, multipleWindowAction: "cycle", autohide: true, autohideMode: "intelligent", revealByPointer: true, revealByTouch: true, edgePressure: 12, revealDelay: 120, hideDelay: 650, dodgeMode: "active-window", fullscreenHide: true, margin: 18, padding: 10, spacing: 8, radius: 22, monitor: "active", workspaceIsolation: false, monitorIsolation: false, backgroundOpacity: 0.82, blur: true, shadow: true, border: true, borderOpacity: 0.34, indicatorStyle: "dot", animation: "slide", clickAction: "activate-or-launch", middleClickAction: "new-window", scrollAction: "workspace" },
     overview: { enabled: true, style: "gnome", animationDuration: 180, blur: true, showAllWorkspaces: false, showDock: true, workspaceMode: "dynamic", fixedWorkspaceCount: 5, workspaceOrientation: "horizontal", search: true },
     launcher: { enabled: true, categories: true, favorites: [], favoritesFirst: true, folders: [], showRecent: true, recentApplications: [], dragReorder: true, contextMenu: true, gridColumns: 6 },
-    multitasking: { enabled: true, gap: 12, minimumWindowSize: { width: 320, height: 240 }, layouts: [], customLayouts: [], tabletSwitcher: { enabled: true, mode: "automatic", scope: "current-workspace", maxCards: 32, closeOnSwipe: false, touchSwipe: true, swipeThresholdPx: 96, swipeVelocity: 0.5, closeThresholdPx: 120, selectedScale: 1.0, sideScale: 0.92, sideOpacity: 0.76 }, layoutPersistence: { enabled: true, recentEnabled: true, maxRecent: 12, maxSaved: 32, saved: [], recent: [] }, snapAssist: { enabled: true, dwellMs: 220, movementThreshold: 18, stylusDwellMs: 120, preview: true, edgeZones: true, sensitivity: 1.0, portraitLayouts: true, autoSecondWindowPicker: true }, splitView: { divider: true, defaultRatio: "50/50", rememberRatio: true, autoConvertOnRotation: true, autoHide: true, autoHideMs: 1800, handleSize: 48 }, floating: { enabled: true, miniEnabled: true, pictureInPicture: true, keepAbove: true, edgeSnap: true, rememberPosition: true, perMonitor: true, resizeHandle: true }, gestures: { enabled: true, workspaceSwipe: true, overviewSwipe: true, dockReveal: true, back: true, quickSettings: true, touchscreenOnly: true, edgeLock: true, conflictPolicy: "suppress-in-fullscreen", fullscreenPolicy: "disable", drawingPolicy: "suppress", gamePolicy: "suppress", drawingApps: [], gameApps: [], touchLock: false, presentationMode: false, backShortcut: "", bottomEdge: { short: "dock", long: "overview", direct: "disabled" }, topEdge: { action: "quick-settings" }, sideEdge: { left: "back", right: "back" }, touchscreen: { enabled: true, edgeSwipe: true, workspaceSwipe: true, overviewSwipe: true, dockReveal: true, quickSettings: true, back: true, threeFingerAction: "workspace", fourFingerAction: "workspace", thresholdPx: 96, movementThresholdPx: 18, velocityThreshold: 0.35, inertia: true, allowStylus: false }, touchpad: { enabled: false, edgeSwipe: false, workspaceSwipe: false, overviewSwipe: false, dockReveal: false, quickSettings: false, back: false, thresholdPx: 96, movementThresholdPx: 18, velocityThreshold: 0.45, inertia: false } }, workspaceNavigation: { mode: "swipe", showOverlay: true, activateEmpty: true }, multiMonitor: { enabled: true, hotplugRecovery: true }, groups: [], sessionRestore: "ask", closePolicy: "keep", monitorPolicy: "active", duplicatePolicy: "ask", launchTimeoutMs: 12000, maxGroups: 32, experimentalWindowThrow: false, shortcuts: { "snap-left": "SUPER+ALT+LEFT", "snap-right": "SUPER+ALT+RIGHT", "next-layout": "SUPER+ALT+L", "toggle-float": "SUPER+ALT+F", "create-pair": "SUPER+ALT+P", "break-pair": "SUPER+ALT+SHIFT+P", "move-pair-workspace": "SUPER+ALT+W" } },
+    multitasking: { enabled: true, gap: 12, minimumWindowSize: { width: 320, height: 240 }, layouts: [], customLayouts: [], tabletSwitcher: { enabled: true, mode: "automatic", scope: "current-workspace", maxCards: 32, closeOnSwipe: false, touchSwipe: true, swipeThresholdPx: 96, swipeVelocity: 0.5, closeThresholdPx: 120, selectedScale: 1.0, sideScale: 0.92, sideOpacity: 0.76 }, layoutPersistence: { enabled: true, recentEnabled: true, maxRecent: 12, maxSaved: 32, saved: [], recent: [] }, snapAssist: { enabled: true, dwellMs: 220, movementThreshold: 18, stylusDwellMs: 120, preview: true, edgeZones: true, sensitivity: 1.0, portraitLayouts: true, autoSecondWindowPicker: true }, splitView: { enabled: true, divider: true, defaultRatio: "50/50", rememberRatio: true, autoConvertOnRotation: true, autoHide: true, autoHideMs: 1800, handleSize: 48 }, floating: { enabled: true, miniEnabled: true, pictureInPicture: true, keepAbove: true, edgeSnap: true, rememberPosition: true, perMonitor: true, resizeHandle: true }, gestures: { enabled: true, workspaceSwipe: true, overviewSwipe: true, dockReveal: true, back: true, quickSettings: true, touchscreenOnly: true, edgeLock: true, conflictPolicy: "suppress-in-fullscreen", fullscreenPolicy: "disable", drawingPolicy: "suppress", gamePolicy: "suppress", drawingApps: [], gameApps: [], touchLock: false, presentationMode: false, backShortcut: "", bottomEdge: { short: "dock", long: "overview", direct: "disabled" }, topEdge: { action: "quick-settings" }, sideEdge: { left: "back", right: "back" }, touchscreen: { enabled: true, edgeSwipe: true, workspaceSwipe: true, overviewSwipe: true, dockReveal: true, quickSettings: true, back: true, threeFingerAction: "workspace", fourFingerAction: "workspace", thresholdPx: 96, movementThresholdPx: 18, velocityThreshold: 0.35, inertia: true, allowStylus: false }, touchpad: { enabled: false, edgeSwipe: false, workspaceSwipe: false, overviewSwipe: false, dockReveal: false, quickSettings: false, back: false, thresholdPx: 96, movementThresholdPx: 18, velocityThreshold: 0.45, inertia: false } }, workspaceNavigation: { mode: "swipe", showOverlay: true, activateEmpty: true }, multiMonitor: { enabled: true, hotplugRecovery: true }, groups: [], sessionRestore: "ask", closePolicy: "keep", monitorPolicy: "active", duplicatePolicy: "ask", launchTimeoutMs: 12000, maxGroups: 32, experimentalWindowThrow: false, shortcuts: { "snap-left": "SUPER+ALT+LEFT", "snap-right": "SUPER+ALT+RIGHT", "next-layout": "SUPER+ALT+L", "toggle-float": "SUPER+ALT+F", "create-pair": "SUPER+ALT+P", "break-pair": "SUPER+ALT+SHIFT+P", "move-pair-workspace": "SUPER+ALT+W" } },
     keyboard: { enabled: true, layout: "auto", mode: "standard", showNumberRow: true, showModifierRow: true, showNavigationRow: true, showFunctionRow: false, capsLock: true, symbols: true, suggestions: true, autocorrect: false, learning: false, haptic: true, sound: false, autoShow: true, height: 300, toolbar: true, toolbarOverflow: true, keyPopup: true, keyPopupScale: 1.25, keyPopupDuration: 180, longPress: true, longPressDelay: 360, repeatDelay: 420, repeatRate: 55, spaceCursor: true, swipeLayerSwitch: true, floating: { x: 0.5, y: 0.72, width: 0.82, snap: true }, split: { gap: 24, blockWidth: 0.43, vertical: 0.72, thumbReach: 0.62, symmetric: true }, oneHanded: { width: 0.72, offset: 0.04, scale: 0.92 }, emojiCategory: "recent", emojiRecent: [], suggestionLocale: "auto" },
     clipboard: { enabled: true, historyLimit: 100, retentionDays: 30, persist: true, persistPinnedOnly: false, maxStorageMb: 256, pinning: true, tags: true, clearOnLogout: false, excludedApps: [], privateMode: false },
     notifications: { enabled: true, groupByApp: true, history: true, timestamps: true, actions: true, maxHistory: 200, perAppMute: [], doNotDisturb: false },
@@ -152,6 +154,70 @@ function normalizeMultitaskingOneOne(source, report) {
   if (changed && report && report.applied.indexOf("multitasking-1.1-defaults") < 0) report.applied.push("multitasking-1.1-defaults")
 }
 
+function fillMissing(target, template) {
+  var changed = false
+  if (!isObject(target) || !isObject(template)) return changed
+  Object.keys(template).forEach(function(key) {
+    if (target[key] === undefined) {
+      target[key] = clone(template[key])
+      changed = true
+    } else if (isObject(target[key]) && isObject(template[key])) {
+      if (fillMissing(target[key], template[key])) changed = true
+    }
+  })
+  return changed
+}
+
+function legacyAdaptiveProfile(source) {
+  var profile = String(isObject(source.general) ? source.general.profile || "" : "").toLowerCase().replace(/[\s_]+/g, "-")
+  if (profile === "automatic" || profile === "default") return "auto"
+  if (["desktop", "tablet", "hybrid", "presentation", "gaming", "custom"].indexOf(profile) >= 0) return profile
+  if (profile === "stylus" || profile === "gnome-like") return "hybrid"
+  return "auto"
+}
+
+function normalizeAdaptiveOneTwo(source, report) {
+  var templates = defaults()
+  var changed = false
+  var hadAdaptive = isObject(source.adaptive)
+  var hadControlCenter = isObject(source.controlCenter)
+  if (!hadControlCenter) {
+    source.controlCenter = clone(templates.controlCenter)
+    changed = true
+  } else if (fillMissing(source.controlCenter, templates.controlCenter)) changed = true
+  if (!hadAdaptive) {
+    source.adaptive = clone(templates.adaptive)
+    source.adaptive.profile = legacyAdaptiveProfile(source)
+    changed = true
+  } else if (fillMissing(source.adaptive, templates.adaptive)) changed = true
+  if (!isObject(source.controlCenter.widget)) {
+    source.controlCenter.widget = clone(templates.controlCenter.widget)
+    changed = true
+  }
+  var positions = ["left", "center", "right"]
+  if (positions.indexOf(String(source.controlCenter.widget.position || "right")) < 0) {
+    source.controlCenter.widget.position = "right"
+    changed = true
+  }
+  if (!Array.isArray(source.controlCenter.compactToggles)) {
+    source.controlCenter.compactToggles = clone(templates.controlCenter.compactToggles)
+    changed = true
+  }
+  if (!Array.isArray(source.controlCenter.visibleModules)) {
+    source.controlCenter.visibleModules = clone(templates.controlCenter.visibleModules)
+    changed = true
+  }
+  if (!Array.isArray(source.controlCenter.moduleOrder)) {
+    source.controlCenter.moduleOrder = clone(templates.controlCenter.moduleOrder)
+    changed = true
+  }
+  if (!Array.isArray(source.adaptive.deviceRules)) {
+    source.adaptive.deviceRules = []
+    changed = true
+  }
+  if (changed && report && report.applied.indexOf("adaptive-1.2-defaults") < 0) report.applied.push("adaptive-1.2-defaults")
+}
+
 function migrateDetailed(raw) {
   if (!isObject(raw)) return { ok: false, reason: "invalid-root", config: null, applied: [] }
   var source = clone(raw)
@@ -170,6 +236,7 @@ function migrateDetailed(raw) {
   }
   normalizeInputConfig(source, report)
   normalizeMultitaskingOneOne(source, report)
+  normalizeAdaptiveOneTwo(source, report)
   return { ok: true, config: merge(defaults(), source), from: version, to: CURRENT_SCHEMA_VERSION, applied: report.applied, migrated: report.applied.length > 0 }
 }
 

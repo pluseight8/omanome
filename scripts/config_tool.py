@@ -129,6 +129,76 @@ def migration_multitasking_1_1(source: dict[str, Any], applied: list[str]) -> No
         applied.append("multitasking-1.1-defaults")
 
 
+def fill_missing(target: dict[str, Any], template: dict[str, Any]) -> bool:
+    changed = False
+    for key, value in template.items():
+        if key not in target:
+            target[key] = copy.deepcopy(value)
+            changed = True
+        elif isinstance(target.get(key), dict) and isinstance(value, dict):
+            if fill_missing(target[key], value):
+                changed = True
+    return changed
+
+
+def legacy_adaptive_profile(source: dict[str, Any]) -> str:
+    general = source.get("general")
+    raw = general.get("profile", "") if isinstance(general, dict) else ""
+    profile = str(raw).lower().replace("_", "-").replace(" ", "-")
+    if profile in {"", "automatic", "default"}:
+        return "auto"
+    if profile in {"desktop", "tablet", "hybrid", "presentation", "gaming", "custom"}:
+        return profile
+    if profile in {"stylus", "gnome-like"}:
+        return "hybrid"
+    return "auto"
+
+
+def migration_adaptive_1_2(source: dict[str, Any], applied: list[str]) -> None:
+    defaults = load_defaults()
+    changed = False
+    had_adaptive = isinstance(source.get("adaptive"), dict)
+    had_control_center = isinstance(source.get("controlCenter"), dict)
+
+    if not had_control_center:
+        source["controlCenter"] = copy.deepcopy(defaults.get("controlCenter", {}))
+        changed = True
+    elif fill_missing(source["controlCenter"], defaults.get("controlCenter", {})):
+        changed = True
+
+    if not had_adaptive:
+        source["adaptive"] = copy.deepcopy(defaults.get("adaptive", {}))
+        source["adaptive"]["profile"] = legacy_adaptive_profile(source)
+        changed = True
+    elif fill_missing(source["adaptive"], defaults.get("adaptive", {})):
+        changed = True
+
+    control_center = source["controlCenter"]
+    widget = control_center.get("widget")
+    if not isinstance(widget, dict):
+        control_center["widget"] = copy.deepcopy(defaults["controlCenter"]["widget"])
+        changed = True
+    elif widget.get("position") not in {"left", "center", "right"}:
+        widget["position"] = "right"
+        changed = True
+
+    if not isinstance(control_center.get("compactToggles"), list):
+        control_center["compactToggles"] = copy.deepcopy(defaults["controlCenter"]["compactToggles"])
+        changed = True
+    if not isinstance(control_center.get("visibleModules"), list):
+        control_center["visibleModules"] = copy.deepcopy(defaults["controlCenter"]["visibleModules"])
+        changed = True
+    if not isinstance(control_center.get("moduleOrder"), list):
+        control_center["moduleOrder"] = copy.deepcopy(defaults["controlCenter"]["moduleOrder"])
+        changed = True
+    if not isinstance(source["adaptive"].get("deviceRules"), list):
+        source["adaptive"]["deviceRules"] = []
+        changed = True
+
+    if changed and "adaptive-1.2-defaults" not in applied:
+        applied.append("adaptive-1.2-defaults")
+
+
 def migrate(value: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     if not isinstance(value, dict):
         raise ConfigError("invalid-root", "configuration root must be a JSON object")
@@ -147,6 +217,7 @@ def migrate(value: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     if int(source.get("schemaVersion", 0)) < 2:
         migration_one_to_two(source, applied)
     migration_multitasking_1_1(source, applied)
+    migration_adaptive_1_2(source, applied)
     normalized = deep_merge(load_defaults(), source)
     normalized["schemaVersion"] = CURRENT_SCHEMA_VERSION
     return normalized, {
