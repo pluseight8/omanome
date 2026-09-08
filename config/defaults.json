@@ -48,7 +48,8 @@
       "stabilityMs": 420,
       "durationMs": 260,
       "oskPolicy": "hide-on-attach",
-      "showOsd": true
+      "showOsd": true,
+      "animationPreset": "smooth"
     },
     "profiles": {
       "custom": {

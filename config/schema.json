@@ -39,7 +39,18 @@
         "automaticTransitions": { "type": "boolean" },
         "externalKeyboardPolicy": { "enum": ["nothing", "hide-osk", "hybrid", "desktop", "ask"] },
         "unknownKeyboardPolicy": { "enum": ["ignore", "generic", "hybrid", "desktop", "ask"] },
-        "transition": { "type": "object" },
+        "transition": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "debounceMs": { "type": "integer", "minimum": 20, "maximum": 1500 },
+            "stabilityMs": { "type": "integer", "minimum": 0, "maximum": 2000 },
+            "durationMs": { "type": "integer", "minimum": 0, "maximum": 1500 },
+            "oskPolicy": { "type": "string" },
+            "showOsd": { "type": "boolean" },
+            "animationPreset": { "enum": ["smooth", "snappy", "minimal"] }
+          }
+        },
         "profiles": {
           "type": "object",
           "properties": {

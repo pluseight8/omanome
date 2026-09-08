@@ -131,16 +131,16 @@ function availabilityFor(def, context) {
 function profileOverrides(profile, config) {
   var name = normalizedProfile(profile)
   var result = clone(BUILTIN_PROFILE_OVERRIDES[name] || {})
-  if (name !== "custom") return result
   var adaptive = object(object(config).adaptive)
   var profiles = object(adaptive.profiles)
-  var custom = object(profiles.custom)
-  var customOverrides = object(custom.featureOverrides || custom.features)
-  Object.keys(customOverrides).forEach(function(id) {
-    var value = customOverrides[id]
-    if (typeof value === "boolean") result[id] = { enabled: value, reason: "Custom profile" }
+  var configured = object(profiles[name])
+  var configuredOverrides = object(configured.featureOverrides || configured.features)
+  Object.keys(configuredOverrides).forEach(function(id) {
+    var value = configuredOverrides[id]
+    var defaultReason = name === "custom" ? "Custom profile" : name.charAt(0).toUpperCase() + name.slice(1) + " profile override"
+    if (typeof value === "boolean") result[id] = { enabled: value, reason: defaultReason }
     else if (typeof value === "object" && value.enabled !== undefined)
-      result[id] = { enabled: value.enabled !== false, reason: string(value.reason || "Custom profile") }
+      result[id] = { enabled: value.enabled !== false, reason: string(value.reason || defaultReason) }
   })
   return result
 }

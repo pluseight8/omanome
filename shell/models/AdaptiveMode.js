@@ -400,8 +400,9 @@ function componentPolicy(profile, effectiveMode, config, context) {
 function autoOverrides(profile, effectiveMode, config, context) {
   if (normalizedProfile(profile) !== "auto") return {}
   var source = object(context)
+  var docked = object(source.dockedState)
   if (source.adaptiveEnabled === false || source.automaticTransitions === false) return {}
-  if (effectiveMode === "desktop") return { "tablet-ui": { enabled: false, reason: object(source).dockedState.active === true ? "Docked mode" : "Automatic desktop mode" } }
+  if (effectiveMode === "desktop") return { "tablet-ui": { enabled: false, reason: docked.active === true ? "Docked mode" : "Automatic desktop mode" } }
   return { "tablet-ui": { enabled: true, reason: "Automatic " + effectiveMode + " mode" } }
 }
 
@@ -440,6 +441,47 @@ function effective(profile, config, context) {
   }
 }
 
+// Settings preview is deliberately policy-only. It borrows the current
+// hardware-derived effective mode and replaces only the component policy, so
+// previewing Tablet on a laptop cannot change posture, docking, or compositor
+// geometry. The caller owns the short-lived timer and never persists this
+// result.
+function preview(profile, config, context) {
+  var source = object(context)
+  var actualProfile = normalizedProfile(source.activeProfile || source.currentProfile || source.selectedProfile || "auto")
+  var actual = effective(actualProfile, config || {}, source)
+  var previewSource = {}
+  Object.keys(source).forEach(function(key) { previewSource[key] = source[key] })
+  previewSource.baseMode = actual.effectiveMode
+  previewSource.currentMode = actual.effectiveMode
+  previewSource.adaptiveEnabled = false
+  previewSource.automaticTransitions = false
+  previewSource.transitioning = false
+  // A preview must not make the docked detector look like a user selection.
+  previewSource.dockedState = { active: false }
+  var candidate = effective(profile, config || {}, previewSource)
+  return {
+    profile: actual.profile,
+    previewProfile: candidate.profile,
+    sourceMode: actual.sourceMode,
+    effectiveMode: actual.effectiveMode,
+    mode: actual.effectiveMode,
+    previousMode: actual.previousMode,
+    changed: false,
+    transitioning: false,
+    adaptiveEnabled: actual.adaptiveEnabled,
+    automaticTransitions: actual.automaticTransitions,
+    automatic: actual.automatic,
+    reason: "temporary profile preview",
+    signals: actual.signals,
+    docked: actual.docked,
+    dockedState: actual.dockedState,
+    preview: true,
+    componentPolicy: candidate.componentPolicy,
+    autoOverrides: actual.autoOverrides
+  }
+}
+
 var api = {
   profiles: profiles,
   normalizedProfile: normalizedProfile,
@@ -448,6 +490,7 @@ var api = {
   mode: mode,
   componentPolicy: componentPolicy,
   autoOverrides: autoOverrides,
-  effective: effective
+  effective: effective,
+  preview: preview
 }
 if (typeof module !== "undefined") module.exports = api

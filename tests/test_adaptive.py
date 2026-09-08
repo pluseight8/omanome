@@ -260,6 +260,45 @@ class AdaptiveStateTests(unittest.TestCase):
         self.assertNotIn("hyprctl", model)
         self.assertNotIn("config.write", model)
 
+    def test_adaptive_settings_profiles_reset_preview_and_feature_overrides(self) -> None:
+        result = self.run_node(
+            "const C=require('./shell/models/Config.js'); const S=require('./shell/models/AdaptiveSettings.js'); "
+            "const A=require('./shell/models/AdaptiveMode.js'); const F=require('./shell/models/FeatureState.js'); "
+            "let config=C.set(C.defaults(),'adaptive.profiles.tablet.componentBehavior',{dock:'desktop',touchControls:'always',touchTargetSize:60}); "
+            "config=C.set(config,'adaptive.profiles.tablet.featureOverrides.gestures',false); "
+            "const cards=S.profiles(config,'tablet'); const detail=S.profile(config,'tablet'); "
+            "const reset=S.reset(config,'tablet'); let preview=S.beginPreview(S.emptyPreviewState(),'tablet',1000,6000); "
+            "const active=S.previewSummary(preview,1200); const expired=S.previewSummary(preview,8000); "
+            "const policy=A.preview('tablet',config,{activeProfile:'auto',baseMode:'desktop',currentMode:'desktop',signals:{touchscreen:true}}); "
+            "const feature=F.state({config,profile:'tablet',capabilities:{touchscreen:true,touchpad:true,stylus:false,rotation:true,osk:true,textInput:true,effects:true}},'gestures'); "
+            "console.log(JSON.stringify({ids:cards.map(row=>row.id),card:cards[2],detail,reset:S.profile(reset,'tablet'),active,expired,preview:{mode:policy.effectiveMode,profile:policy.previewProfile,component:policy.componentPolicy},feature}));"
+        )
+        self.assertEqual(result["ids"], ["auto", "desktop", "tablet", "hybrid", "presentation", "gaming", "custom"])
+        self.assertTrue(result["card"]["configured"])
+        self.assertEqual(result["detail"]["componentBehavior"]["dock"], "desktop")
+        self.assertFalse(result["feature"]["effectiveEnabled"])
+        self.assertEqual(result["feature"]["overrideSource"], "profile")
+        self.assertEqual(result["reset"]["componentBehavior"], {})
+        self.assertEqual(result["reset"]["featureOverrides"], {})
+        self.assertTrue(result["active"]["active"])
+        self.assertFalse(result["expired"]["active"])
+        self.assertEqual(result["preview"]["mode"], "desktop")
+        self.assertEqual(result["preview"]["profile"], "tablet")
+        self.assertEqual(result["preview"]["component"]["mode"], "tablet")
+        self.assertEqual(result["preview"]["component"]["touchTargetSize"], 60)
+
+    def test_adaptive_settings_ui_has_explicit_sections_and_runtime_preview_boundary(self) -> None:
+        settings = (ROOT / "shell/views/Settings.qml").read_text(encoding="utf-8")
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        model = (ROOT / "shell/models/AdaptiveSettings.js").read_text(encoding="utf-8")
+        for section in ("adaptiveMode", "physicalKeyboards", "deviceRules", "modeTransitions", "profiles", "componentBehavior", "dockedMode", "adaptiveNotifications", "adaptiveAdvanced"):
+            self.assertIn(section, settings)
+        for marker in ("controlCenter.widget.position", "resetAdaptiveProfile", "beginAdaptivePreview", "cancelAdaptivePreview", "adaptivePreviewTimer", "AdaptiveModeModel.preview", "adaptivePreview: root.adaptivePreviewSummary()"):
+            self.assertIn(marker, service if "AdaptiveMode" in marker or "Preview" in marker or "adaptivePreview" in marker else settings)
+        self.assertIn("profileDefaults", model)
+        self.assertIn("temporary profile preview", model)
+        self.assertIn("profileFeatures", settings)
+
     def test_mode_transition_coordinator_reverses_without_frame_ipc(self) -> None:
         result = self.run_node(
             "const M=require('./shell/models/ModeTransitionCoordinator.js'); "

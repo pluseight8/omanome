@@ -28,6 +28,7 @@ import "models/OskPolicy.js" as OskPolicy
 import "models/TabletMode.js" as TabletModeModel
 import "models/FeatureState.js" as FeatureStateModel
 import "models/AdaptiveMode.js" as AdaptiveModeModel
+import "models/AdaptiveSettings.js" as AdaptiveSettingsModel
 import "models/ModeTransitionCoordinator.js" as ModeTransitionModel
 import "models/DockedMode.js" as DockedModeModel
 import "models/ProcessPolicy.js" as ProcessPolicy
@@ -104,6 +105,9 @@ Item {
   property bool masterEnabled: true
   property bool suspended: false
   property string adaptiveProfile: "auto"
+  // Runtime-only profile preview. It never replaces adaptive.profile and is
+  // intentionally applied after the hardware-derived state is resolved.
+  property var adaptivePreviewState: AdaptiveSettingsModel.emptyPreviewState()
   property var featureStates: []
   property var featureStateSummary: ({ total: 0, available: 0, active: 0, partial: false, states: [] })
   property bool shuttingDown: false
@@ -330,16 +334,25 @@ Item {
     var previousMode = root.effectiveMode
     var adaptive = root.cfg("adaptive", {})
     root.observeDockedMode("adaptive-refresh")
-    var state = AdaptiveModeModel.effective(root.adaptiveProfile, root.config, {
+    var context = {
       baseMode: root.detectedMode,
       currentMode: root.effectiveMode,
       signals: root.adaptiveSignals(),
       dockedState: root.dockedModeState,
+      activeProfile: root.adaptiveProfile,
       transitioning: (root.postureState && root.postureState.candidate !== "") || (root.modeTransitionState && root.modeTransitionState.active === true),
       adaptiveEnabled: adaptive.enabled !== false,
       automaticTransitions: adaptive.automaticTransitions !== false,
       reducedMotion: root.cfg("general.reduceMotion", false) === true || root.cfg("accessibility.reducedMotion", false) === true || root.cfg("animations.reducedMotion", false) === true
-    })
+    }
+    var previewState = AdaptiveSettingsModel.tickPreview(root.adaptivePreviewState, Date.now())
+    var previewChanged = previewState.active !== root.adaptivePreviewState.active || previewState.profile !== root.adaptivePreviewState.profile || previewState.expiresAt !== root.adaptivePreviewState.expiresAt
+    if (previewChanged) root.adaptivePreviewState = previewState
+    var state = AdaptiveModeModel.effective(root.adaptiveProfile, root.config, context)
+    if (previewState.active === true) {
+      var preview = AdaptiveModeModel.preview(previewState.profile, root.config, context)
+      state = Object.assign({}, state, { preview: true, previewProfile: preview.previewProfile, previewReason: preview.reason, componentPolicy: preview.componentPolicy })
+    }
     root.adaptiveState = state
     root.effectiveMode = String(state.effectiveMode || root.detectedMode || "desktop")
     root.componentPolicy = state.componentPolicy || root.componentPolicy
@@ -561,13 +574,83 @@ Item {
 
   function setAdaptiveProfile(profile) {
     var value = FeatureStateModel.normalizedProfile(profile)
+    if (root.adaptivePreviewState.active === true) root.cancelAdaptivePreview("profile-selected")
     root.nextModeTransitionReason = "manual-profile"
     root.setConfig("adaptive.profile", value)
     return root.adaptiveProfile === value
   }
 
   function adaptiveProfiles() {
-    return AdaptiveModeModel.profiles()
+    return AdaptiveSettingsModel.profiles(root.config, root.adaptiveProfile)
+  }
+
+  function adaptiveProfileDetails(profile) {
+    return AdaptiveSettingsModel.profile(root.config, profile)
+  }
+
+  function adaptiveProfileComponents() {
+    return AdaptiveSettingsModel.components()
+  }
+
+  function adaptiveProfileFeatures() {
+    return AdaptiveSettingsModel.features()
+  }
+
+  function adaptiveProfileValue(profile, component, fallback) {
+    return AdaptiveSettingsModel.behaviorValue(root.config, profile, component, fallback)
+  }
+
+  function adaptiveProfileFeature(profile, id, fallback) {
+    return AdaptiveSettingsModel.featureValue(root.config, profile, id, fallback)
+  }
+
+  function adaptiveProfileFeatureConfigured(profile, id) {
+    return AdaptiveSettingsModel.featureConfigured(root.config, profile, id)
+  }
+
+  function setAdaptiveComponent(profile, component, value) {
+    var name = AdaptiveSettingsModel.normalizedProfile(profile)
+    var key = String(component || "")
+    if (!key || key.indexOf(".") >= 0 || key.indexOf("/") >= 0) return false
+    return root.setConfig("adaptive.profiles." + name + ".componentBehavior." + key, value)
+  }
+
+  function setAdaptiveFeatureOverride(profile, id, value) {
+    var name = AdaptiveSettingsModel.normalizedProfile(profile)
+    var key = String(id || "")
+    if (!key || key.indexOf(".") >= 0 || key.indexOf("/") >= 0) return false
+    return root.setConfig("adaptive.profiles." + name + ".featureOverrides." + key, value === true)
+  }
+
+  function resetAdaptiveProfile(profile) {
+    var name = AdaptiveSettingsModel.normalizedProfile(profile)
+    if (root.adaptivePreviewState.active === true) root.cancelAdaptivePreview("profile-reset")
+    return root.setConfig("adaptive.profiles." + name, AdaptiveSettingsModel.profileDefaults(name))
+  }
+
+  function adaptivePreviewSummary() {
+    return AdaptiveSettingsModel.previewSummary(root.adaptivePreviewState, Date.now())
+  }
+
+  function beginAdaptivePreview(profile, durationMs) {
+    if (!root.configReady || root.safeMode || root.shuttingDown) return false
+    root.adaptivePreviewState = AdaptiveSettingsModel.beginPreview(root.adaptivePreviewState, profile, Date.now(), durationMs)
+    adaptivePreviewTimer.interval = Math.max(500, Number(root.adaptivePreviewState.expiresAt || Date.now() + 6000) - Date.now())
+    adaptivePreviewTimer.restart()
+    root.updateResponsiveContext()
+    root.stateRevision++
+    root.stateUpdated()
+    return true
+  }
+
+  function cancelAdaptivePreview(reason) {
+    if (root.adaptivePreviewState.active !== true) return false
+    root.adaptivePreviewState = AdaptiveSettingsModel.cancelPreview(root.adaptivePreviewState, reason || "preview-cancelled")
+    adaptivePreviewTimer.stop()
+    root.updateResponsiveContext()
+    root.stateRevision++
+    root.stateUpdated()
+    return true
   }
 
   function toggleFeature(id) {
@@ -1807,6 +1890,8 @@ Item {
   }
 
   function resetConfig() {
+    root.adaptivePreviewState = AdaptiveSettingsModel.emptyPreviewState()
+    adaptivePreviewTimer.stop()
     root.config = Config.defaults()
     root.masterEnabled = true
     root.suspended = false
@@ -2569,6 +2654,7 @@ Item {
       transitioning: (root.adaptiveState && root.adaptiveState.transitioning === true) || (root.modeTransitionState && root.modeTransitionState.active === true),
       modeTransition: root.modeTransitionSummary(),
       dockedMode: root.dockedModeSummary(),
+      adaptivePreview: root.adaptivePreviewSummary(),
       keyboardState: String(root.keyboardTransitionState.phase || (root.hasPhysicalKeyboard ? "Connected" : "Disconnected")).toLowerCase(),
       keyboardStable: root.keyboardTransitionState.modeReady !== false,
       keyboardTransition: root.keyboardTransitionSummary(),
@@ -2755,6 +2841,7 @@ Item {
       transitioning: (root.adaptiveState && root.adaptiveState.transitioning === true) || (root.modeTransitionState && root.modeTransitionState.active === true),
       modeTransition: root.modeTransitionSummary(),
       dockedMode: root.dockedModeSummary(),
+      adaptivePreview: root.adaptivePreviewSummary(),
       keyboardState: String(root.keyboardTransitionState.phase || (root.hasPhysicalKeyboard ? "Connected" : "Disconnected")).toLowerCase(),
       keyboardStable: root.keyboardTransitionState.modeReady !== false,
       keyboardTransition: root.keyboardTransitionSummary(),
@@ -4779,6 +4866,20 @@ Item {
   }
 
   Timer {
+    id: adaptivePreviewTimer
+    // One bounded one-shot restores the hardware-derived policy after a
+    // settings preview; it is not a device or compositor polling loop.
+    interval: 6000
+    repeat: false
+    onTriggered: {
+      root.adaptivePreviewState = AdaptiveSettingsModel.tickPreview(root.adaptivePreviewState, Date.now())
+      root.updateResponsiveContext()
+      root.stateRevision++
+      root.stateUpdated()
+    }
+  }
+
+  Timer {
     id: postureTransition
     interval: 320
     repeat: false
@@ -5297,7 +5398,7 @@ Item {
     var timers = [
       performanceSnapshotTimeout, configWriteDebounce, processRegistryWriteDebounce,
       clipboardWriteDebounce, deviceRefreshDebounce, postureTransition,
-      keyboardTransitionTimer, modeTransitionTimer, dockedModeTimer, orientationTransition, wobblyConfigDebounce, clipboardRestart, rotationRestart,
+      keyboardTransitionTimer, modeTransitionTimer, dockedModeTimer, adaptivePreviewTimer, orientationTransition, wobblyConfigDebounce, clipboardRestart, rotationRestart,
       inputBackendRestart, oskPolicyTimer, clipboardMaintenance, integrationRefresh,
       systemRefresh, systemFallbackRefresh, inputFlush, inputModeCommit, effectRefresh,
       initialConfigSave, deviceRefresh, multitaskingLaunchTimeout

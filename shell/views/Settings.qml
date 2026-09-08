@@ -6,6 +6,7 @@ import qs.Commons
 import "../components"
 import "../models/Apps.js" as Apps
 import "../models/Config.js" as Config
+import "../models/AdaptiveSettings.js" as AdaptiveSettingsModel
 import "../models/Stylus.js" as StylusModel
 
 Item {
@@ -24,8 +25,11 @@ Item {
   property string appPairRatio: "50/50"
   property string appPairMonitorPolicy: "active"
   property int multitaskingRevision: 0
+  property string adaptiveEditorProfile: "desktop"
+  property int adaptiveEditorRevision: 0
   property var categories: [
     { key: "general", fallback: "General", description: "Mode, language and profiles", aliases: ["общие", "режим", "язык"] },
+    { key: "adaptiveMode", fallback: "Adaptive Mode", description: "Profiles, device rules and safe transitions", aliases: ["adaptive", "profiles", "device rules", "адаптивный режим"] },
     { key: "appearance", fallback: "Appearance", description: "Theme, density and surfaces", aliases: ["вид", "тема", "оформление"] },
     { key: "tabletMode", fallback: "Tablet mode", description: "Desktop, tablet and hybrid behavior", aliases: ["планшет", "сенсорный режим"] },
     { key: "touch", fallback: "Touch", description: "Targets and touch behavior", aliases: ["касание", "сенсор"] },
@@ -97,7 +101,7 @@ Item {
   }
 
   function resetCategory() {
-    var key = root.category === "stylusButtons" || root.category === "palmRejection" || root.category === "handwriting" || root.category === "suggestions" ? "stylus" : root.category
+    var key = root.category === "stylusButtons" || root.category === "palmRejection" || root.category === "handwriting" || root.category === "suggestions" ? "stylus" : root.category === "adaptiveMode" ? "adaptive" : root.category
     var defaults = Config.get(Config.defaults(), key, null)
     if (defaults !== null) root.service.setConfig(key, defaults)
   }
@@ -107,6 +111,31 @@ Item {
   function categoryDescription() {
     for (var i = 0; i < root.categories.length; i++) if (root.categories[i].key === root.category) return root.categories[i].description
     return ""
+  }
+
+  function adaptiveComponentValue(component, fallback) {
+    return root.service && typeof root.service.adaptiveProfileValue === "function"
+      ? root.service.adaptiveProfileValue(root.adaptiveEditorProfile, component, fallback) : fallback
+  }
+
+  function adaptiveFeatureValue(id, fallback) {
+    return root.service && typeof root.service.adaptiveProfileFeature === "function"
+      ? root.service.adaptiveProfileFeature(root.adaptiveEditorProfile, id, fallback) : fallback
+  }
+
+  function adaptiveFeatureConfigured(id) {
+    return root.service && typeof root.service.adaptiveProfileFeatureConfigured === "function"
+      ? root.service.adaptiveProfileFeatureConfigured(root.adaptiveEditorProfile, id) : false
+  }
+
+  function adaptiveChoiceLabel(value) {
+    var text = String(value || "")
+    if (text === "suppressed") return "Never"
+    if (text === "enabled") return "Enabled"
+    if (text === "disabled") return "Disabled"
+    if (text === "on") return "On"
+    if (text === "off") return "Off"
+    return text.charAt(0).toUpperCase() + text.slice(1).replace(/-/g, " ")
   }
 
   function hasStylusButtons() {
@@ -188,6 +217,8 @@ Item {
     target: root.service
     function onConfigUpdated(path) {
       if (String(path || "").indexOf("multitasking.") === 0) root.multitaskingRevision++
+      if (String(path || "").indexOf("adaptive.") === 0 || String(path || "").indexOf("controlCenter.") === 0 || String(path || "").indexOf("accessibility.") === 0)
+        root.adaptiveEditorRevision++
     }
   }
 
@@ -297,6 +328,139 @@ Item {
               Flow { width: parent.width; spacing: tokens.space(6); ActionButton { compact: true; text: "System"; checked: root.service.cfg("general.language", "system") === "system"; onClicked: root.service.setConfig("general.language", "system") } ActionButton { compact: true; text: "English"; checked: root.service.cfg("general.language", "system") === "en"; onClicked: root.service.setConfig("general.language", "en") } ActionButton { compact: true; text: "Русский"; checked: root.service.cfg("general.language", "system") === "ru"; onClicked: root.service.setConfig("general.language", "ru") } }
               ActionButton { width: parent.width; text: root.service.tr("largeUi", "Large UI"); subtitle: root.service.tr("largeUiHint", "Increase touch targets and layout density"); checked: root.service.cfg("general.largeUi", false); onClicked: root.toggle("general.largeUi") }
               ActionButton { width: parent.width; text: root.service.tr("reduceMotion", "Reduce motion"); subtitle: root.service.tr("reduceMotionHint", "Also disables expensive motion-driven effects"); checked: root.service.cfg("general.reduceMotion", false); onClicked: root.toggle("general.reduceMotion") }
+              SectionHeader { width: parent.width; title: root.service.tr("omanomeBarWidget", "Omanome Bar Widget"); subtitle: root.service.tr("omanomeBarWidgetHint", "Optional entry in the existing standard Omarchy bar") }
+              ActionButton { width: parent.width; text: root.service.tr("showOmanomeWidget", "Show Omanome widget"); subtitle: root.service.tr("widgetOptionalHint", "Omanome keeps working when the widget is hidden"); checked: root.service.cfg("controlCenter.widget.enabled", true); onClicked: root.toggle("controlCenter.widget.enabled") }
+              Flow { width: parent.width; spacing: tokens.space(6); Repeater { model: ["left", "center", "right"]; delegate: ActionButton { required property string modelData; compact: true; text: root.service.tr("widgetPosition" + modelData, modelData.charAt(0).toUpperCase() + modelData.slice(1)); checked: root.service.cfg("controlCenter.widget.position", "right") === modelData; onClicked: root.service.setConfig("controlCenter.widget.position", modelData) } } }
+              ActionButton { width: parent.width; text: root.service.tr("widgetLabel", "Show widget label"); subtitle: root.service.tr("widgetLabelHint", "Keep the bar entry compact by default"); checked: root.service.cfg("controlCenter.widget.showLabel", false); onClicked: root.toggle("controlCenter.widget.showLabel") }
+              Text { width: parent.width; text: root.service.tr("widgetPlacementNote", "Placement uses only the official bar widget slots; no overlay or replacement bar is created."); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+              SectionHeader { width: parent.width; title: root.service.tr("runtimeControl", "Runtime control"); subtitle: root.service.tr("runtimeControlHint", "Temporary controls; OFF is not uninstall") }
+              ActionButton { width: parent.width; text: root.service.masterEnabled ? root.service.tr("disableOmanome", "Disable Omanome") : root.service.tr("enableOmanome", "Enable Omanome"); subtitle: root.service.masterEnabled ? root.service.tr("masterOffHint", "Enhancements stop safely; native input and Omarchy remain active") : root.service.tr("masterOnHint", "Restore Omanome enhancements without reinstalling"); checked: root.service.masterEnabled; usable: !root.service.safeMode; onClicked: root.service.setMasterEnabled(!root.service.masterEnabled) }
+              ActionButton { width: parent.width; text: root.service.suspended ? root.service.tr("resume", "Resume Omanome") : root.service.tr("suspend", "Suspend Omanome"); subtitle: root.service.suspended ? root.service.tr("resumeHint", "Resume enhancements") : root.service.tr("suspendHint", "Pause enhancements without changing preferences"); checked: root.service.suspended; onClicked: root.service.setSuspended(!root.service.suspended) }
+            }
+
+            Column {
+              width: parent.width
+              spacing: tokens.space(10)
+              visible: root.category === "adaptiveMode"
+
+              SectionHeader { width: parent.width; title: root.service.tr("adaptiveMode", "Adaptive Mode"); subtitle: root.service.tr("adaptiveModeHint", "Capability-aware policies with explicit safety precedence") }
+              ActionButton { width: parent.width; text: root.service.cfg("adaptive.enabled", true) ? root.service.tr("adaptiveEnabled", "Adaptive Mode") : root.service.tr("adaptiveDisabled", "Adaptive Mode disabled"); subtitle: root.service.cfg("adaptive.enabled", true) ? root.service.tr("adaptiveEnabledHint", "Hardware signals may select Auto behavior") : root.service.tr("adaptiveDisabledHint", "Manual profiles and user toggles remain available"); checked: root.service.cfg("adaptive.enabled", true); onClicked: root.toggle("adaptive.enabled") }
+              ActionButton { width: parent.width; text: root.service.tr("automaticTransitions", "Automatic transitions"); subtitle: root.service.tr("automaticTransitionsHint", "Keep the last stable mode when signals are uncertain"); checked: root.service.cfg("adaptive.automaticTransitions", true); usable: root.service.cfg("adaptive.enabled", true); onClicked: root.toggle("adaptive.automaticTransitions") }
+              Text { width: parent.width; text: root.service.tr("adaptiveRuntime", "Runtime") + ": " + root.service.adaptiveProfile + " → " + root.service.effectiveMode + (root.service.adaptiveState.preview ? " · preview " + root.service.adaptiveState.previewProfile : "") + " · " + (root.service.dockedModeSummary().active ? root.service.tr("docked", "Docked") : root.service.tr("undocked", "Undocked")); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+
+              SectionHeader { width: parent.width; title: root.service.tr("physicalKeyboards", "Physical Keyboards"); subtitle: root.service.tr("physicalKeyboardsHint", "Attach/detach transitions are debounced and capability-based") }
+              Text { width: parent.width; text: String(root.service.keyboardTransitionSummary().phase || "Disconnected") + " · " + String(root.service.keyboardTransitionSummary().connectedCount || 0) + " connected · " + (root.service.keyboardTransitionSummary().stableConnected ? root.service.tr("stable", "stable") : root.service.tr("waiting", "waiting")); color: Color.foreground; font.pixelSize: Style.font.body; wrapMode: Text.WordWrap }
+              Flow { width: parent.width; spacing: tokens.space(6); Repeater { model: ["nothing", "hide-osk", "hybrid", "desktop", "ask"]; delegate: ActionButton { required property string modelData; compact: true; text: root.adaptiveChoiceLabel(modelData); checked: root.service.cfg("adaptive.externalKeyboardPolicy", "hybrid") === modelData; onClicked: root.service.setConfig("adaptive.externalKeyboardPolicy", modelData) } } }
+              Text { width: parent.width; text: root.service.tr("externalKeyboardPolicy", "External keyboard policy"); color: Color.muted; font.pixelSize: Style.font.caption }
+              Flow { width: parent.width; spacing: tokens.space(6); Repeater { model: ["ignore", "generic", "hybrid", "desktop", "ask"]; delegate: ActionButton { required property string modelData; compact: true; text: root.adaptiveChoiceLabel(modelData); checked: root.service.cfg("adaptive.unknownKeyboardPolicy", "hybrid") === modelData; onClicked: root.service.setConfig("adaptive.unknownKeyboardPolicy", modelData) } } }
+              ActionButton { width: parent.width; text: root.service.tr("deviceHotplug", "Monitor keyboard hotplug"); subtitle: root.service.inputDeviceMonitorAvailable ? root.service.tr("eventDriven", "Event-driven monitor active") : root.service.inputDeviceMonitorReason; checked: root.service.cfg("input.deviceHotplug", true); onClicked: root.toggle("input.deviceHotplug") }
+              Flow { width: parent.width; spacing: tokens.space(6); ActionButton { compact: true; text: root.service.tr("detachableKeyboard", "Detachable"); checked: root.service.cfg("input.suppressOskOnDetachableKeyboard", true); onClicked: root.toggle("input.suppressOskOnDetachableKeyboard") } ActionButton { compact: true; text: root.service.tr("bluetoothKeyboard", "Bluetooth"); checked: root.service.cfg("input.suppressOskOnBluetoothKeyboard", true); onClicked: root.toggle("input.suppressOskOnBluetoothKeyboard") } ActionButton { compact: true; text: root.service.tr("physicalKeyboard", "Physical"); checked: root.service.cfg("input.suppressOskOnPhysicalKeyboard", true); onClicked: root.toggle("input.suppressOskOnPhysicalKeyboard") } }
+
+              SectionHeader { width: parent.width; title: root.service.tr("deviceRules", "Device Rules"); subtitle: root.service.tr("deviceRulesHint", "Remembered rules are local metadata; raw device names never enter diagnostics") }
+              Text { width: parent.width; text: root.service.cfg("adaptive.deviceRules", []).length + " rule(s) · " + root.service.keyboardDeviceSummaries().length + " current keyboard(s)"; color: Color.foreground; font.pixelSize: Style.font.body; wrapMode: Text.WordWrap }
+              ActionButton { width: parent.width; text: root.service.tr("forgetDeviceRules", "Forget remembered device rules"); subtitle: root.service.tr("forgetDeviceRulesHint", "Clear per-device preferences without changing global policies"); usable: root.service.cfg("adaptive.deviceRules", []).length > 0; onClicked: root.service.setConfig("adaptive.deviceRules", []) }
+              Text { width: parent.width; text: root.service.tr("deviceRulesSafety", "Unknown or incomplete devices fail closed and do not force a mode change."); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+
+              SectionHeader { width: parent.width; title: root.service.tr("modeTransitions", "Mode Transitions"); subtitle: root.service.tr("modeTransitionsHint", "Local choreography preserves windows, Split View and App Pairs") }
+              ActionButton { width: parent.width; text: root.service.tr("transitionAnimations", "Animate mode transitions"); checked: root.service.cfg("adaptive.transition.enabled", true); onClicked: root.toggle("adaptive.transition.enabled") }
+              Flow { width: parent.width; spacing: tokens.space(6); Repeater { model: ["smooth", "snappy", "minimal"]; delegate: ActionButton { required property string modelData; compact: true; text: root.adaptiveChoiceLabel(modelData); checked: root.service.cfg("adaptive.transition.animationPreset", "smooth") === modelData; onClicked: root.service.setConfig("adaptive.transition.animationPreset", modelData) } } }
+              ActionButton { width: parent.width; text: root.service.tr("transitionOsd", "Show transition OSD"); subtitle: root.service.tr("transitionOsdHint", "Short status feedback; no terminal command spam"); checked: root.service.cfg("adaptive.transition.showOsd", true); onClicked: root.toggle("adaptive.transition.showOsd") }
+              Text { width: parent.width; text: root.service.tr("transitionDebounce", "Debounce") + ": " + root.service.cfg("adaptive.transition.debounceMs", 260) + " ms · " + root.service.tr("stabilityWindow", "stability") + ": " + root.service.cfg("adaptive.transition.stabilityMs", 420) + " ms"; color: Color.foreground; font.pixelSize: Style.font.body }
+              Slider { width: parent.width; from: 80; to: 800; stepSize: 10; value: root.service.cfg("adaptive.transition.debounceMs", 260); onMoved: root.service.setConfig("adaptive.transition.debounceMs", Math.round(value)) }
+              Slider { width: parent.width; from: 0; to: 1200; stepSize: 10; value: root.service.cfg("adaptive.transition.stabilityMs", 420); onMoved: root.service.setConfig("adaptive.transition.stabilityMs", Math.round(value)) }
+
+              SectionHeader { width: parent.width; title: root.service.tr("profiles", "Profiles"); subtitle: root.service.tr("profilesHint", "Select a stable profile or edit a temporary policy overlay") }
+              Flow {
+                width: parent.width
+                spacing: tokens.space(8)
+                Repeater {
+                  model: root.service.adaptiveProfiles()
+                  delegate: Rectangle {
+                    required property var modelData
+                    width: root.compactLayout ? parent.width : Math.max(tokens.space(220), (parent.width - tokens.space(8)) / 2)
+                    height: tokens.space(136)
+                    radius: tokens.radius(14)
+                    color: modelData.selected ? Util.alpha(Color.accent, 0.18) : Util.alpha(Color.foreground, 0.06)
+                    border.width: modelData.selected ? 1 : 0
+                    border.color: Color.accent
+                    Accessible.name: modelData.label + " profile"
+                    Accessible.description: modelData.description
+                    MouseArea { anchors.fill: parent; z: 0; onClicked: { root.adaptiveEditorProfile = modelData.id; root.service.setAdaptiveProfile(modelData.id) } }
+                    Column {
+                      anchors.fill: parent
+                      anchors.margins: tokens.space(10)
+                      spacing: tokens.space(4)
+                      z: 1
+                      Text { width: parent.width; text: modelData.label; color: modelData.selected ? Color.accent : Color.foreground; font.pixelSize: Style.font.body; font.bold: true; elide: Text.ElideRight }
+                      Text { width: parent.width; height: tokens.space(32); text: modelData.description; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap; elide: Text.ElideRight }
+                      Text { width: parent.width; text: modelData.configured ? (modelData.componentCount + " component override(s) · " + modelData.featureCount + " feature override(s)") : root.service.tr("profileDefaults", "Built-in defaults"); color: Color.muted; font.pixelSize: Style.font.caption; elide: Text.ElideRight }
+                      Row {
+                        spacing: tokens.space(5)
+                        ActionButton { compact: true; minimumWidth: tokens.space(72); text: modelData.selected ? root.service.tr("selected", "Selected") : root.service.tr("use", "Use"); checked: modelData.selected; onClicked: { root.adaptiveEditorProfile = modelData.id; root.service.setAdaptiveProfile(modelData.id) } }
+                        ActionButton { compact: true; minimumWidth: tokens.space(82); text: root.service.tr("preview", "Preview"); onClicked: { root.adaptiveEditorProfile = modelData.id; root.service.beginAdaptivePreview(modelData.id, 6000) } }
+                      }
+                    }
+                  }
+                }
+              }
+
+              SectionHeader { width: parent.width; title: root.service.tr("profileDetail", "Profile detail") + " · " + root.adaptiveEditorProfile; subtitle: root.service.tr("profileDetailHint", "Changes are stored only in the selected profile overlay") }
+              Row { spacing: tokens.space(6); ActionButton { compact: true; text: root.service.tr("useProfile", "Use profile"); onClicked: root.service.setAdaptiveProfile(root.adaptiveEditorProfile) } ActionButton { compact: true; text: root.service.tr("preview", "Preview"); onClicked: root.service.beginAdaptivePreview(root.adaptiveEditorProfile, 6000) } ActionButton { compact: true; text: root.service.tr("resetProfile", "Reset selected profile"); onClicked: root.service.resetAdaptiveProfile(root.adaptiveEditorProfile) } }
+              Text { width: parent.width; visible: root.service.adaptivePreviewSummary().active; text: root.service.tr("previewActive", "Preview active") + ": " + root.service.adaptivePreviewSummary().profile + " · " + Math.ceil(root.service.adaptivePreviewSummary().remainingMs / 1000) + " s"; color: Color.accent; font.pixelSize: Style.font.caption }
+              ActionButton { width: parent.width; visible: root.service.adaptivePreviewSummary().active; text: root.service.tr("cancelPreview", "Cancel preview"); onClicked: root.service.cancelAdaptivePreview("settings-cancel") }
+              Flow { width: parent.width; visible: root.adaptiveEditorProfile === "custom"; spacing: tokens.space(6); Repeater { model: ["auto", "desktop", "tablet", "hybrid"]; delegate: ActionButton { required property string modelData; compact: true; text: root.adaptiveChoiceLabel(modelData); checked: root.service.cfg("adaptive.profiles.custom.mode", "auto") === modelData; onClicked: root.service.setConfig("adaptive.profiles.custom.mode", modelData) } } }
+              Text { width: parent.width; visible: root.adaptiveEditorProfile === "custom"; text: root.service.tr("customModeHint", "Custom mode chooses a base mode; component policies below refine it without changing global settings."); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+
+              SectionHeader { width: parent.width; title: root.service.tr("componentBehavior", "Component Behavior"); subtitle: root.service.tr("componentBehaviorHint", "Per-profile affordances; accessibility minimums still win") }
+              Repeater {
+                model: root.service.adaptiveProfileComponents()
+                delegate: Column {
+                  id: componentRow
+                  required property var modelData
+                  property var componentDef: modelData
+                  width: parent.width
+                  spacing: tokens.space(4)
+                  Text { width: parent.width; text: componentRow.componentDef.label + " · " + root.adaptiveChoiceLabel(root.adaptiveComponentValue(componentRow.componentDef.key, componentRow.componentDef.type === "boolean" ? true : "")); color: Color.foreground; font.pixelSize: Style.font.body }
+                  Text { width: parent.width; text: componentRow.componentDef.description; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+                  Flow {
+                    width: parent.width
+                    spacing: tokens.space(5)
+                    Repeater {
+                      model: componentRow.componentDef.values
+                      delegate: ActionButton {
+                        required property string modelData
+                        compact: true
+                        text: root.adaptiveChoiceLabel(modelData)
+                        checked: componentRow.componentDef.type === "boolean" ? root.adaptiveComponentValue(componentRow.componentDef.key, true) === (modelData === "on") : String(root.adaptiveComponentValue(componentRow.componentDef.key, "")) === modelData
+                        onClicked: root.service.setAdaptiveComponent(root.adaptiveEditorProfile, componentRow.componentDef.key, componentRow.componentDef.type === "boolean" ? modelData === "on" : modelData)
+                      }
+                    }
+                  }
+                }
+              }
+
+              SectionHeader { width: parent.width; title: root.service.tr("profileFeatures", "Profile feature toggles"); subtitle: root.service.tr("profileFeaturesHint", "These are temporary profile overrides; user preferences remain separate") }
+              Flow { width: parent.width; spacing: tokens.space(5); Repeater { model: root.service.adaptiveProfileFeatures(); delegate: ActionButton { required property var modelData; compact: true; text: modelData.label + (root.adaptiveFeatureConfigured(modelData.id) ? " · custom" : ""); checked: root.adaptiveFeatureValue(modelData.id, true); onClicked: root.service.setAdaptiveFeatureOverride(root.adaptiveEditorProfile, modelData.id, !root.adaptiveFeatureValue(modelData.id, true)) } } }
+
+              SectionHeader { width: parent.width; title: root.service.tr("dockedMode", "Docked Mode"); subtitle: root.service.tr("dockedModeSettingsHint", "Optional external monitor policy for Auto only") }
+              ActionButton { width: parent.width; text: root.service.tr("dockedModeEnabled", "Enable Docked mode"); subtitle: root.service.dockedModeSummary().reason; checked: root.service.cfg("adaptive.dockedMode.enabled", true); onClicked: root.toggle("adaptive.dockedMode.enabled") }
+              Flow { width: parent.width; spacing: tokens.space(6); Repeater { model: ["external-monitor-and-keyboard", "external-monitor"]; delegate: ActionButton { required property string modelData; compact: true; text: modelData === "external-monitor" ? root.service.tr("externalMonitor", "External monitor") : root.service.tr("externalMonitorAndKeyboard", "Monitor + keyboard"); checked: root.service.cfg("adaptive.dockedMode.trigger", "external-monitor-and-keyboard") === modelData; onClicked: root.service.setConfig("adaptive.dockedMode.trigger", modelData) } } }
+              Flow { width: parent.width; spacing: tokens.space(6); Repeater { model: ["desktop", "tablet", "hybrid"]; delegate: ActionButton { required property string modelData; compact: true; text: root.adaptiveChoiceLabel(modelData); checked: root.service.cfg("adaptive.dockedMode.profile", "desktop") === modelData; onClicked: root.service.setConfig("adaptive.dockedMode.profile", modelData) } } }
+              ActionButton { width: parent.width; text: root.service.tr("keepTouch", "Keep internal touch enabled"); subtitle: root.service.tr("keepTouchHint", "Docked desktop affordances do not disable the tablet screen"); checked: root.service.cfg("adaptive.dockedMode.keepTouch", true); onClicked: root.toggle("adaptive.dockedMode.keepTouch") }
+              ActionButton { width: parent.width; text: root.service.tr("restoreAutoState", "Restore previous Auto state"); subtitle: root.service.tr("restoreAutoStateHint", "Undocking returns the last stable automatic mode"); checked: root.service.cfg("adaptive.dockedMode.restoreAutoState", true); onClicked: root.toggle("adaptive.dockedMode.restoreAutoState") }
+              Flow { width: parent.width; spacing: tokens.space(6); Repeater { model: ["preserve", "auto", "locked", "unchanged"]; delegate: ActionButton { required property string modelData; compact: true; text: root.adaptiveChoiceLabel(modelData); checked: root.service.cfg("adaptive.dockedMode.rotation", "preserve") === modelData; onClicked: root.service.setConfig("adaptive.dockedMode.rotation", modelData) } } }
+              Text { width: parent.width; text: root.service.tr("dockedRuntime", "Runtime") + ": " + (root.service.dockedModeSummary().active ? root.service.tr("docked", "Docked") : root.service.tr("undocked", "Undocked")) + " · " + root.service.dockedModeSummary().monitorCount + " monitor(s) · " + root.service.dockedModeSummary().keyboardCount + " keyboard(s)"; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+
+              SectionHeader { width: parent.width; title: root.service.tr("adaptiveNotifications", "Notifications"); subtitle: root.service.tr("adaptiveNotificationsHint", "Short OSD feedback without changing the standard bar") }
+              ActionButton { width: parent.width; text: root.service.tr("transitionOsd", "Transition OSD"); checked: root.service.cfg("adaptive.transition.showOsd", true); onClicked: root.toggle("adaptive.transition.showOsd") }
+              ActionButton { width: parent.width; text: root.service.tr("controlCenterOsd", "Control Center status OSD"); checked: root.service.cfg("controlCenter.osd.enabled", true); onClicked: root.toggle("controlCenter.osd.enabled") }
+              ActionButton { width: parent.width; text: root.service.tr("notificationPopups", "Adaptive notification popups"); subtitle: root.service.componentPolicy.notificationPopups ? root.service.tr("enabled", "Enabled") : root.service.tr("profileSuppressed", "Suppressed by profile"); checked: root.service.cfg("notifications.enabled", true); onClicked: root.toggle("notifications.enabled") }
+
+              SectionHeader { width: parent.width; title: root.service.tr("adaptiveAdvanced", "Advanced"); subtitle: root.service.tr("adaptiveAdvancedHint", "Acyclic precedence: safety → accessibility → user → profile → Auto → defaults") }
+              Text { width: parent.width; text: root.service.tr("precedence", "Precedence") + ": Safety → Accessibility → Manual feature override → Profile → Auto device mode → Defaults"; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+              ActionButton { width: parent.width; text: root.service.tr("automaticChanges", "Allow automatic component changes"); subtitle: root.service.tr("automaticChangesHint", "Disable this for a complete manual escape hatch"); checked: root.service.cfg("adaptive.automaticTransitions", true); onClicked: root.toggle("adaptive.automaticTransitions") }
+              ActionButton { width: parent.width; text: root.service.tr("openAccessibility", "Open Accessibility"); subtitle: root.service.tr("openAccessibilityHint", "Accessibility minimums always override density reductions"); onClicked: root.selectCategory("accessibility") }
+              ActionButton { width: parent.width; text: root.service.tr("resetAdaptive", "Reset Adaptive Mode settings"); subtitle: root.service.tr("resetAdaptiveHint", "Only the adaptive section is reset"); onClicked: root.resetCategory() }
             }
 
             Column {
@@ -626,6 +790,7 @@ Item {
               spacing: tokens.space(8)
               visible: root.category === "accessibility"
               SectionHeader { width: parent.width; title: root.service.tr("accessibility", "Accessibility"); subtitle: root.service.tr("accessibilityHint", "These settings affect Omanome surfaces only") }
+              Text { width: parent.width; text: root.service.tr("accessibilityPrecedence", "Accessibility minimum") + ": " + root.service.componentPolicy.touchTargetSize + " px · " + root.service.tr("accessibilityWins", "profile density can never reduce this target"); color: Color.accent; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
               Flow { width: parent.width; spacing: tokens.space(6); Repeater { model: ["default", "large", "extra-large"]; delegate: ActionButton { required property string modelData; compact: true; text: modelData; checked: root.service.cfg("accessibility.touchTargetSize", "default") === modelData; onClicked: root.service.setConfig("accessibility.touchTargetSize", modelData) } } }
               Text { text: root.service.tr("textScale", "Text scale") + ": " + Math.round(Number(root.service.cfg("accessibility.textScale", 1)) * 100) + "%"; color: Color.foreground; font.pixelSize: Style.font.body }
               Slider { width: parent.width; from: 0.9; to: 1.5; stepSize: 0.05; value: root.service.cfg("accessibility.textScale", 1); onMoved: root.service.setConfig("accessibility.textScale", Math.round(value * 20) / 20) }
@@ -662,7 +827,7 @@ Item {
             Column {
               width: parent.width
               spacing: tokens.space(8)
-              visible: ["general", "appearance", "tabletMode", "touch", "gestures", "stylus", "stylusButtons", "palmRejection", "handwriting", "keyboard", "suggestions", "windowControls", "dock", "overview", "launcher", "multitasking", "workspaces", "quickSettings", "notifications", "clipboard", "altTab", "blur", "effects", "rotation", "displays", "animations", "performance", "battery", "privacy", "accessibility", "applications", "shortcuts", "updates", "backup", "recovery", "diagnostics", "about"].indexOf(root.category) < 0
+              visible: ["general", "adaptiveMode", "appearance", "tabletMode", "touch", "gestures", "stylus", "stylusButtons", "palmRejection", "handwriting", "keyboard", "suggestions", "windowControls", "dock", "overview", "launcher", "multitasking", "workspaces", "quickSettings", "notifications", "clipboard", "altTab", "blur", "effects", "rotation", "displays", "animations", "performance", "battery", "privacy", "accessibility", "applications", "shortcuts", "updates", "backup", "recovery", "diagnostics", "about"].indexOf(root.category) < 0
               Text { width: parent.width; text: root.service.tr("unavailable", "Unavailable"); color: Color.muted; font.pixelSize: Style.font.body }
               Text { width: parent.width; text: root.categoryDescription(); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
             }
