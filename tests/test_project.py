@@ -792,6 +792,8 @@ class OmanomeProjectTests(unittest.TestCase):
         config = (ROOT / "shell/models/Config.js").read_text(encoding="utf-8")
         config_tool = (ROOT / "scripts/config_tool.py").read_text(encoding="utf-8")
         settings = (ROOT / "shell/views/Settings.qml").read_text(encoding="utf-8")
+        makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn('"workspace-overlay"', panel)
         self.assertIn("showWorkspaceOverlay", panel)
         for marker in ("WorkspaceSwitcherModel", "workspaceSwitcherOptions", "showWorkspaceSwitcher", "workspaceSwitcherFocus", "executeMultitaskingShortcut", "multitaskingShortcut", "checkShortcutConflicts", "shortcutBindsProcess"):
@@ -803,6 +805,9 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertIn("multitasking-1.1-defaults", config)
         self.assertIn("multitasking-1.1-defaults", config_tool)
         self.assertIn("Check Hyprland conflicts", settings)
+        self.assertIn("multitasking_check.py", makefile)
+        self.assertIn("hardware-multitasking.json", makefile)
+        self.assertIn("multitasking-safety", workflow)
 
     def test_native_omarchy_validator_when_available(self) -> None:
         omarchy = shutil.which("omarchy")

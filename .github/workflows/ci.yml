@@ -128,3 +128,16 @@ jobs:
         run: |
           ./input/omanome-input/target/release/omanome-input --version
           ./input/omanome-input/target/release/omanome-input --protocol
+
+  multitasking-safety:
+    name: Multitasking safety
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Run bounded multitasking models and fixture gate
+        run: make multitasking-check
+
+      - name: Recheck dependency safety boundary
+        run: make dependency-audit

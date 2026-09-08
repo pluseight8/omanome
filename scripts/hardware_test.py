@@ -24,6 +24,16 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 EX_CONFIG = 78
 RESULTS = ("Pass", "Fail", "Unavailable", "Skipped", "Untested")
 SESSION_SCHEMA_VERSION = 1
+MULTITASKING_SCENARIOS = (
+    ("touch-drag-window", "Drag a managed window with touch without triggering an app gesture."),
+    ("touch-snap", "Drag the window to a snap zone and confirm the preview commits once."),
+    ("divider-drag", "Drag the Split View divider and confirm both windows resize together."),
+    ("dock-to-split", "Long-press a Dock app and drop it into the second split slot."),
+    ("overview-to-split", "Drag an Overview window card into a split slot."),
+    ("portrait-split", "Create a top/bottom split while the tablet is in portrait."),
+    ("rotation", "Rotate landscape to portrait and back without losing the pair or ratio."),
+    ("stylus-drag", "Drag and snap a window with stylus contact; proximity alone must not act."),
+)
 
 
 def timestamp() -> str:
@@ -125,7 +135,7 @@ def parse_record(value: str) -> tuple[str, str]:
 
 def target_map(capabilities: dict[str, Any]) -> dict[str, dict[str, Any]]:
     targets: dict[str, dict[str, Any]] = {}
-    for section in ("certification", "lifecycle", "handwriting", "stylusFeatures"):
+    for section in ("certification", "lifecycle", "handwriting", "stylusFeatures", "multitasking"):
         values = capabilities.get(section, {})
         if isinstance(values, dict):
             for name, value in values.items():
@@ -206,7 +216,7 @@ def apply_manual_records(
 
 
 def iter_checks(capabilities: dict[str, Any]):
-    for section in ("certification", "lifecycle", "handwriting", "stylusFeatures"):
+    for section in ("certification", "lifecycle", "handwriting", "stylusFeatures", "multitasking"):
         values = capabilities.get(section, {})
         if isinstance(values, dict):
             for name, value in values.items():
@@ -398,6 +408,39 @@ def explicit_available(value: Any) -> bool:
     return bool(value)
 
 
+def multitasking_results(payload: dict[str, Any], source: str) -> dict[str, dict[str, Any]]:
+    """Expose the guided multitasking matrix without turning fixtures into certification."""
+
+    declaration = payload.get("multitasking", {}) if isinstance(payload, dict) else {}
+    entries = declaration.get("scenarios", declaration.get("tests", {})) if isinstance(declaration, dict) else {}
+    if not isinstance(entries, dict):
+        entries = {}
+    result: dict[str, dict[str, Any]] = {}
+    for name, label in MULTITASKING_SCENARIOS:
+        entry = entries.get(name)
+        if source == "fixture":
+            available = entry is not None and explicit_available(entry)
+            outcome = "Untested" if available else "Unavailable"
+            reason = (
+                "fixture declares this scenario; interactive hardware execution was not performed"
+                if available
+                else "fixture does not declare this scenario"
+            )
+        else:
+            available = False
+            outcome = "Untested"
+            reason = "guided live hardware test required; a session probe cannot infer interaction success"
+        result[name] = check(
+            f"multitasking.{name}",
+            available,
+            reason,
+            source,
+            {"label": label, "declared": entry is not None},
+            outcome,
+        )
+    return result
+
+
 def certification_results(fixture: dict[str, Any], touch: Any, stylus: Any, sensors: dict[str, Any]) -> dict[str, dict[str, Any]]:
     devices = fixture.get("devices") if isinstance(fixture.get("devices"), dict) else {}
     keyboards = fixture.get("keyboard", devices.get("keyboards", []))
@@ -462,6 +505,7 @@ def fixture_result(fixture: dict[str, Any]) -> dict[str, Any]:
         "hyprland": check("hyprland", bool(fixture.get("hyprland", True)), "fixture reports Hyprland" if fixture.get("hyprland", True) else "fixture reports no Hyprland", "fixture"),
         "lifecycle": lifecycle_results(fixture),
         "handwriting": handwriting_result(fixture),
+        "multitasking": multitasking_results(fixture, "fixture"),
         "certification": certification_results(fixture, touch, stylus, sensors),
     }
 
@@ -499,8 +543,23 @@ def live_result() -> dict[str, Any]:
             name: check(f"handwriting.{name}", False, "live handwriting fixture/provider required", "live-session")
             for name in ("ink", "recognition", "cloud")
         },
+        "multitasking": multitasking_results({}, "live-session"),
         "certification": live_certification_results(devices, monitors, touch, stylus, sensors),
     }
+
+
+def guided_result(name: str, label: str) -> str:
+    allowed = {value.lower(): value for value in RESULTS}
+    while True:
+        sys.stderr.write(f"[{name}] {label}\nResult ({', '.join(RESULTS)}): ")
+        sys.stderr.flush()
+        value = sys.stdin.readline()
+        if not value:
+            raise ValueError("guided hardware test ended before a result was recorded")
+        normalized = value.strip().lower()
+        if normalized in allowed:
+            return allowed[normalized]
+        sys.stderr.write("Please enter one of: " + ", ".join(RESULTS) + "\n")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -516,6 +575,7 @@ def main(argv: list[str] | None = None) -> int:
         help="record a live hardware result: Pass, Fail, Unavailable, Skipped, or Untested",
     )
     parser.add_argument("--confirm-hardware", action="store_true", help="confirm that this is a real hardware session")
+    parser.add_argument("--guided", action="store_true", help="run the multitasking matrix as an interactive live-hardware checklist")
     parser.add_argument("--report", type=pathlib.Path, help="write the sanitized JSON report to a private file")
     parser.add_argument("--json", action="store_true", help="kept for CLI symmetry; JSON is always emitted")
     args = parser.parse_args(argv)
@@ -533,6 +593,12 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("--resume requires --session")
         if args.record and not args.session:
             raise ValueError("--record requires --session so evidence is not lost")
+        if args.guided and mode != "live-probe":
+            raise ValueError("guided hardware tests require a live session; fixture evidence cannot be certified")
+        if args.guided and not args.session:
+            raise ValueError("--guided requires --session so evidence is resumable and private")
+        if args.guided and not sys.stdin.isatty():
+            raise ValueError("--guided requires an interactive terminal")
         if args.confirm_hardware and mode != "live-probe":
             raise ValueError("fixture evidence cannot be confirmed as hardware")
 
@@ -553,6 +619,13 @@ def main(argv: list[str] | None = None) -> int:
             for raw_record in args.record:
                 name, result = parse_record(raw_record)
                 records_to_apply[name] = {"result": result, "recordedAt": timestamp()}
+            if args.guided:
+                if not session.get("hardwareConfirmed", False):
+                    raise ValueError("--guided requires --confirm-hardware for a new or unconfirmed session")
+                for name, label in MULTITASKING_SCENARIOS:
+                    target = f"multitasking.{name}"
+                    if target not in records_to_apply:
+                        records_to_apply[target] = {"result": guided_result(name, label), "recordedAt": timestamp()}
             applied_records = apply_manual_records(
                 capabilities,
                 records_to_apply,
@@ -589,6 +662,12 @@ def main(argv: list[str] | None = None) -> int:
             **summary,
             "evidence": "manual-confirmed" if real_hardware_validated else ("fixture" if mode == "fixture" else "probe-only"),
             "sessionPresent": bool(session),
+        },
+        "guided": {
+            "available": mode == "live-probe",
+            "interactive": mode == "live-probe" and sys.stdin.isatty(),
+            "requiresConfirmHardware": True,
+            "scenarioCount": len(MULTITASKING_SCENARIOS),
         },
         "note": "Capability probe only; unavailable backends are not simulated. Fixture evidence never certifies hardware.",
         "capabilities": capabilities,

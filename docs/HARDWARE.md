@@ -32,6 +32,15 @@ Fixture checks are safe for CI and never set realHardwareValidated:
 The report says evidence: fixture; this is expected and must not be presented
 as a device certification.
 
+The 1.1 multitasking gate has the same boundary:
+
+    python3 scripts/multitasking_check.py \
+      --fixture tests/fixtures/hardware-multitasking.json --json
+
+Its `portableSafety.result` can be `Pass` when the model and source contracts
+are safe, while every interactive scenario remains `Untested` with
+`realHardwareValidated: false`.
+
 ## Real hardware session
 
 Run the probe from the active Wayland session. Store the session and report
@@ -56,6 +65,21 @@ operator's result and the probe evidence, but it cannot independently
 determine whether a human is physically touching the device. Pass and Fail
 records are therefore rejected without that confirmation.
 
+For the tablet multitasking matrix, use the user-assisted checklist from an
+interactive terminal. It performs no pointer injection and does not move
+windows automatically; the operator performs each action and records the
+observed result:
+
+    python3 scripts/hardware_test.py \
+      --guided \
+      --session "$session" \
+      --confirm-hardware \
+      --report "$report" \
+      --json
+
+The checklist is resumable. A non-interactive shell, a fixture, or a session
+without explicit hardware confirmation cannot produce Pass/Fail evidence.
+
 After a suspend, reboot, compositor restart, or an interrupted test, resume
 the same session rather than creating a new one:
 
@@ -79,7 +103,11 @@ stylus, pressure, tilt, distance, rotation, eraser, stylusButtons,
 stylusFeatures.pressure, certification.suspendResume, lifecycle.hotplug,
 lifecycle.waylandReconnect, lifecycle.outputRemap, lifecycle.rollback,
 orientation, osk, multiMonitor, handwriting.ink, and
-handwriting.recognition.
+handwriting.recognition. Multitasking targets are
+`multitasking.touch-drag-window`, `multitasking.touch-snap`,
+`multitasking.divider-drag`, `multitasking.dock-to-split`,
+`multitasking.overview-to-split`, `multitasking.portrait-split`,
+`multitasking.rotation`, and `multitasking.stylus-drag`.
 
 ## Certification matrix
 
@@ -92,6 +120,7 @@ not a claim that every row has passed.
 | Platform/runtime | Wayland session, supported Hyprland version, clean boot, reload, and compositor reconnect |
 | Display | Internal display, external display, unplug/replug, portrait, fractional scale, and small-screen layout |
 | Touch | Single touch, multitouch, drag/scroll, edge gestures, touch-to-mouse policy, and no duplicate activation |
+| Multitasking | Touch drag, touch snap, divider resize, Dock/Overview split, portrait split, rotation, and stylus drag |
 | Stylus | Proximity, tip, pressure curve, tilt, distance, barrel buttons, eraser, mapping, rotation, and palm rejection |
 | Keyboard | Built-in, USB, Bluetooth/detachable transitions, modifiers, layout switching, and focus changes |
 | OSK | GTK3/GTK4, Qt5/Qt6, Electron/Chromium, Firefox, terminal, Steam, native Wayland, and XWayland |

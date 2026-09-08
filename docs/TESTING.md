@@ -11,6 +11,7 @@ make companion-check
 make dependency-audit
 make performance-test
 make hardware-test
+make multitasking-check
 make version-check
 ```
 
@@ -30,7 +31,11 @@ config writes. `hardware-test` consumes a fixture and explicitly reports
 `realHardwareValidated: false`. The 1.0 fixtures cover native tablet
 pressure/tilt/distance/rotation/eraser/buttons, bounded ink, input/display
 hotplug, suspend/resume, output remap, and rollback; fixture evidence never
-certifies physical hardware. `version-check` verifies that the manifest,
+certifies physical hardware.
+`multitasking-check` additionally runs the bounded multitasking model suite,
+validates the 1.1 source/config contracts, and checks the eight interactive
+scenarios as `Untested` fixture evidence; it never simulates a touchscreen or
+stylus. `version-check` verifies that the manifest,
 companion descriptor, README, changelog, and release metadata agree.
 
 The runtime service coalesces Quick Settings into one state probe and only starts
@@ -76,6 +81,7 @@ The QML code is designed for the following manual matrix when hardware is availa
 - `input/sensor-info.sh` and `omanome sensor-info` distinguish monitor-sensor, iio D-Bus, and manual fallback, expose orientation/posture state when supplied by the session, and expose the orientation debounce/dwell policy.
 - `omanome stylus-info` and `omanome touch-info` return capability-safe JSON even when Hyprland or a physical device is absent; they include native protocol and privacy status without typed or surrounding text.
 - `scripts/hardware_test.py`, `scripts/support_bundle.py`, `scripts/dependency_audit.py`, and `scripts/performance_test.py` provide explicit non-certifying probes, redacted support evidence, static dependency policy, and deterministic performance budgets.
+- `scripts/multitasking_check.py` separates portable multitasking safety from the user-assisted hardware matrix; its fixture cannot set `realHardwareValidated`.
 - `hypr/README.md` records why no unpinned compositor `.so` is loaded.
 
 Hardware-specific pressure, tilt, eraser, screen rotation, multi-monitor, and focus/text-input tests require the corresponding device/backend; they should not be represented as passed by static CI. The manual hardware workflow is dispatch-only for that reason.

@@ -132,6 +132,7 @@ omanome recover --json
 omanome capabilities
 omanome input-info
 omanome hardware-test --fixture tests/fixtures/hardware-tablet.json --json
+omanome hardware-test --guided --session "$HOME/.local/state/omanome/hardware-session.json" --confirm-hardware --json
 omanome diagnostics bundle [output.tar.gz]
 omanome stylus-info
 omanome touch-info

@@ -8,7 +8,7 @@ validate:
 	python3 scripts/validate.py
 	python3 scripts/validate_version.py
 	python3 scripts/config_tool.py validate config/defaults.json
-	python3 -m py_compile scripts/config_tool.py scripts/dependency_audit.py scripts/hardware_test.py scripts/performance_check.py scripts/performance_test.py scripts/process_snapshot.py scripts/process_watchdog.py scripts/support_bundle.py scripts/validate.py scripts/validate_version.py
+	python3 -m py_compile scripts/config_tool.py scripts/dependency_audit.py scripts/hardware_test.py scripts/multitasking_check.py scripts/performance_check.py scripts/performance_test.py scripts/process_snapshot.py scripts/process_watchdog.py scripts/support_bundle.py scripts/validate.py scripts/validate_version.py
 	bash -n cli/omanome input/clipboard-capture.sh input/system-state.sh input/wifi-scan.sh input/bluetooth-scan.sh input/rotation-monitor.sh input/sensor-info.sh input/companion-info.sh input/effects-info.sh input/force-quit.sh input/audio-devices.sh input/device-monitor.sh input/session-monitor.sh
 
 test:
@@ -62,4 +62,5 @@ input-check:
 
 multitasking-check:
 	python3 -m unittest tests.test_multitasking -v
+	python3 scripts/multitasking_check.py --fixture tests/fixtures/hardware-multitasking.json --json
 	python3 scripts/performance_check.py --json

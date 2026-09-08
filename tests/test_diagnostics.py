@@ -80,6 +80,53 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertTrue(payload["capabilities"]["touchscreen"]["available"])
         self.assertTrue(payload["capabilities"]["stylus"]["available"])
 
+    def test_multitasking_fixture_reports_guided_matrix_without_certifying_hardware(self) -> None:
+        script = ROOT / "scripts" / "hardware_test.py"
+        result = subprocess.run(
+            ["python3", str(script), "--fixture", str(ROOT / "tests" / "fixtures" / "hardware-multitasking.json"), "--json"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        expected = {
+            "touch-drag-window", "touch-snap", "divider-drag", "dock-to-split",
+            "overview-to-split", "portrait-split", "rotation", "stylus-drag",
+        }
+        scenarios = payload["capabilities"]["multitasking"]
+        self.assertEqual(set(scenarios), expected)
+        self.assertTrue(all(item["result"] == "Untested" for item in scenarios.values()))
+        self.assertFalse(payload["realHardwareValidated"])
+        self.assertFalse(payload["guided"]["available"])
+
+    def test_multitasking_portable_gate_separates_contract_pass_from_fixture_evidence(self) -> None:
+        result = subprocess.run(
+            ["python3", str(ROOT / "scripts" / "multitasking_check.py"), "--json"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["portableSafety"]["result"], "Pass")
+        self.assertFalse(payload["hardware"]["realHardwareValidated"])
+        self.assertTrue(all(item["result"] == "Untested" for item in payload["hardware"]["scenarios"].values()))
+
+    def test_guided_multitasking_requires_an_interactive_confirmed_session(self) -> None:
+        script = ROOT / "scripts" / "hardware_test.py"
+        with tempfile.TemporaryDirectory() as temporary:
+            session = pathlib.Path(temporary) / "session.json"
+            result = subprocess.run(
+                ["python3", str(script), "--guided", "--session", str(session), "--confirm-hardware", "--json"],
+                capture_output=True,
+                text=True,
+                input="",
+            )
+            self.assertEqual(result.returncode, 78)
+            self.assertIn("interactive terminal", result.stdout)
+            self.assertFalse(session.exists())
+
     def test_extended_hardware_fixtures_report_capabilities_without_certifying_hardware(self) -> None:
         cases = (
             ("stylus-events.json", ("pressure", "tilt", "distance", "rotation", "eraser", "buttons", "proximity")),

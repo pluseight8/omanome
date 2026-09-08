@@ -85,7 +85,7 @@ Commands:
   companion recover      Disable, restore the newest companion backup, and clear pending state
   effects                Print effect and preview backend capabilities
   capabilities           Print merged capability probes as stable JSON
-  hardware-test          Run non-destructive hardware probes (fixture supported)
+  hardware-test          Run non-destructive hardware probes (fixture or --guided checklist)
   diagnostics bundle     Create a redacted support bundle
   diagnostics export     Create the same redacted bundle (explicit --private accepted)
   processes [--json]     Print only explicitly Omanome-owned processes
