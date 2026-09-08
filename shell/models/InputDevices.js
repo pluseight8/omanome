@@ -111,9 +111,9 @@ function stableId(item, hint) {
   if (vendor) durable.push("vendor-" + vendor)
   if (product) durable.push("product-" + product)
   if (serial) durable.push("serial-h-" + opaquePart(serial))
-  if (path) durable.push("path-" + path)
+  if (path) durable.push("path-h-" + opaquePart(path))
   if (uniq) durable.push("uniq-h-" + opaquePart(uniq))
-  if (durable.length === 0) durable = [name || "unnamed", caps || role]
+  if (durable.length === 0) durable = ["fallback-h-" + opaquePart((name || "unnamed") + "|" + (caps || role))]
   return "input:" + role + ":" + durable.join("/")
 }
 

@@ -274,7 +274,11 @@ function summary(devices) {
   return list.map(function(item) {
     return {
       id: string(item.id),
-      name: string(item.name || "Unnamed keyboard"),
+      // Status and diagnostics are a privacy boundary. Device names can carry
+      // a serial or a user-assigned Bluetooth label, so expose only a stable
+      // category label here; classification and capability fields remain
+      // available to the UI and adaptive policy.
+      name: "Keyboard",
       category: string(item.category || "external"),
       classification: string(item.classification || item.formFactorRelation || "unknown"),
       transport: string(item.transport || "unknown"),

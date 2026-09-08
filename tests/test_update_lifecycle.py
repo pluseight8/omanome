@@ -176,6 +176,42 @@ class UpdateLifecycleTests(unittest.TestCase):
             self.assertIn("refs/tags/v1.1.0^{}", args_log)
             self.assertNotIn("refs/heads/main", args_log)
 
+    def test_rollback_restores_pre_migration_1_1_config_without_adaptive_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            plugin, env = self.make_fixture(root)
+            config_path = root / "config" / "omanome" / "config.json"
+            legacy = {
+                "schemaVersion": 2,
+                "general": {"profile": "Tablet"},
+                "multitasking": {"snapAssist": {"dwellMs": 333}},
+                "input": {"nativeBackend": "native"},
+                "performance": {"mode": "performance"},
+                "accessibility": {"textScale": 1.25},
+                "stylus": {"pressureCurve": "soft"},
+                "dock": {"position": "left"},
+                "overview": {"workspaceMode": "fixed"},
+            }
+            original = json.dumps(legacy, separators=(",", ":")) + "\n"
+            config_path.write_text(original, encoding="utf-8")
+
+            updated = self.run_cli(env, "update", "--json")
+            self.assertEqual(updated.returncode, 0, updated.stderr)
+            migrated = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertIn("controlCenter", migrated)
+            self.assertIn("adaptive", migrated)
+            self.assertEqual(migrated["adaptive"]["profile"], "tablet")
+            self.assertEqual(migrated["dock"]["position"], "left")
+            self.assertEqual(json.loads((plugin / "manifest.json").read_text(encoding="utf-8"))["version"], "1.1.0")
+
+            rollback = self.run_cli(env, "rollback", "--json")
+            self.assertEqual(rollback.returncode, 0, rollback.stderr)
+            self.assertEqual(config_path.read_text(encoding="utf-8"), original)
+            restored = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertNotIn("controlCenter", restored)
+            self.assertNotIn("adaptive", restored)
+            self.assertEqual(json.loads((plugin / "manifest.json").read_text(encoding="utf-8"))["version"], "0.9.0")
+
     def test_portable_install_update_reload_suspend_resume_rollback_uninstall(self) -> None:
         node = shutil.which("node")
         if not node:

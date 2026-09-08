@@ -176,6 +176,7 @@ class InputProtocolContractTests(unittest.TestCase):
         self.assertEqual([row["transport"] for row in payload["rows"]], ["i2c", "pogo-pin", "usb-c-dock", "bluetooth"])
         self.assertTrue(all("PRIVATE-COVER" not in row["id"] for row in payload["rows"]))
         self.assertTrue(all("AA:BB:CC:DD:EE:FF" not in row["id"] for row in payload["rows"]))
+        self.assertTrue(all(row["name"] == "Keyboard" for row in payload["summary"]))
         self.assertFalse(any(row["name"] == "Keyboard" for row in payload["rows"]))
         self.assertIn("KeyboardDevicesModel.classify", self.service)
         self.assertIn("capabilities", self.keyboard_devices)

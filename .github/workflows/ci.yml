@@ -41,6 +41,9 @@ jobs:
       - name: Run project contract tests
         run: python3 -m unittest tests.test_project -v
 
+      - name: Run configuration migration tests
+        run: python3 -m unittest tests.test_config_migration -v
+
       - name: Run update lifecycle tests
         run: python3 -m unittest tests.test_update_lifecycle -v
 

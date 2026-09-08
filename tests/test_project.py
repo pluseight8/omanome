@@ -81,7 +81,7 @@ class OmanomeProjectTests(unittest.TestCase):
         schema = json.loads((ROOT / "config/schema.json").read_text(encoding="utf-8"))
         self.assertEqual(defaults["schemaVersion"], 2)
         self.assertEqual(schema["properties"]["schemaVersion"]["const"], 2)
-        for key in ("tabletMode", "input", "onboarding", "accessibility", "touch", "stylus", "keyboard", "clipboard", "updates", "recovery", "diagnostics", "animations", "performance", "applicationRules", "wobbly", "cube", "forceQuit"):
+        for key in ("controlCenter", "adaptive", "tabletMode", "input", "onboarding", "accessibility", "touch", "stylus", "keyboard", "clipboard", "updates", "recovery", "diagnostics", "animations", "performance", "applicationRules", "wobbly", "cube", "forceQuit"):
             self.assertIn(key, defaults)
         self.assertTrue(defaults["effects"]["enabled"])
         self.assertEqual(defaults["wobbly"]["maxVertices"], 1024)

@@ -401,7 +401,15 @@ sanitize_status_json() {
         .keyboards = [.keyboards[] | {category:(.category // "external"),classification:(.classification // .formFactorRelation // "unknown"),transport:(.transport // "unknown"),connected:(.connected == true),behavior:(.behavior // "generic"),ignored:(.ignored == true),capabilities:(.capabilities // {})}]
       else . end
     | if (.inputDevices | type) == "object" then
-        .inputDevices = (.inputDevices | .mapping = (if (.mapping | type) == "array" then [.mapping[] | {role:(.role // "unknown"),output:(.output // "automatic")}] else [] end) | .lastEvent = scrub_event(.lastEvent))
+        .inputDevices = (.inputDevices
+          | .mapping = (if (.mapping | type) == "array" then [.mapping[] | {role:(.role // "unknown"),output:(.output // "automatic")}] else [] end)
+          | .lastEvent = scrub_event(.lastEvent)
+          | .hotplug = (if (.hotplug | type) == "object" then {available:(.hotplug.available == true),lastEvent:(.hotplug.lastEvent // ""),lastAction:(.hotplug.lastAction // "")} else .hotplug end))
+      else . end
+    | if (.inputMapping | type) == "object" then
+        .inputMapping = (.inputMapping
+          | .plan = (if (.plan | type) == "array" then [.plan[] | {role:(.role // "unknown"),output:(.output // "automatic"),reason:(.reason // ""),present:(.present != false),transform:(.transform // 0)}] else [] end)
+          | .explanation = [])
       else . end
     | if (.keyboardTransition | type) == "object" then
         .keyboardTransition = (.keyboardTransition | .event = (if (.event | type) == "object" then (.event | .deviceIds = []) else null end) | .lastEvent = scrub_event(.lastEvent))
@@ -1972,8 +1980,18 @@ hardware_test_cmd() {
 
 support_bundle_cmd() {
   ensure_dirs
-  local output="${1:-$omanome_state_dir/support-bundles/$(date -u +%Y%m%d-%H%M%S).tar.gz}"
-  python3 "$repo_dir/scripts/support_bundle.py" --output "$output" --config "$(config_file)" --state "$omanome_state_dir"
+  local output="" private=0 argument
+  for argument in "$@"; do
+    case "$argument" in
+      --private) private=1 ;;
+      --*) die "unsupported support bundle option: $argument" ;;
+      *) [[ -z "$output" ]] || die "support bundle accepts one output path"; output="$argument" ;;
+    esac
+  done
+  [[ -n "$output" ]] || output="$omanome_state_dir/support-bundles/$(date -u +%Y%m%d-%H%M%S).tar.gz"
+  local private_args=()
+  [[ "$private" -eq 1 ]] && private_args+=(--private)
+  python3 "$repo_dir/scripts/support_bundle.py" "${private_args[@]}" --output "$output" --config "$(config_file)" --state "$omanome_state_dir"
 }
 
 diagnostics_cmd() {
@@ -1983,13 +2001,9 @@ diagnostics_cmd() {
     capabilities) capabilities_cmd "$@" ;;
     hardware|hardware-test) hardware_test_cmd "$@" ;;
     bundle|support-bundle|export)
-      local filtered=()
-      for argument in "$@"; do
-        [[ "$argument" != "--private" ]] && filtered+=("$argument")
-      done
-      # --private acknowledges the sanitized support-export contract; it does
-      # not disable redaction and never uploads data.
-      support_bundle_cmd "${filtered[@]}" ;;
+      # --private selects the stricter local redaction policy; it never
+      # disables redaction and never uploads data.
+      support_bundle_cmd "$@" ;;
     doctor) doctor_cmd --json "$@" ;;
     mode-info) mode_info_cmd "$@" ;;
     feature-list|features) feature_list_cmd "$@" ;;

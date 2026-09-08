@@ -9,6 +9,8 @@ import tarfile
 import tempfile
 import unittest
 
+from scripts import support_bundle
+
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CLI = ROOT / "cli" / "omanome"
@@ -327,6 +329,35 @@ class DiagnosticsTests(unittest.TestCase):
             self.assertNotIn("aa:bb:cc:dd:ee:ff", devices.stdout)
             self.assertNotIn("PRIVATE-SERIAL-123", devices.stdout)
 
+    def test_status_redacts_hotplug_and_mapping_identifiers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            shell = fake_bin / "omarchy-shell"
+            shell.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf '%s\\n' '{\"service\":\"ready\",\"inputDevices\":{\"hotplug\":{\"available\":true,\"lastEvent\":\"input\",\"lastAction\":\"remove\",\"lastDevice\":\"/devices/private/serial/AA:BB:CC:DD:EE:FF\"}},\"inputMapping\":{\"plan\":[{\"id\":\"/dev/input/event9\",\"role\":\"keyboard\",\"output\":\"DP-1\"}],\"explanation\":[\"/dev/input/event9 -> DP-1\"]},\"keyboards\":[{\"id\":\"aa:bb:cc:dd:ee:ff\",\"name\":\"PRIVATE-SERIAL-123\",\"classification\":\"external\",\"transport\":\"bluetooth\"}]}'\n",
+                encoding="utf-8",
+            )
+            shell.chmod(shell.stat().st_mode | stat.S_IXUSR)
+            env = os.environ.copy()
+            env.update(
+                {
+                    "HOME": str(root),
+                    "XDG_CONFIG_HOME": str(root / "config"),
+                    "XDG_STATE_HOME": str(root / "state"),
+                    "XDG_CACHE_HOME": str(root / "cache"),
+                    "PATH": f"{fake_bin}:{env['PATH']}",
+                }
+            )
+            result = subprocess.run([str(CLI), "status", "--json"], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("/devices/private/serial", result.stdout)
+            self.assertNotIn("/dev/input/event9", result.stdout)
+            self.assertNotIn("aa:bb:cc:dd:ee:ff", result.stdout.lower())
+            self.assertNotIn("private-serial-123", result.stdout.lower())
+
     def test_support_bundle_excludes_personal_config_values(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
@@ -349,6 +380,50 @@ class DiagnosticsTests(unittest.TestCase):
                 report = archive.extractfile("report.json").read().decode("utf-8")
             self.assertNotIn("do-not-export", report)
             self.assertIn('"redacted"', result.stdout)
+
+    def test_private_support_bundle_uses_aggressive_redaction_contract(self) -> None:
+        redacted = support_bundle.redact(
+            {
+                "name": "Private serial label",
+                "address": "AA:BB:CC:DD:EE:FF",
+                "text": "typed content",
+                "safe": "capability-only",
+            },
+            "/tmp/private-home",
+            True,
+        )
+        self.assertEqual(redacted["name"], "<redacted>")
+        self.assertEqual(redacted["address"], "<redacted>")
+        self.assertEqual(redacted["text"], "<redacted>")
+        self.assertEqual(redacted["safe"], "capability-only")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            env = os.environ.copy()
+            env.update(
+                {
+                    "HOME": str(root),
+                    "XDG_CONFIG_HOME": str(root / "config"),
+                    "XDG_STATE_HOME": str(root / "state"),
+                    "XDG_CACHE_HOME": str(root / "cache"),
+                }
+            )
+            config = root / "config" / "omanome"
+            config.mkdir(parents=True)
+            (config / "config.json").write_text('{"schemaVersion":2,"secret":"do-not-export"}\n', encoding="utf-8")
+            output = root / "private-support.tar.gz"
+            result = subprocess.run(
+                [str(CLI), "diagnostics", "export", str(output), "--private"],
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(json.loads(result.stdout)["private"])
+            with tarfile.open(output, "r:gz") as archive:
+                report = archive.extractfile("report.json").read().decode("utf-8")
+            self.assertIn('"mode": "private"', report)
+            self.assertNotIn("do-not-export", report)
 
     def test_safe_mode_has_explicit_status_and_does_not_need_omarchy(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

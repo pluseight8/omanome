@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -122,6 +123,31 @@ class PerformanceSafetyTests(unittest.TestCase):
         self.assertEqual(len(active_states), 200)
         self.assertEqual(active_states.count(True), 100)
         self.assertEqual(active_states.count(False), 100)
+
+    def test_one_hotplug_stream_handles_100_events_without_process_storm(self) -> None:
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        start = service.index("function updateDeviceEvent")
+        end = service.index("\n  function startDeviceMonitor", start)
+        event_body = service[start:end]
+        self.assertEqual(service.count("id: deviceMonitorProcess"), 1)
+        self.assertIn("deviceRefreshDebounce.restart()", event_body)
+        self.assertNotIn("Process", event_body)
+        self.assertNotIn("configFile", event_body)
+        expression = (
+            "const D=require('./shell/models/InputDevices.js'); let state=D.emptyState(); "
+            "for(let i=0;i<100;i++){state=D.applyEvent(state,{type:'device.event',action:(i%2?'remove':'add'),subsystem:'input',device:{name:'fixture',vendorId:'1',productId:'2',path:'/devices/private/serial/AA:BB:CC:DD:EE:FF',type:'keyboard',capabilities:{keyboard:true}}});} "
+            "console.log(JSON.stringify({revision:state.revision,count:state.devices.length,last:state.hotplug.lastDevice}));"
+        )
+        result = subprocess.run([node, "-e", expression], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["revision"], 100)
+        self.assertEqual(payload["count"], 0)
+        self.assertNotIn("/devices/private/serial", payload["last"])
+        self.assertNotIn("AA:BB:CC:DD:EE:FF", payload["last"])
 
 
 if __name__ == "__main__":

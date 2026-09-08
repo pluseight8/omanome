@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -19,15 +20,29 @@ from typing import Any
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 EX_CONFIG = 78
+PRIVATE_KEYS = {
+    "address", "bluetoothaddress", "clipboard", "devpath", "deviceid", "devicepath", "idpath",
+    "idserialshort", "mac", "name", "path", "phys", "serial", "serialnumber", "text", "title",
+    "typedtext", "uniqueid", "uniq",
+}
+MAC_PATTERN = re.compile(r"(?i)\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b")
 
 
-def redact(value: Any, home: str) -> Any:
+def private_key(key: Any) -> str:
+    return str(key).replace("-", "").replace("_", "").lower()
+
+
+def redact(value: Any, home: str, private: bool = False) -> Any:
     if isinstance(value, str):
-        return value.replace(home, "<home>") if home else value
+        result = value.replace(home, "<home>") if home else value
+        return MAC_PATTERN.sub("<redacted-mac>", result) if private else result
     if isinstance(value, list):
-        return [redact(item, home) for item in value]
+        return [redact(item, home, private) for item in value]
     if isinstance(value, dict):
-        return {key: redact(item, home) for key, item in value.items()}
+        return {
+            key: "<redacted>" if private and private_key(key) in PRIVATE_KEYS else redact(item, home, private)
+            for key, item in value.items()
+        }
     return value
 
 
@@ -86,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", required=True, type=pathlib.Path)
     parser.add_argument("--config", required=True, type=pathlib.Path)
     parser.add_argument("--state", required=True, type=pathlib.Path)
+    parser.add_argument("--private", action="store_true", help="apply aggressive identifier/content redaction")
     args = parser.parse_args(argv)
     output = args.output.expanduser()
     if output.exists() and output.is_symlink():
@@ -93,7 +109,14 @@ def main(argv: list[str] | None = None) -> int:
         return EX_CONFIG
     output.parent.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
-    payload = redact(build_payload(args.config, args.state, env), env.get("HOME", ""))
+    payload = redact(build_payload(args.config, args.state, env), env.get("HOME", ""), args.private)
+    payload["privacy"] = {
+        "mode": "private" if args.private else "default-redacted",
+        "bluetoothMacEmitted": False,
+        "serialsEmitted": False,
+        "typedTextLogged": False,
+        "personalContent": "excluded",
+    }
     try:
         with tempfile.TemporaryDirectory(prefix="omanome-bundle-", dir=output.parent) as temporary:
             temporary_path = pathlib.Path(temporary)
@@ -110,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as exc:
         print(json.dumps({"ok": False, "reason": "write-failed", "message": str(exc)}))
         return EX_CONFIG
-    print(json.dumps({"ok": True, "path": str(output), "schemaVersion": 1, "redacted": True}, ensure_ascii=False, sort_keys=True))
+    print(json.dumps({"ok": True, "path": str(output), "schemaVersion": 1, "redacted": True, "private": args.private}, ensure_ascii=False, sort_keys=True))
     return 0
 
 
