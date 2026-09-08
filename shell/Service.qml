@@ -21,6 +21,7 @@ import "models/Rotation.js" as RotationModel
 import "models/Touch.js" as TouchModel
 import "models/InputDevices.js" as InputDevicesModel
 import "models/KeyboardDevices.js" as KeyboardDevicesModel
+import "models/KeyboardTransitions.js" as KeyboardTransitionsModel
 import "models/Responsive.js" as ResponsiveModel
 import "models/Input.js" as InputModel
 import "models/OskPolicy.js" as OskPolicy
@@ -119,6 +120,7 @@ Item {
   property bool sessionMonitorAvailable: false
   property string sessionMonitorReason: "not-started"
   property var keyboardDevices: []
+  property var keyboardTransitionState: KeyboardTransitionsModel.emptyState()
   property bool hasTouchscreen: false
   property bool hasStylus: false
   property bool hasPhysicalKeyboard: false
@@ -281,10 +283,11 @@ Item {
     signals.stylus = root.hasStylus && root.cfg("stylus.enabled", true) === true
     signals.orientation = root.orientation
     signals.externalMonitor = Array.isArray(root.monitors) && root.monitors.length > 1
-    signals.physicalKeyboard = root.keyboardDevices.length > 0
-    signals.detachableKeyboard = root.hasDetachableKeyboard
-    signals.bluetoothKeyboard = root.hasBluetoothKeyboard
-    signals.externalKeyboard = root.keyboardDevices.some(function(device) { return device && device.formFactorRelation !== "built-in" })
+    var keyboard = root.keyboardModeSignals()
+    signals.physicalKeyboard = keyboard.physicalKeyboard
+    signals.detachableKeyboard = keyboard.detachableKeyboard
+    signals.bluetoothKeyboard = keyboard.bluetoothKeyboard
+    signals.externalKeyboard = keyboard.externalKeyboard
     return signals
   }
 
@@ -349,6 +352,46 @@ Item {
 
   function keyboardDeviceSummaries() {
     return KeyboardDevicesModel.summary(root.keyboardDevices)
+  }
+
+  function keyboardModeSignals() {
+    var actual = {
+      physicalKeyboard: root.hasPhysicalKeyboard,
+      detachableKeyboard: root.hasDetachableKeyboard,
+      bluetoothKeyboard: root.hasBluetoothKeyboard,
+      externalKeyboard: root.keyboardDevices.some(function(device) { return device && device.connected === true && device.formFactorRelation !== "built-in" })
+    }
+    var state = root.keyboardTransitionState || {}
+    if (state.initialized === true && state.stableSignals) {
+      var stable = state.stableSignals
+      actual.physicalKeyboard = stable.physicalKeyboard === true
+      actual.detachableKeyboard = stable.detachableKeyboard === true
+      actual.bluetoothKeyboard = stable.bluetoothKeyboard === true
+      actual.externalKeyboard = stable.externalKeyboard === true
+    }
+    return actual
+  }
+
+  function observeKeyboardTransition(reason) {
+    var observed = KeyboardTransitionsModel.observe(root.keyboardTransitionState, root.keyboardDevices, root.config, {
+      currentMode: root.effectiveMode,
+      touchscreen: root.hasTouchscreen,
+      posture: String(root.postureState.current || ""),
+      lastInput: root.lastInput,
+      reason: String(reason || "device-snapshot")
+    }, Date.now())
+    root.keyboardTransitionState = observed.state
+    if (observed.pending) {
+      keyboardTransitionTimer.interval = Math.max(20, Number(observed.delayMs || 80))
+      keyboardTransitionTimer.restart()
+    } else {
+      keyboardTransitionTimer.stop()
+    }
+    return observed
+  }
+
+  function keyboardTransitionSummary() {
+    return KeyboardTransitionsModel.summary(root.keyboardTransitionState)
   }
 
   function releaseOmanomeInput(reason) {
@@ -549,14 +592,15 @@ Item {
 
   function oskPolicySource() {
     var policy = root.componentPolicy || {}
+    var keyboard = root.keyboardModeSignals()
     return {
       autoShow: root.masterEnabled && !root.suspended && !root.safeMode && root.inputTextBackendAvailable && root.featureEnabled("osk") && policy.oskAutoShow === true && root.cfg("keyboard.autoShow", true) === true,
       textFocus: root.inputTextFocusActive,
       secure: root.inputSecureContext,
       securePolicy: "allow",
-      physicalKeyboard: root.hasPhysicalKeyboard,
-      detachableKeyboard: root.hasDetachableKeyboard,
-      bluetoothKeyboard: root.hasBluetoothKeyboard,
+      physicalKeyboard: keyboard.physicalKeyboard,
+      detachableKeyboard: keyboard.detachableKeyboard,
+      bluetoothKeyboard: keyboard.bluetoothKeyboard,
       lastInput: root.lastInput,
       mode: root.effectiveMode,
       posture: String(root.postureState.current || ""),
@@ -2223,9 +2267,10 @@ Item {
     root.stylusDevices = styluses
     root.hasStylus = styluses.length > 0
     root.keyboardDevices = KeyboardDevicesModel.classify(parsed)
-    root.hasPhysicalKeyboard = root.keyboardDevices.length > 0
-    root.hasDetachableKeyboard = root.keyboardDevices.some(function(device) { return device && device.formFactorRelation === "detachable" })
-    root.hasBluetoothKeyboard = root.keyboardDevices.some(function(device) { return device && device.transport === "bluetooth" })
+    root.hasPhysicalKeyboard = root.keyboardDevices.some(function(device) { return device && device.connected === true })
+    root.hasDetachableKeyboard = root.keyboardDevices.some(function(device) { return device && device.connected === true && device.formFactorRelation === "detachable" })
+    root.hasBluetoothKeyboard = root.keyboardDevices.some(function(device) { return device && device.connected === true && device.transport === "bluetooth" })
+    root.observeKeyboardTransition("device-snapshot")
     root.updateInputMapping()
     root.refreshStylusInputPolicy()
     root.reconcileOskPolicy()
@@ -2259,6 +2304,7 @@ Item {
     var parsed = parseJson(raw, null)
     if (!parsed || String(parsed.type || "") !== "device.event") return
     root.inputDeviceState = InputDevicesModel.applyEvent(root.inputDeviceState, parsed)
+    root.keyboardTransitionState = KeyboardTransitionsModel.noteEvent(root.keyboardTransitionState, parsed, Date.now())
     root.updateInputMapping()
     root.refreshStylusInputPolicy()
     root.inputDeviceMonitorAvailable = true
@@ -2406,7 +2452,9 @@ Item {
       mode: root.detectedMode,
       effectiveMode: root.effectiveMode,
       transitioning: root.adaptiveState && root.adaptiveState.transitioning === true,
-      keyboardState: root.hasPhysicalKeyboard ? "connected" : "disconnected",
+      keyboardState: String(root.keyboardTransitionState.phase || (root.hasPhysicalKeyboard ? "Connected" : "Disconnected")).toLowerCase(),
+      keyboardStable: root.keyboardTransitionState.modeReady !== false,
+      keyboardTransition: root.keyboardTransitionSummary(),
       features: root.featureStateSummary,
       requestedMode: root.cfg("general.mode", "automatic"),
       lastInput: root.lastInput,
@@ -4573,6 +4621,21 @@ Item {
   }
 
   Timer {
+    id: keyboardTransitionTimer
+    interval: 680
+    repeat: false
+    onTriggered: {
+      var observed = root.observeKeyboardTransition("keyboard-stability-window")
+      if (observed.pending) return
+      root.detectedMode = root.computeMode()
+      root.updateResponsiveContext()
+      root.reconcileOskPolicy()
+      root.stateRevision++
+      root.stateUpdated()
+    }
+  }
+
+  Timer {
     id: postureTransition
     interval: 320
     repeat: false
@@ -5091,7 +5154,7 @@ Item {
     var timers = [
       performanceSnapshotTimeout, configWriteDebounce, processRegistryWriteDebounce,
       clipboardWriteDebounce, deviceRefreshDebounce, postureTransition,
-      orientationTransition, wobblyConfigDebounce, clipboardRestart, rotationRestart,
+      keyboardTransitionTimer, orientationTransition, wobblyConfigDebounce, clipboardRestart, rotationRestart,
       inputBackendRestart, oskPolicyTimer, clipboardMaintenance, integrationRefresh,
       systemRefresh, systemFallbackRefresh, inputFlush, inputModeCommit, effectRefresh,
       initialConfigSave, deviceRefresh, multitaskingLaunchTimeout

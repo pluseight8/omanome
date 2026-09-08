@@ -141,6 +141,68 @@ class AdaptiveStateTests(unittest.TestCase):
         self.assertIn("setAdaptiveProfile(modelData.id)", settings)
         self.assertIn("service.effectiveMode", widget)
 
+    def test_keyboard_lifecycle_debounces_flapping_and_keeps_multiple_keyboards_aggregate(self) -> None:
+        result = self.run_node(
+            "const K=require('./shell/models/KeyboardTransitions.js'); "
+            "const config={adaptive:{profile:'auto',automaticTransitions:true,externalKeyboardPolicy:'hybrid',"
+            "transition:{debounceMs:100,stabilityMs:200}}}; "
+            "const key=(id,relation='detachable',transport='pogo-pin')=>({id,name:id,formFactorRelation:relation,"
+            "classification:relation,transport,connected:true,capabilities:{normalKeyboard:true}}); "
+            "let state=K.observe(K.emptyState(),[],config,{touchscreen:true},0).state; "
+            "let pending=K.observe(state,[key('cover')],config,{touchscreen:true},1); "
+            "let flapped=K.observe(pending.state,[],config,{touchscreen:true},50); "
+            "let attach=K.observe(flapped.state,[key('cover')],config,{touchscreen:true},100); "
+            "let settled=K.observe(attach.state,[key('cover')],config,{touchscreen:true},401); "
+            "let two=K.observe(settled.state,[key('cover'),key('usb','external','usb')],config,{touchscreen:true},402); "
+            "let twoSettled=K.observe(two.state,[key('cover'),key('usb','external','usb')],config,{touchscreen:true},703); "
+            "let one=K.observe(twoSettled.state,[key('usb','external','usb')],config,{touchscreen:true},704); "
+            "let oneSettled=K.observe(one.state,[key('usb','external','usb')],config,{touchscreen:true},1005); "
+            "console.log(JSON.stringify({pending:K.summary(pending.state),flapped:K.summary(flapped.state),settled:K.summary(settled.state),two:K.summary(twoSettled.state),one:K.summary(one.state),oneSettled:K.summary(oneSettled.state)}));"
+        )
+        self.assertEqual(result["pending"]["phase"], "Connecting")
+        self.assertTrue(result["pending"]["pending"])
+        self.assertEqual(result["flapped"]["phase"], "Disconnected")
+        self.assertFalse(result["flapped"]["pending"])
+        self.assertEqual(result["settled"]["event"]["type"], "keyboard-attached")
+        self.assertEqual(result["settled"]["connectedCount"], 1)
+        self.assertEqual(result["two"]["connectedCount"], 2)
+        self.assertEqual(result["one"]["phase"], "Disconnecting")
+        self.assertEqual(result["one"]["connectedCount"], 1)
+        self.assertEqual(result["one"]["externalCount"], 1)
+        self.assertEqual(result["oneSettled"]["phase"], "Connected")
+        self.assertTrue(result["oneSettled"]["stableConnected"])
+
+    def test_keyboard_rules_and_external_policies_are_local_and_non_aggressive(self) -> None:
+        result = self.run_node(
+            "const K=require('./shell/models/KeyboardTransitions.js'); "
+            "const device={id:'keyboard:transport-bluetooth/vendor-1/product-2',name:'Wireless',"
+            "formFactorRelation:'external',classification:'external',transport:'bluetooth',connected:true,"
+            "capabilities:{normalKeyboard:true}}; "
+            "const ignored=K.resolve([device],{adaptive:{externalKeyboardPolicy:'desktop',deviceRules:[{id:device.id,ignore:true}]}},{}); "
+            "const remembered=K.resolve([device],{adaptive:{externalKeyboardPolicy:'desktop',deviceRules:[{id:device.id,preferredProfile:'hybrid'}]}},{}); "
+            "const hide=K.resolve([device],{adaptive:{externalKeyboardPolicy:'hide-osk'}},{}); "
+            "const builtin=K.resolve([{...device,id:'builtin',formFactorRelation:'built-in',classification:'built-in',transport:'i2c'}],{adaptive:{externalKeyboardPolicy:'desktop'}},{}); "
+            "console.log(JSON.stringify({ignored,remembered,hide,builtin,limited:K.rules({adaptive:{deviceRules:Array(200).fill({id:'x'})}}).length}));"
+        )
+        self.assertEqual(result["ignored"]["activeCount"], 0)
+        self.assertEqual(result["ignored"]["ignoredCount"], 1)
+        self.assertEqual(result["remembered"]["targetMode"], "hybrid")
+        self.assertEqual(result["remembered"]["oskAction"], "preserve")
+        self.assertEqual(result["hide"]["targetMode"], "")
+        self.assertEqual(result["hide"]["oskAction"], "hide")
+        self.assertEqual(result["builtin"]["targetMode"], "")
+        self.assertEqual(result["limited"], 128)
+
+    def test_keyboard_transition_wiring_preserves_safe_runtime_boundaries(self) -> None:
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        self.assertIn('"models/KeyboardTransitions.js" as KeyboardTransitionsModel', service)
+        self.assertIn("KeyboardTransitionsModel.observe", service)
+        self.assertIn("KeyboardTransitionsModel.noteEvent", service)
+        self.assertIn("keyboardTransitionTimer", service)
+        self.assertIn("keyboardModeSignals", service)
+        self.assertIn("keyboardTransition: root.keyboardTransitionSummary()", service)
+        self.assertIn("root.keyboardTransitionState.modeReady !== false", service)
+
 
 if __name__ == "__main__":
     unittest.main()
