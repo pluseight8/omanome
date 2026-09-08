@@ -648,7 +648,7 @@ feature_list_cmd() {
     if $source == "service" then
       (safe_rows($service)) as $rows
       | {schemaVersion:1,source:$source,profile:$profile,
-         summary:{total:($rows|length),available:([ $rows[] | select(.available == true) ]|length),active:([ $rows[] | select(.effectiveEnabled == true) ]|length),partial:([ $rows[] | select(.effectiveEnabled == true) ]|length) > 0 and ([ $rows[] | select(.available == true) ]|length) > ([ $rows[] | select(.effectiveEnabled == true) ]|length)},
+         summary:{total:($rows|length),available:([ $rows[] | select(.available == true) ]|length),active:([ $rows[] | select(.effectiveEnabled == true) ]|length),partial:(([ $rows[] | select(.effectiveEnabled == true) ]|length) > 0 and ([ $rows[] | select(.available == true) ]|length) > ([ $rows[] | select(.effectiveEnabled == true) ]|length))},
          features:($rows | map({id,label,configPath,available:(.available == true),enabled:(.effectiveEnabled == true),effectiveEnabled:(.effectiveEnabled == true),userEnabled:(.userEnabled == true),disabledReason:(.disabledReason // ""),temporarilySuppressed:(.temporarilySuppressed == true),overrideSource:(.overrideSource // "unknown"),profile:(.profile // $profile)})),
          privacy:{bluetoothMacEmitted:false,serialsEmitted:false,typedTextLogged:false}}
     else
