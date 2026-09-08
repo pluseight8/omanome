@@ -16,7 +16,7 @@ function defaults() {
     dock: { enabled: true, position: "bottom", mode: "floating", iconSize: 48, minIconSize: 40, maxIconSize: 64, dynamicSizing: true, runningApplications: true, showLauncher: true, showSettings: false, showTrash: false, multipleWindowAction: "cycle", autohide: true, autohideMode: "intelligent", revealByPointer: true, revealByTouch: true, edgePressure: 12, revealDelay: 120, hideDelay: 650, dodgeMode: "active-window", fullscreenHide: true, margin: 18, padding: 10, spacing: 8, radius: 22, monitor: "active", workspaceIsolation: false, monitorIsolation: false, backgroundOpacity: 0.82, blur: true, shadow: true, border: true, borderOpacity: 0.34, indicatorStyle: "dot", animation: "slide", clickAction: "activate-or-launch", middleClickAction: "new-window", scrollAction: "workspace" },
     overview: { enabled: true, style: "gnome", animationDuration: 180, blur: true, showAllWorkspaces: false, showDock: true, workspaceMode: "dynamic", fixedWorkspaceCount: 5, workspaceOrientation: "horizontal", search: true },
     launcher: { enabled: true, categories: true, favorites: [], favoritesFirst: true, folders: [], showRecent: true, recentApplications: [], dragReorder: true, contextMenu: true, gridColumns: 6 },
-    multitasking: { enabled: true, gap: 12, minimumWindowSize: { width: 320, height: 240 }, layouts: [], customLayouts: [], tabletSwitcher: { enabled: true, mode: "automatic", scope: "current-workspace", maxCards: 32, closeOnSwipe: false, touchSwipe: true, swipeThresholdPx: 96, swipeVelocity: 0.5, closeThresholdPx: 120, selectedScale: 1.0, sideScale: 0.92, sideOpacity: 0.76 }, layoutPersistence: { enabled: true, recentEnabled: true, maxRecent: 12, maxSaved: 32, saved: [], recent: [] }, snapAssist: { enabled: true, dwellMs: 220, movementThreshold: 18, stylusDwellMs: 120, preview: true, edgeZones: true, sensitivity: 1.0, portraitLayouts: true, autoSecondWindowPicker: true }, splitView: { divider: true, defaultRatio: "50/50", rememberRatio: true, autoConvertOnRotation: true, autoHide: true, autoHideMs: 1800, handleSize: 48 }, floating: { enabled: true, miniEnabled: true, pictureInPicture: true, keepAbove: true, edgeSnap: true, rememberPosition: true, perMonitor: true, resizeHandle: true }, gestures: { enabled: true, workspaceSwipe: true, overviewSwipe: true, dockReveal: true, back: true, quickSettings: true, touchscreenOnly: true, edgeLock: true, conflictPolicy: "suppress-in-fullscreen", fullscreenPolicy: "disable", drawingPolicy: "suppress", gamePolicy: "suppress", drawingApps: [], gameApps: [], touchLock: false, presentationMode: false, backShortcut: "", bottomEdge: { short: "dock", long: "overview", direct: "disabled" }, topEdge: { action: "quick-settings" }, sideEdge: { left: "back", right: "back" }, touchscreen: { enabled: true, edgeSwipe: true, workspaceSwipe: true, overviewSwipe: true, dockReveal: true, quickSettings: true, back: true, threeFingerAction: "workspace", fourFingerAction: "workspace", thresholdPx: 96, movementThresholdPx: 18, velocityThreshold: 0.35, inertia: true, allowStylus: false }, touchpad: { enabled: false, edgeSwipe: false, workspaceSwipe: false, overviewSwipe: false, dockReveal: false, quickSettings: false, back: false, thresholdPx: 96, movementThresholdPx: 18, velocityThreshold: 0.45, inertia: false } }, workspaceNavigation: { mode: "swipe", showOverlay: true, activateEmpty: true }, multiMonitor: { enabled: true, hotplugRecovery: true }, groups: [], sessionRestore: "ask", closePolicy: "keep", monitorPolicy: "active", duplicatePolicy: "ask", launchTimeoutMs: 12000, maxGroups: 32, experimentalWindowThrow: false },
+    multitasking: { enabled: true, gap: 12, minimumWindowSize: { width: 320, height: 240 }, layouts: [], customLayouts: [], tabletSwitcher: { enabled: true, mode: "automatic", scope: "current-workspace", maxCards: 32, closeOnSwipe: false, touchSwipe: true, swipeThresholdPx: 96, swipeVelocity: 0.5, closeThresholdPx: 120, selectedScale: 1.0, sideScale: 0.92, sideOpacity: 0.76 }, layoutPersistence: { enabled: true, recentEnabled: true, maxRecent: 12, maxSaved: 32, saved: [], recent: [] }, snapAssist: { enabled: true, dwellMs: 220, movementThreshold: 18, stylusDwellMs: 120, preview: true, edgeZones: true, sensitivity: 1.0, portraitLayouts: true, autoSecondWindowPicker: true }, splitView: { divider: true, defaultRatio: "50/50", rememberRatio: true, autoConvertOnRotation: true, autoHide: true, autoHideMs: 1800, handleSize: 48 }, floating: { enabled: true, miniEnabled: true, pictureInPicture: true, keepAbove: true, edgeSnap: true, rememberPosition: true, perMonitor: true, resizeHandle: true }, gestures: { enabled: true, workspaceSwipe: true, overviewSwipe: true, dockReveal: true, back: true, quickSettings: true, touchscreenOnly: true, edgeLock: true, conflictPolicy: "suppress-in-fullscreen", fullscreenPolicy: "disable", drawingPolicy: "suppress", gamePolicy: "suppress", drawingApps: [], gameApps: [], touchLock: false, presentationMode: false, backShortcut: "", bottomEdge: { short: "dock", long: "overview", direct: "disabled" }, topEdge: { action: "quick-settings" }, sideEdge: { left: "back", right: "back" }, touchscreen: { enabled: true, edgeSwipe: true, workspaceSwipe: true, overviewSwipe: true, dockReveal: true, quickSettings: true, back: true, threeFingerAction: "workspace", fourFingerAction: "workspace", thresholdPx: 96, movementThresholdPx: 18, velocityThreshold: 0.35, inertia: true, allowStylus: false }, touchpad: { enabled: false, edgeSwipe: false, workspaceSwipe: false, overviewSwipe: false, dockReveal: false, quickSettings: false, back: false, thresholdPx: 96, movementThresholdPx: 18, velocityThreshold: 0.45, inertia: false } }, workspaceNavigation: { mode: "swipe", showOverlay: true, activateEmpty: true }, multiMonitor: { enabled: true, hotplugRecovery: true }, groups: [], sessionRestore: "ask", closePolicy: "keep", monitorPolicy: "active", duplicatePolicy: "ask", launchTimeoutMs: 12000, maxGroups: 32, experimentalWindowThrow: false, shortcuts: { "snap-left": "SUPER+ALT+LEFT", "snap-right": "SUPER+ALT+RIGHT", "next-layout": "SUPER+ALT+L", "toggle-float": "SUPER+ALT+F", "create-pair": "SUPER+ALT+P", "break-pair": "SUPER+ALT+SHIFT+P", "move-pair-workspace": "SUPER+ALT+W" } },
     keyboard: { enabled: true, layout: "auto", mode: "standard", showNumberRow: true, showModifierRow: true, showNavigationRow: true, showFunctionRow: false, capsLock: true, symbols: true, suggestions: true, autocorrect: false, learning: false, haptic: true, sound: false, autoShow: true, height: 300, toolbar: true, toolbarOverflow: true, keyPopup: true, keyPopupScale: 1.25, keyPopupDuration: 180, longPress: true, longPressDelay: 360, repeatDelay: 420, repeatRate: 55, spaceCursor: true, swipeLayerSwitch: true, floating: { x: 0.5, y: 0.72, width: 0.82, snap: true }, split: { gap: 24, blockWidth: 0.43, vertical: 0.72, thumbReach: 0.62, symmetric: true }, oneHanded: { width: 0.72, offset: 0.04, scale: 0.92 }, emojiCategory: "recent", emojiRecent: [], suggestionLocale: "auto" },
     clipboard: { enabled: true, historyLimit: 100, retentionDays: 30, persist: true, persistPinnedOnly: false, maxStorageMb: 256, pinning: true, tags: true, clearOnLogout: false, excludedApps: [], privateMode: false },
     notifications: { enabled: true, groupByApp: true, history: true, timestamps: true, actions: true, maxHistory: 200, perAppMute: [], doNotDisturb: false },
@@ -121,6 +121,37 @@ function normalizeInputConfig(source, report) {
   if (changed && report && report.applied.indexOf("input-v1") < 0) report.applied.push("input-v1")
 }
 
+function normalizeMultitaskingOneOne(source, report) {
+  if (!isObject(source.multitasking)) source.multitasking = {}
+  var multitasking = source.multitasking
+  var defaultsMultitasking = defaults().multitasking
+  var changed = false
+  var sections = ["tabletSwitcher", "layoutPersistence", "shortcuts"]
+  for (var i = 0; i < sections.length; i++) {
+    var key = sections[i]
+    if (!isObject(multitasking[key])) {
+      multitasking[key] = clone(defaultsMultitasking[key])
+      changed = true
+    }
+  }
+  var tablet = multitasking.tabletSwitcher
+  var tabletDefaults = defaultsMultitasking.tabletSwitcher
+  Object.keys(tabletDefaults).forEach(function(key) {
+    if (tablet[key] === undefined) { tablet[key] = clone(tabletDefaults[key]); changed = true }
+  })
+  var persistence = multitasking.layoutPersistence
+  var persistenceDefaults = defaultsMultitasking.layoutPersistence
+  Object.keys(persistenceDefaults).forEach(function(key) {
+    if (persistence[key] === undefined) { persistence[key] = clone(persistenceDefaults[key]); changed = true }
+  })
+  var shortcuts = multitasking.shortcuts
+  var shortcutDefaults = defaultsMultitasking.shortcuts
+  Object.keys(shortcutDefaults).forEach(function(key) {
+    if (shortcuts[key] === undefined) { shortcuts[key] = shortcutDefaults[key]; changed = true }
+  })
+  if (changed && report && report.applied.indexOf("multitasking-1.1-defaults") < 0) report.applied.push("multitasking-1.1-defaults")
+}
+
 function migrateDetailed(raw) {
   if (!isObject(raw)) return { ok: false, reason: "invalid-root", config: null, applied: [] }
   var source = clone(raw)
@@ -138,6 +169,7 @@ function migrateDetailed(raw) {
     report.applied.push("performance-mode-from-quality-preset")
   }
   normalizeInputConfig(source, report)
+  normalizeMultitaskingOneOne(source, report)
   return { ok: true, config: merge(defaults(), source), from: version, to: CURRENT_SCHEMA_VERSION, applied: report.applied, migrated: report.applied.length > 0 }
 }
 

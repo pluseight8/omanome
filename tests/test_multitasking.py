@@ -497,6 +497,39 @@ class LayoutEngineTests(unittest.TestCase):
         self.assertEqual(result["removed"]["recentCount"], 1)
         self.assertEqual(result["capped"], {"saved": 0, "recent": 0})
 
+    def test_workspace_switcher_is_transient_bounded_and_threshold_driven(self) -> None:
+        result = self.run_node(
+            "const W=require('./shell/models/WorkspaceSwitcher.js'); "
+            "const rows=[{id:1,toplevels:{values:[{address:'0x1',appId:'org.one.App',title:'Secret'}]}},"
+            "{id:2,toplevels:{values:[{address:'0x2',appId:'org.two.App',title:'Two'}]}},"
+            "{id:3,toplevelCount:0},{id:4,toplevelCount:0}]; "
+            "const cards=W.cards(rows,{maxWorkspaces:3},{activeId:'1',livePreview:false}); "
+            "let state=W.begin(W.emptyState(),'1','next',['1','2','3'],100,{thresholdPx:96}); "
+            "state=W.update(state,30,1000,120,{}); const cancelled=W.end(state,30,0,{thresholdPx:96},140); "
+            "state=W.begin(W.emptyState(),'1','next',['1','2','3'],200,{thresholdPx:96}); "
+            "state=W.update(state,120,1000,220,{}); const committed=W.end(state,120,0,{thresholdPx:96},240); "
+            "console.log(JSON.stringify({cards,preview:cards[0].previewAvailable,cancelled:cancelled.decision,committed:committed.decision,summary:W.summary(committed.state)}));"
+        )
+        self.assertEqual(len(result["cards"]), 3)
+        self.assertFalse(result["preview"])
+        self.assertEqual(result["cancelled"]["action"], "cancel")
+        self.assertEqual(result["committed"], {"ok": True, "action": "workspace-focus", "workspaceId": "2", "direction": "next", "reason": "threshold-reached"})
+        self.assertTrue(result["summary"]["committed"])
+
+    def test_multitasking_shortcut_report_is_explicit_about_existing_bindings(self) -> None:
+        result = self.run_node(
+            "const S=require('./shell/models/MultitaskingShortcuts.js'); "
+            "const configured={'snap-left':'META+ALT+LEFT','snap-right':'SUPER+ALT+RIGHT','next-layout':'SUPER+ALT+L'}; "
+            "const external=[{modmask:72,key:'LEFT',dispatcher:'workspace'},{mod:'SUPER+ALT',key:'L',dispatcher:'exec'}]; "
+            "const report=S.report(configured,{overview:'SUPER',launcher:'SUPER+SPACE'},external); "
+            "console.log(JSON.stringify({canonical:S.canonical('meta+alt+left'),report,empty:S.emptyState()}));"
+        )
+        self.assertEqual(result["canonical"], "ALT+SUPER+LEFT")
+        self.assertEqual(result["report"]["status"], "checked")
+        self.assertGreaterEqual(len(result["report"]["conflicts"]), 2)
+        self.assertTrue(any(item["type"] == "external" for item in result["report"]["conflicts"]))
+        self.assertEqual(result["empty"]["status"], "not-checked")
+
 
 if __name__ == "__main__":
     unittest.main()

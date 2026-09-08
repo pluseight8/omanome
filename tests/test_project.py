@@ -784,6 +784,26 @@ class OmanomeProjectTests(unittest.TestCase):
         for marker in ("Tablet switcher", "Layout persistence", "Swipe up to close", "Saved layouts never contain"):
             self.assertIn(marker, settings)
 
+    def test_workspace_overlay_shortcuts_and_11_migration_are_wired(self) -> None:
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        panel = (ROOT / "shell/Panel.qml").read_text(encoding="utf-8")
+        overlay = (ROOT / "shell/views/WorkspaceSwitcher.qml").read_text(encoding="utf-8")
+        shortcuts = (ROOT / "shell/models/MultitaskingShortcuts.js").read_text(encoding="utf-8")
+        config = (ROOT / "shell/models/Config.js").read_text(encoding="utf-8")
+        config_tool = (ROOT / "scripts/config_tool.py").read_text(encoding="utf-8")
+        settings = (ROOT / "shell/views/Settings.qml").read_text(encoding="utf-8")
+        self.assertIn('"workspace-overlay"', panel)
+        self.assertIn("showWorkspaceOverlay", panel)
+        for marker in ("WorkspaceSwitcherModel", "workspaceSwitcherOptions", "showWorkspaceSwitcher", "workspaceSwitcherFocus", "executeMultitaskingShortcut", "multitaskingShortcut", "checkShortcutConflicts", "shortcutBindsProcess"):
+            self.assertIn(marker, service)
+        for marker in ("ScreencopyView", "previewAvailable", "metadataFallback", "DragHandler", "workspaceSwitcherHint"):
+            self.assertIn(marker, overlay)
+        for marker in ("snap-left", "snap-right", "next-layout", "toggle-float", "create-pair", "break-pair", "move-pair-workspace", "externalCanonical"):
+            self.assertIn(marker, shortcuts)
+        self.assertIn("multitasking-1.1-defaults", config)
+        self.assertIn("multitasking-1.1-defaults", config_tool)
+        self.assertIn("Check Hyprland conflicts", settings)
+
     def test_native_omarchy_validator_when_available(self) -> None:
         omarchy = shutil.which("omarchy")
         if not omarchy:

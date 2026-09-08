@@ -35,6 +35,8 @@ import "models/GestureCoordinator.js" as GestureCoordinatorModel
 import "models/MonitorRecovery.js" as MonitorRecoveryModel
 import "models/TabletSwitcher.js" as TabletSwitcherModel
 import "models/LayoutPersistence.js" as LayoutPersistenceModel
+import "models/WorkspaceSwitcher.js" as WorkspaceSwitcherModel
+import "models/MultitaskingShortcuts.js" as MultitaskingShortcutsModel
 
 // Omanome's one shared service. It is deliberately headless: all visible
 // surfaces are summoned through the existing Omarchy shell host, so Omanome
@@ -182,6 +184,12 @@ Item {
   property int tabletSwitcherRevision: 0
   property var layoutPersistenceState: LayoutPersistenceModel.emptyState()
   property int layoutPersistenceRevision: 0
+  property var workspaceSwitcherState: WorkspaceSwitcherModel.emptyState()
+  property int workspaceSwitcherRevision: 0
+  property var shortcutConflictState: MultitaskingShortcutsModel.emptyState()
+  property int shortcutConflictRevision: 0
+  property bool shortcutConflictRunning: false
+  property int multitaskingLayoutShortcutIndex: 0
   property var monitorRecoveryState: ({ ok: true, reason: "not-used", topology: { removed: [], added: [], changed: [] }, moved: [], skipped: [], commands: [], rollback: [] })
   property int monitorRecoveryRevision: 0
   property string blurRuleSignature: ""
@@ -2309,6 +2317,8 @@ Item {
           lastAction: { ok: root.gestureLastAction.ok === true, action: String(root.gestureLastAction.action || ""), reason: String(root.gestureLastAction.reason || "") }
         },
         tabletSwitcher: root.tabletSwitcherSummary(),
+        workspaceSwitcher: root.workspaceSwitcherSummary(),
+        shortcutConflicts: MultitaskingShortcutsModel.summary(root.shortcutConflictState),
         monitorRecovery: MonitorRecoveryModel.summary(root.monitorRecoveryState),
         groups: root.windowGroupSummaries(),
         layoutPersistence: LayoutPersistenceModel.summary(root.layoutPersistenceState),
@@ -2373,6 +2383,8 @@ Item {
           lastReason: String(root.gestureLastAction.reason || "")
         },
         tabletSwitcher: root.tabletSwitcherSummary(),
+        workspaceSwitcher: root.workspaceSwitcherSummary(),
+        shortcutConflicts: MultitaskingShortcutsModel.summary(root.shortcutConflictState),
         monitorRecovery: MonitorRecoveryModel.summary(root.monitorRecoveryState),
         groups: root.windowGroupSummaries(),
         layoutPersistence: LayoutPersistenceModel.summary(root.layoutPersistenceState),
@@ -2653,6 +2665,191 @@ Item {
     return state
   }
 
+  function currentWorkspaceId() {
+    var active = root.activeClient() || {}
+    var workspace = active.workspace
+    if (workspace && typeof workspace === "object") workspace = workspace.id !== undefined ? workspace.id : workspace.name
+    if (workspace === undefined || workspace === null || workspace === "") workspace = active.workspaceId
+    if (workspace !== undefined && workspace !== null && workspace !== "") return String(workspace)
+    var clients = Array.isArray(root.clients) ? root.clients : []
+    for (var i = 0; i < clients.length; i++) {
+      var item = clients[i] || {}
+      var value = item.workspace
+      if (value && typeof value === "object") value = value.id !== undefined ? value.id : value.name
+      if (value !== undefined && value !== null && value !== "") return String(value)
+    }
+    return "1"
+  }
+
+  function workspaceSwitcherIds() {
+    var result = []
+    var seen = {}
+    var clients = Array.isArray(root.clients) ? root.clients : []
+    for (var i = 0; i < clients.length; i++) {
+      var item = clients[i] || {}
+      var value = item.workspace
+      if (value && typeof value === "object") value = value.id !== undefined ? value.id : value.name
+      if (value === undefined || value === null || value === "") value = item.workspaceId
+      var id = String(value === undefined || value === null ? "" : value)
+      if (!id || seen[id]) continue
+      seen[id] = true
+      result.push(id)
+    }
+    var active = root.currentWorkspaceId()
+    if (!seen[active]) { seen[active] = true; result.push(active) }
+    var numeric = result.every(function(value) { return /^\d+$/.test(String(value)) })
+    if (numeric) {
+      result.sort(function(left, right) { return Number(left) - Number(right) })
+      if (root.cfg("multitasking.workspaceNavigation.activateEmpty", true) !== false) {
+        var next = String(Math.max(1, Number(active)) + 1)
+        if (!seen[next] && result.length < WorkspaceSwitcherModel.MAX_WORKSPACES) result.push(next)
+      }
+    }
+    return result.slice(0, WorkspaceSwitcherModel.MAX_WORKSPACES)
+  }
+
+  function workspaceSwitcherOptions() {
+    var navigation = root.cfg("multitasking.workspaceNavigation", {})
+    var gestures = root.cfg("multitasking.gestures", {})
+    return {
+      enabled: root.cfg("multitasking.enabled", true) !== false && gestures.enabled !== false && root.safeMode !== true,
+      showOverlay: navigation.showOverlay !== false,
+      maxWorkspaces: WorkspaceSwitcherModel.MAX_WORKSPACES,
+      thresholdPx: Math.max(1, Number(root.cfg("touch.threshold", 96))),
+      velocityThreshold: Math.max(0, Number(root.cfg("touch.velocity", 0.35))),
+      reducedMotion: root.cfg("general.reduceMotion", false) === true || root.cfg("accessibility.reducedMotion", false) === true || root.cfg("animations.reducedMotion", false) === true
+    }
+  }
+
+  function workspaceSwitcherCards(workspaces, context) {
+    var options = root.workspaceSwitcherOptions()
+    var state = Object.assign({}, context || {}, { activeId: (context && context.activeId) || root.currentWorkspaceId(), livePreview: root.livePreviewState.available === true })
+    return WorkspaceSwitcherModel.cards(workspaces, options, state)
+  }
+
+  function showWorkspaceSwitcher(direction) {
+    var options = root.workspaceSwitcherOptions()
+    if (options.enabled !== true || options.showOverlay !== true) return false
+    var active = root.currentWorkspaceId()
+    root.workspaceSwitcherState = WorkspaceSwitcherModel.begin(root.workspaceSwitcherState, active, direction, root.workspaceSwitcherIds(), Date.now(), options)
+    root.workspaceSwitcherRevision++
+    if (root.panel && typeof root.panel.showWorkspaceOverlay === "function") root.panel.showWorkspaceOverlay()
+    else root.open("workspace-overlay")
+    return true
+  }
+
+  function beginWorkspaceSwitcherSwipe(direction) {
+    var options = root.workspaceSwitcherOptions()
+    root.workspaceSwitcherState = WorkspaceSwitcherModel.begin(root.workspaceSwitcherState, root.currentWorkspaceId(), direction, root.workspaceSwitcherIds(), Date.now(), options)
+    root.workspaceSwitcherRevision++
+    return root.workspaceSwitcherState
+  }
+
+  function updateWorkspaceSwitcherSwipe(distance, width) {
+    root.workspaceSwitcherState = WorkspaceSwitcherModel.update(root.workspaceSwitcherState, distance, width, Date.now(), root.workspaceSwitcherOptions())
+    root.workspaceSwitcherRevision++
+    return root.workspaceSwitcherState
+  }
+
+  function endWorkspaceSwitcherSwipe(distance, velocity) {
+    var result = WorkspaceSwitcherModel.end(root.workspaceSwitcherState, distance, velocity, root.workspaceSwitcherOptions(), Date.now())
+    root.workspaceSwitcherState = result.state
+    root.workspaceSwitcherRevision++
+    if (result.decision && result.decision.action === "workspace-focus") root.workspaceSwitcherFocus(result.decision.workspaceId)
+    return result
+  }
+
+  function workspaceSwitcherFocus(workspaceId) {
+    var id = String(workspaceId || "")
+    if (!id) return false
+    var accepted = root.dispatch("workspace " + id)
+    root.workspaceSwitcherState = Object.assign({}, root.workspaceSwitcherState, { phase: accepted ? "committed" : "failed", targetId: id, progress: accepted ? 1 : 0, committed: accepted, reason: accepted ? "workspace-dispatched" : "workspace-dispatch-rejected" })
+    root.workspaceSwitcherRevision++
+    return accepted
+  }
+
+  function workspaceSwitcherSummary() {
+    var summary = WorkspaceSwitcherModel.summary(root.workspaceSwitcherState)
+    summary.enabled = root.workspaceSwitcherOptions().enabled === true
+    summary.overlay = root.workspaceSwitcherOptions().showOverlay === true
+    return summary
+  }
+
+  function multitaskingShortcutEntries() {
+    return MultitaskingShortcutsModel.ACTIONS.map(function(action) {
+      return { key: action, labelKey: action, binding: root.cfg("multitasking.shortcuts." + action, MultitaskingShortcutsModel.DEFAULTS[action]) }
+    })
+  }
+
+  function shortcutConflictText() {
+    var state = root.shortcutConflictState || {}
+    if (String(state.status || "not-checked") === "not-checked") return root.tr("shortcutConflictNotChecked", "External Hyprland bindings have not been checked")
+    if (String(state.status || "") === "unavailable") return root.tr("shortcutConflictUnavailable", "Hyprland bindings are unavailable in this session")
+    var count = Array.isArray(state.conflicts) ? state.conflicts.length : 0
+    return count > 0 ? root.tr("shortcutConflictFound", "Shortcut conflicts found") + ": " + count : root.tr("shortcutConflictFree", "No shortcut conflicts found")
+  }
+
+  function updateShortcutConflicts(raw) {
+    var parsed = root.parseJson(raw, null)
+    if (!Array.isArray(parsed)) {
+      root.shortcutConflictState = Object.assign({}, MultitaskingShortcutsModel.emptyState(), { status: "unavailable", reason: "invalid-hyprland-bindings" })
+    } else {
+      root.shortcutConflictState = MultitaskingShortcutsModel.report(root.cfg("multitasking.shortcuts", {}), root.cfg("shortcuts", {}), parsed)
+    }
+    root.shortcutConflictRunning = false
+    root.shortcutConflictRevision++
+    root.stateUpdated()
+  }
+
+  function checkShortcutConflicts() {
+    if (root.shortcutConflictRunning) return false
+    if (!root.hyprlandAvailable) {
+      root.shortcutConflictState = Object.assign({}, MultitaskingShortcutsModel.emptyState(), { status: "unavailable", reason: "hyprland-unavailable" })
+      root.shortcutConflictRevision++
+      root.stateUpdated()
+      return false
+    }
+    root.shortcutConflictRunning = true
+    shortcutBindsProcess.command = ["hyprctl", "-j", "binds"]
+    shortcutBindsProcess.running = true
+    return true
+  }
+
+  function executeMultitaskingShortcut(action) {
+    var name = String(action || "")
+    if (root.safeMode) return root.multitaskingRecord({ type: "shortcut", ok: false, action: name, reason: "safe-mode" })
+    var active = root.multitaskingForeign(root.activeClient())
+    if (name === "snap-left" || name === "snap-right")
+      return root.snapWindowToZone(active, root.multitaskingHalfZone(active, name === "snap-left" ? "start" : "end"), "mouse", {})
+    if (name === "next-layout") {
+      var zones = root.availableSnapZones("mouse", {}).filter(function(zone) { return ["half-left", "half-right", "half-top", "half-bottom", "quarter-top-left", "quarter-top-right", "quarter-bottom-left", "quarter-bottom-right", "maximized"].indexOf(String(zone.id)) >= 0 })
+      if (zones.length === 0) return root.multitaskingRecord({ type: "shortcut", ok: false, action: name, reason: "no-layout-zones" })
+      root.multitaskingLayoutShortcutIndex = (root.multitaskingLayoutShortcutIndex + 1) % zones.length
+      return root.snapWindowToZone(active, zones[root.multitaskingLayoutShortcutIndex].id, "mouse", {})
+    }
+    if (name === "toggle-float") return root.toggleWindowFloating(active)
+    if (name === "break-pair") {
+      var group = root.windowGroupForWindow(active)
+      return group ? root.breakWindowGroup(group.id) : root.multitaskingRecord({ type: "shortcut", ok: false, action: name, reason: "group-not-found" })
+    }
+    if (name === "create-pair") {
+      var pair = root.splitViewWindows.length === 2 ? root.splitViewWindows : []
+      return pair.length === 2 ? root.createWindowGroup("app-pair", pair, { ratio: root.splitViewState && root.splitViewState.ratioName || "50/50" }) : root.multitaskingRecord({ type: "shortcut", ok: false, action: name, reason: "split-pair-required" })
+    }
+    if (name === "move-pair-workspace") {
+      var activeGroup = root.windowGroupForWindow(active)
+      if (!activeGroup || !activeGroup.runtime || !Array.isArray(activeGroup.runtime.memberIds)) return root.multitaskingRecord({ type: "shortcut", ok: false, action: name, reason: "group-not-found" })
+      var moved = 0
+      for (var i = 0; i < activeGroup.runtime.memberIds.length; i++) {
+        var member = root.windowForMultitaskingId(activeGroup.runtime.memberIds[i])
+        var address = root.multitaskingAddress(member)
+        if (address && root.dispatch("movetoworkspace e+1,address:" + address)) moved++
+      }
+      return root.multitaskingRecord({ type: "shortcut", ok: moved === activeGroup.runtime.memberIds.length, action: name, moved: moved, members: activeGroup.runtime.memberIds.length })
+    }
+    return root.multitaskingRecord({ type: "shortcut", ok: false, action: name, reason: "unknown-action" })
+  }
+
   function layoutPersistenceSummary() {
     return LayoutPersistenceModel.summary(root.layoutPersistenceState)
   }
@@ -2804,8 +3001,14 @@ Item {
       return { ok: true, type: "gesture", action: name, owner: source.owner || "" }
     }
     if (name === "workspace-next" || name === "workspace-previous") {
-      var workspaceCommand = name === "workspace-next" ? "workspace e+1" : "workspace e-1"
-      return { ok: root.dispatch(workspaceCommand), type: "gesture", action: name, owner: source.owner || "", reason: root.hyprlandAvailable ? "workspace-dispatched" : "hyprland-unavailable" }
+      var direction = name === "workspace-next" ? "next" : "previous"
+      root.showWorkspaceSwitcher(direction)
+      var target = String(root.workspaceSwitcherState.targetId || "")
+      var workspaceCommand = target ? "workspace " + target : (direction === "next" ? "workspace e+1" : "workspace e-1")
+      var dispatched = root.dispatch(workspaceCommand)
+      root.workspaceSwitcherState = Object.assign({}, root.workspaceSwitcherState, { phase: dispatched ? "committed" : "failed", progress: dispatched ? 1 : 0, committed: dispatched, reason: dispatched ? "workspace-dispatched" : "workspace-dispatch-rejected" })
+      root.workspaceSwitcherRevision++
+      return { ok: dispatched, type: "gesture", action: name, owner: source.owner || "", reason: root.hyprlandAvailable ? (dispatched ? "workspace-dispatched" : "workspace-dispatch-rejected") : "hyprland-unavailable" }
     }
     if (name === "back") {
       if (String(source.backend || "") === "shortcut" && source.shortcut)
@@ -3879,6 +4082,22 @@ Item {
   }
 
   Process {
+    id: shortcutBindsProcess
+    environment: root.ownedEnvironment("shortcut-conflicts")
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateShortcutConflicts(text) }
+    onStarted: root.processStarted("shortcut-conflicts", shortcutBindsProcess, "on-demand Hyprland shortcut conflict check", false, "user-action")
+    onExited: function(exitCode) {
+      root.processStopped("shortcut-conflicts", shortcutBindsProcess, exitCode)
+      if (exitCode !== 0 && root.shortcutConflictRunning) {
+        root.shortcutConflictState = Object.assign({}, MultitaskingShortcutsModel.emptyState(), { status: "unavailable", reason: "hyprland-bindings-command-failed" })
+        root.shortcutConflictRunning = false
+        root.shortcutConflictRevision++
+        root.stateUpdated()
+      }
+    }
+  }
+
+  Process {
     id: inputProcess
     environment: root.ownedEnvironment("input")
     onStarted: root.processStarted("input", inputProcess, "bounded one-shot input fallback", false, "queue-bounded")
@@ -4646,6 +4865,7 @@ Item {
     root.ownedProcesses = []
     var processes = [
       commandProcess, inputProcess, inputBackendProbe, inputBackendProcess,
+      shortcutBindsProcess,
       screenshotProcess, performanceSnapshotProcess, directoryProcess,
       configRecoveryProcess, devicesProcess, deviceMonitorProcess,
       sessionMonitorProcess, monitorsProcess, clientsProcess, systemStateProcess,
@@ -4678,6 +4898,10 @@ Item {
     function reload(): string { root.refreshDevices(); return "ok" }
     function recordInput(kind: string): string { root.recordInput(kind); return root.detectedMode }
     function quickAction(action: string): string { return root.quickAction(action) ? "on" : "off" }
+    function multitaskingShortcut(action: string): string {
+      var result = root.executeMultitaskingShortcut(action)
+      return result && result.ok === true ? "ok" : "unavailable"
+    }
     function forceQuit(): string { return root.forceQuitBegin() ? "select" : "unavailable" }
     function cube(action: string): string {
       var value = String(action || "toggle")

@@ -109,6 +109,26 @@ def migration_one_to_two(source: dict[str, Any], applied: list[str]) -> None:
     applied.append("1->2")
 
 
+def migration_multitasking_1_1(source: dict[str, Any], applied: list[str]) -> None:
+    defaults = load_defaults().get("multitasking", {})
+    multitasking = source.setdefault("multitasking", {})
+    if not isinstance(multitasking, dict):
+        multitasking = source["multitasking"] = {}
+    changed = False
+    for section in ("tabletSwitcher", "layoutPersistence", "shortcuts"):
+        if not isinstance(multitasking.get(section), dict):
+            multitasking[section] = copy.deepcopy(defaults.get(section, {}))
+            changed = True
+    for section in ("tabletSwitcher", "layoutPersistence", "shortcuts"):
+        target = multitasking[section]
+        for key, value in defaults.get(section, {}).items():
+            if key not in target:
+                target[key] = copy.deepcopy(value)
+                changed = True
+    if changed and "multitasking-1.1-defaults" not in applied:
+        applied.append("multitasking-1.1-defaults")
+
+
 def migrate(value: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     if not isinstance(value, dict):
         raise ConfigError("invalid-root", "configuration root must be a JSON object")
@@ -126,6 +146,7 @@ def migrate(value: Any) -> tuple[dict[str, Any], dict[str, Any]]:
         migration_zero_to_one(source, applied)
     if int(source.get("schemaVersion", 0)) < 2:
         migration_one_to_two(source, applied)
+    migration_multitasking_1_1(source, applied)
     normalized = deep_merge(load_defaults(), source)
     normalized["schemaVersion"] = CURRENT_SCHEMA_VERSION
     return normalized, {

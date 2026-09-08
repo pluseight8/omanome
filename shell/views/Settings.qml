@@ -569,7 +569,42 @@ Item {
               ActionButton { width: parent.width; visible: root.category === "applications"; text: root.service.tr("applicationRules", "Application rules"); subtitle: root.service.cfg("applicationRules.rules", []).length + " rule(s) · native client matching"; checked: root.service.cfg("applicationRules.enabled", true); onClicked: root.toggle("applicationRules.enabled") }
               ActionButton { width: parent.width; visible: root.category === "shortcuts"; text: root.service.tr("overviewShortcut", "Overview"); subtitle: root.service.cfg("shortcuts.overview", "SUPER") + " · Omanome namespace only"; usable: false }
               ActionButton { width: parent.width; visible: root.category === "shortcuts"; text: root.service.tr("launcherShortcut", "Launcher"); subtitle: root.service.cfg("shortcuts.launcher", "SUPER+SPACE"); usable: false }
-              ActionButton { width: parent.width; visible: root.category === "shortcuts"; text: root.service.tr("checkConflicts", "Check conflicts"); subtitle: root.service.tr("externalConflictNote", "External Hyprland bindings are shown only when safely available"); usable: false }
+              SectionHeader { width: parent.width; visible: root.category === "shortcuts"; title: root.service.tr("multitaskingShortcuts", "Multitasking shortcuts"); subtitle: root.service.tr("multitaskingShortcutsHint", "User-owned Hyprland bindings; Omanome never installs them silently") }
+              Repeater {
+                visible: root.category === "shortcuts"
+                model: root.service && typeof root.service.multitaskingShortcutEntries === "function" ? root.service.multitaskingShortcutEntries() : []
+                delegate: RowLayout {
+                  required property var modelData
+                  width: parent.width
+                  spacing: tokens.space(8)
+                  Text { Layout.fillWidth: true; text: root.service.tr(modelData.labelKey, modelData.key); color: Color.foreground; font.pixelSize: Style.font.body; elide: Text.ElideRight }
+                  Rectangle {
+                    Layout.preferredWidth: Math.min(tokens.space(230), parent.width * 0.42)
+                    Layout.preferredHeight: tokens.target(42)
+                    radius: tokens.radius(10)
+                    color: Util.alpha(Color.foreground, 0.08)
+                    border.width: shortcutInput.activeFocus ? 1 : 0
+                    border.color: Color.accent
+                    TextInput {
+                      id: shortcutInput
+                      anchors.fill: parent
+                      anchors.leftMargin: tokens.space(10)
+                      anchors.rightMargin: tokens.space(10)
+                      verticalAlignment: Text.AlignVCenter
+                      color: Color.foreground
+                      font.family: "monospace"
+                      font.pixelSize: Style.font.caption
+                      text: root.service.cfg("multitasking.shortcuts." + modelData.key, modelData.binding)
+                      selectByMouse: true
+                      clip: true
+                      onEditingFinished: root.service.setConfig("multitasking.shortcuts." + modelData.key, text.trim())
+                      onAccepted: root.service.setConfig("multitasking.shortcuts." + modelData.key, text.trim())
+                    }
+                  }
+                }
+              }
+              Text { width: parent.width; visible: root.category === "shortcuts"; text: root.service.tr("shortcutBindingNote", "Set these values in your Hyprland config if desired; existing bindings are never replaced"); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+              ActionButton { width: parent.width; visible: root.category === "shortcuts"; text: root.service.shortcutConflictRunning ? root.service.tr("running", "Running…") : root.service.tr("shortcutConflictCheck", "Check Hyprland conflicts"); subtitle: root.service.shortcutConflictText(); usable: !root.service.shortcutConflictRunning; onClicked: root.service.checkShortcutConflicts() }
               ActionButton { width: parent.width; visible: root.category === "updates"; text: root.service.updateRunning ? root.service.tr("running", "Running…") : root.service.tr("checkUpdates", "Check"); subtitle: root.service.tr("manualUpdates", "Updates are never installed automatically"); usable: !root.service.updateRunning; onClicked: root.service.runUpdateCheck() }
               ActionButton { width: parent.width; visible: root.category === "updates"; text: root.service.tr("previewUpdate", "Preview update"); subtitle: root.service.tr("previewUpdateHint", "Dry-run only; no files are changed"); usable: !root.service.updateRunning; onClicked: root.service.runUpdatePreview() }
               Text { width: parent.width; visible: root.category === "updates"; text: root.service.tr("updateHint", "Use explicit CLI actions for channel-aware update, rollback and recovery."); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }

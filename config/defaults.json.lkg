@@ -207,7 +207,8 @@
     "duplicatePolicy": "ask",
     "launchTimeoutMs": 12000,
     "maxGroups": 32,
-    "experimentalWindowThrow": false
+    "experimentalWindowThrow": false,
+    "shortcuts": { "snap-left": "SUPER+ALT+LEFT", "snap-right": "SUPER+ALT+RIGHT", "next-layout": "SUPER+ALT+L", "toggle-float": "SUPER+ALT+F", "create-pair": "SUPER+ALT+P", "break-pair": "SUPER+ALT+SHIFT+P", "move-pair-workspace": "SUPER+ALT+W" }
   },
   "keyboard": {
     "enabled": true,
