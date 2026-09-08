@@ -28,6 +28,7 @@ import "models/ProcessPolicy.js" as ProcessPolicy
 import "models/LayoutEngine.js" as LayoutEngineModel
 import "models/SnapAssist.js" as SnapAssistModel
 import "models/SplitView.js" as SplitViewModel
+import "models/WindowMatcher.js" as WindowMatcherModel
 
 // Omanome's one shared service. It is deliberately headless: all visible
 // surfaces are summoned through the existing Omarchy shell host, so Omanome
@@ -160,6 +161,8 @@ Item {
   property var multitaskingLastAction: ({ type: "none", ok: false, reason: "not-used" })
   property string multitaskingError: ""
   property int multitaskingRevision: 0
+  property var multitaskingLaunch: null
+  property var multitaskingLaunchTarget: null
   property string blurRuleSignature: ""
   property string lastInput: "keyboard"
   property string inputCandidate: ""
@@ -2003,6 +2006,7 @@ Item {
 
   function updateClients(raw) {
     root.clients = parseJson(raw, [])
+    root.resolveMultitaskingLaunch()
     if (root.hyprlandAvailable) root.applyTouchIntegration()
     root.performanceState = PerformanceModel.snapshot(root.cfg("performance", {}), root.performanceContext())
     root.reconcileWobblyBackend()
@@ -2128,6 +2132,13 @@ Item {
           ratioName: String(root.splitViewState.ratioName || ""),
           divider: root.splitViewState.divider || null,
           transaction: root.splitViewState.transaction || null
+        } : null,
+        launch: root.multitaskingLaunch ? {
+          appId: String(root.multitaskingLaunch.appId || ""),
+          status: String(root.multitaskingLaunch.status || "pending"),
+          reason: String(root.multitaskingLaunch.reason || ""),
+          deadline: Number(root.multitaskingLaunch.deadline || 0),
+          attempts: Number(root.multitaskingLaunch.attempts || 0)
         } : null
       },
       performance: root.performanceState,
@@ -2168,7 +2179,9 @@ Item {
         snapPhase: String(root.snapAssistState.phase || "idle"),
         splitAxis: root.splitViewState && root.splitViewState.pair ? String(root.splitViewState.pair.axis || "") : "unavailable",
         splitRatio: root.splitViewState ? Number(root.splitViewState.ratio || 0) : 0,
-        lastAction: String(root.multitaskingLastAction.type || "none")
+        lastAction: String(root.multitaskingLastAction.type || "none"),
+        launchPending: !!root.multitaskingLaunch,
+        launchAppId: root.multitaskingLaunch ? String(root.multitaskingLaunch.appId || "") : ""
       },
       companion: { installed: companion.installed === true, built: companion.built === true, loaded: companion.loaded === true, compatible: companion.compatible === true, crashMarker: companion.crashMarker === true, abiMatch: companion.abiMatch === true },
       effects: { blur: root.effectBackend.layerRulesAvailable === true, livePreview: root.livePreviewState.available === true, wobbly: root.effectCapabilities.wobblyWindows === true, cube: root.effectCapabilities.desktopCube === true },
@@ -2595,7 +2608,81 @@ Item {
       if (root.multitaskingWindowIdentity(rows[i]) === activeId) continue
       return root.splitWindows([active, rows[i]], {})
     }
-    return root.multitaskingRecord({ type: "split-app", ok: false, reason: "running-window-for-app-not-found" })
+    return root.launchAppToSplit(appId, active, {})
+  }
+
+  function launchAppToZone(appId, zoneId, kind, options) {
+    var key = WindowMatcherModel.appId(appId)
+    var settings = Object.assign(root.multitaskingOptions(), options || {})
+    if (!key) return root.multitaskingRecord({ type: "launch-to-slot", ok: false, reason: "application-identity-required" })
+    if (settings.enabled === false || root.safeMode)
+      return root.multitaskingRecord({ type: "launch-to-slot", ok: false, reason: root.safeMode ? "safe-mode" : "disabled" })
+    var existing = root.windowsForApp(key)
+    if (existing.length > 0) {
+      var current = root.multitaskingForeign(existing[0])
+      return root.snapWindowToZone(current, zoneId, kind || "touch", settings)
+    }
+    if (root.multitaskingLaunch) return root.multitaskingRecord({ type: "launch-to-slot", ok: false, reason: "launch-request-active" })
+    var request = WindowMatcherModel.begin(key, root.clients, Date.now(), {
+      timeoutMs: settings.launchTimeoutMs,
+      workspaceId: settings.workspaceId,
+      monitorName: settings.monitorName || settings.monitor
+    })
+    if (request.status !== "pending") return root.multitaskingRecord({ type: "launch-to-slot", ok: false, reason: request.reason })
+    root.multitaskingLaunch = request
+    root.multitaskingLaunchTarget = { type: "snap", appId: key, zoneId: String(zoneId || ""), kind: kind || "touch", options: settings }
+    if (!root.launchApp(key)) {
+      root.multitaskingLaunch = null
+      root.multitaskingLaunchTarget = null
+      return root.multitaskingRecord({ type: "launch-to-slot", ok: false, reason: "launch-rejected" })
+    }
+    multitaskingLaunchTimeout.interval = request.timeoutMs
+    multitaskingLaunchTimeout.restart()
+    return root.multitaskingRecord({ type: "launch-to-slot", ok: true, pending: true, appId: key, deadline: request.deadline })
+  }
+
+  function launchAppToSplit(appId, firstWindow, options) {
+    var key = WindowMatcherModel.appId(appId)
+    var settings = Object.assign(root.multitaskingOptions(), options || {})
+    var first = firstWindow || root.activeClient()
+    var firstId = root.multitaskingWindowIdentity(first)
+    if (!key || !firstId) return root.multitaskingRecord({ type: "launch-to-split", ok: false, reason: "window-identity-required" })
+    if (settings.enabled === false || root.safeMode)
+      return root.multitaskingRecord({ type: "launch-to-split", ok: false, reason: root.safeMode ? "safe-mode" : "disabled" })
+    var existing = root.windowsForApp(key)
+    if (existing.length > 0) return root.splitWindows([first, root.multitaskingForeign(existing[0])], settings)
+    if (root.multitaskingLaunch) return root.multitaskingRecord({ type: "launch-to-split", ok: false, reason: "launch-request-active" })
+    var request = WindowMatcherModel.begin(key, root.clients, Date.now(), { timeoutMs: settings.launchTimeoutMs })
+    if (request.status !== "pending") return root.multitaskingRecord({ type: "launch-to-split", ok: false, reason: request.reason })
+    root.multitaskingLaunch = request
+    root.multitaskingLaunchTarget = { type: "split", appId: key, firstWindowId: firstId, options: settings }
+    if (!root.launchApp(key)) {
+      root.multitaskingLaunch = null
+      root.multitaskingLaunchTarget = null
+      return root.multitaskingRecord({ type: "launch-to-split", ok: false, reason: "launch-rejected" })
+    }
+    multitaskingLaunchTimeout.interval = request.timeoutMs
+    multitaskingLaunchTimeout.restart()
+    return root.multitaskingRecord({ type: "launch-to-split", ok: true, pending: true, appId: key, deadline: request.deadline })
+  }
+
+  function resolveMultitaskingLaunch() {
+    if (!root.multitaskingLaunch) return null
+    var resolved = WindowMatcherModel.resolve(root.multitaskingLaunch, root.clients, Date.now())
+    root.multitaskingLaunch = resolved.request
+    if (resolved.result.status === "pending") return resolved.result
+    multitaskingLaunchTimeout.stop()
+    var target = root.multitaskingLaunchTarget
+    root.multitaskingLaunch = null
+    root.multitaskingLaunchTarget = null
+    if (resolved.result.status === "timeout")
+      return root.multitaskingRecord({ type: target && target.type === "split" ? "launch-to-split" : "launch-to-slot", ok: false, reason: "launch-timeout", appId: target && target.appId || "" })
+    var window = root.windowForMultitaskingId(resolved.result.windowId)
+    if (!window) return root.multitaskingRecord({ type: "launch-to-slot", ok: false, reason: "matched-window-disappeared" })
+    var result = target && target.type === "split"
+      ? root.splitWindows([root.windowForMultitaskingId(target.firstWindowId), window], target.options || {})
+      : root.snapWindowToZone(root.multitaskingForeign(window), target && target.zoneId || "maximized", target && target.kind || "touch", target && target.options || {})
+    return root.multitaskingRecord({ type: target && target.type === "split" ? "launch-to-split" : "launch-to-slot", ok: result && result.ok === true, reason: result && result.reason || "apply-failed", matchedWindowId: resolved.result.windowId })
   }
 
   function beginSplitDividerDrag(point, options) {
@@ -3733,6 +3820,13 @@ Item {
     onTriggered: root.refreshDevices()
   }
 
+  Timer {
+    id: multitaskingLaunchTimeout
+    interval: 12000
+    repeat: false
+    onTriggered: root.resolveMultitaskingLaunch()
+  }
+
   function shutdown() {
     if (root.shuttingDown) return
     root.shuttingDown = true
@@ -3742,7 +3836,7 @@ Item {
       orientationTransition, wobblyConfigDebounce, clipboardRestart, rotationRestart,
       inputBackendRestart, oskPolicyTimer, clipboardMaintenance, integrationRefresh,
       systemRefresh, systemFallbackRefresh, inputFlush, inputModeCommit, effectRefresh,
-      initialConfigSave, deviceRefresh
+      initialConfigSave, deviceRefresh, multitaskingLaunchTimeout
     ]
     for (var timerIndex = 0; timerIndex < timers.length; timerIndex++)
       if (timers[timerIndex]) timers[timerIndex].stop()
@@ -3750,6 +3844,8 @@ Item {
     root.clipboardWatching = false
     root.inputQueue = []
     root.pendingCommands = ({})
+    root.multitaskingLaunch = null
+    root.multitaskingLaunchTarget = null
     root.inputNativePending = 0
     root.ownedProcesses = []
     var processes = [

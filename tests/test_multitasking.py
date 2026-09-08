@@ -226,6 +226,35 @@ class LayoutEngineTests(unittest.TestCase):
         self.assertTrue(result["shown"]["visible"])
         self.assertEqual(result["shown"]["lastInputKind"], "stylus")
 
+    def test_launch_matching_excludes_existing_windows_and_does_not_use_title(self) -> None:
+        result = self.run_node(
+            "const M=require('./shell/models/WindowMatcher.js'); "
+            "const existing=[{address:'0x1',pid:41,appId:'org.browser.App',title:'Old'}]; "
+            "let request=M.begin('org.browser.App',existing,1000,{timeoutMs:999999}); "
+            "const titleOnly=M.matchWindow(request,[{title:'New tab',appId:'org.browser.App'}],1100); "
+            "const newWindow=M.matchWindow(request,[{address:'0x2',pid:42,appId:'org.browser.App',title:'New tab',launchTimestamp:1050}],1100); "
+            "const oldWindow=M.matchWindow(request,existing,1100); "
+            "console.log(JSON.stringify({timeout:request.timeoutMs,titleOnly,newWindow,oldWindow}));"
+        )
+        self.assertEqual(result["timeout"], 15000)
+        self.assertEqual(result["titleOnly"]["status"], "pending")
+        self.assertTrue(result["newWindow"]["ok"])
+        self.assertEqual(result["newWindow"]["windowId"], "address:0x2")
+        self.assertEqual(result["oldWindow"]["status"], "pending")
+
+    def test_launch_matching_prefers_pid_and_is_bounded_by_deadline(self) -> None:
+        result = self.run_node(
+            "const M=require('./shell/models/WindowMatcher.js'); "
+            "let request=M.begin('org.editor.App',[],1000,{timeoutMs:5000,expectedPid:77}); "
+            "const rows=[{address:'0xa',pid:78,appId:'org.editor.App',launchTimestamp:1100},{address:'0xb',pid:77,appId:'org.editor.App',launchTimestamp:1100}]; "
+            "const chosen=M.resolve(request,rows,1200); const expired=M.resolve(request,rows,7000); "
+            "console.log(JSON.stringify({chosen,expired}));"
+        )
+        self.assertTrue(result["chosen"]["result"]["ok"])
+        self.assertEqual(result["chosen"]["result"]["windowId"], "address:0xb")
+        self.assertEqual(result["expired"]["result"]["status"], "timeout")
+        self.assertEqual(result["expired"]["request"]["reason"], "launch-timeout")
+
 
 if __name__ == "__main__":
     unittest.main()
