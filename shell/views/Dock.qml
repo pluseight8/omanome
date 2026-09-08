@@ -220,6 +220,28 @@ Item {
     return String(screen && screen.name || "") === monitor
   }
 
+  function contextWindows() {
+    return root.contextId ? root.windowsFor(root.contextId) : []
+  }
+
+  function snapContext(side) {
+    var rows = root.contextWindows()
+    if (rows.length === 0 || !root.service) return false
+    var target = root.firstForeign(rows[0])
+    var zone = root.service.multitaskingHalfZone(target, side)
+    var result = root.service.snapWindowToZone(target, zone, "touch", {})
+    root.contextId = ""
+    return result
+  }
+
+  function splitContextWindows() {
+    var rows = root.contextWindows()
+    if (rows.length < 2 || !root.service) return false
+    var result = root.service.splitWindows([root.firstForeign(rows[0]), root.firstForeign(rows[1])], {})
+    root.contextId = ""
+    return result
+  }
+
   Connections { target: ToplevelManager.toplevels; function onValuesChanged() { root.refresh() } }
   Connections { target: ToplevelManager; function onActiveToplevelChanged() { root.refresh() } }
   Connections { target: DesktopEntries.applications; function onValuesChanged() { root.refresh() } }
@@ -425,8 +447,11 @@ Item {
               Text { text: root.contextId; color: Color.muted; font.pixelSize: Style.font.caption; elide: Text.ElideRight; width: parent.width }
               ActionButton { width: parent.width; compact: true; text: root.service.isFavoriteApp(root.contextId) ? root.service.tr("removeFavorite", "Remove from favorites") : root.service.tr("addFavorite", "Add to favorites"); onClicked: root.toggleFavorite(root.contextId) }
               ActionButton { width: parent.width; compact: true; text: root.service.tr("open", "Open"); onClicked: { root.service.launchApp(root.contextId); root.contextId = "" } }
-              ActionButton { width: parent.width; compact: true; text: root.service.tr("minimize", "Minimize"); usable: root.items().length > 0; onClicked: { var rows = root.windowsFor(root.contextId); if (rows.length > 0 && rows[0].wayland) rows[0].wayland.minimized = true; root.contextId = "" } }
-              ActionButton { width: parent.width; compact: true; text: root.service.tr("close", "Close"); usable: root.items().length > 0; onClicked: { var rows = root.windowsFor(root.contextId); if (rows.length > 0 && rows[0].wayland) rows[0].wayland.close(); root.contextId = "" } }
+              ActionButton { width: parent.width; compact: true; text: root.service.tr("snapStart", "Snap start"); usable: root.contextWindows().length > 0; onClicked: root.snapContext("start") }
+              ActionButton { width: parent.width; compact: true; text: root.service.tr("snapEnd", "Snap end"); usable: root.contextWindows().length > 0; onClicked: root.snapContext("end") }
+              ActionButton { width: parent.width; compact: true; text: root.service.tr("splitWindows", "Split first two windows"); usable: root.contextWindows().length > 1; onClicked: root.splitContextWindows() }
+              ActionButton { width: parent.width; compact: true; text: root.service.tr("minimize", "Minimize"); usable: root.contextWindows().length > 0; onClicked: { var rows = root.contextWindows(); if (rows.length > 0 && root.firstForeign(rows[0])) root.firstForeign(rows[0]).minimized = true; root.contextId = "" } }
+              ActionButton { width: parent.width; compact: true; text: root.service.tr("close", "Close"); usable: root.contextWindows().length > 0; onClicked: { var rows = root.contextWindows(); if (rows.length > 0 && root.firstForeign(rows[0]) && typeof root.firstForeign(rows[0]).close === "function") root.firstForeign(rows[0]).close(); root.contextId = "" } }
             }
           }
         }

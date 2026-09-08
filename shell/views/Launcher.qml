@@ -397,6 +397,7 @@ Item {
       ActionButton { width: parent.width; text: root.contextId && root.service.isFavoriteApp(root.contextId) ? root.service.tr("removeFavorite", "Remove from favorites") : root.service.tr("addFavorite", "Add to favorites"); visible: root.contextId !== ""; onClicked: root.toggleFavorite(root.contextId) }
       ActionButton { width: parent.width; text: root.service.tr("open", "Open"); visible: root.contextId !== ""; onClicked: { var app = Apps.normalize(DesktopEntries.byId(root.contextId)); root.launch(app) } }
       ActionButton { width: parent.width; text: root.service.tr("newWindow", "New window"); visible: root.contextId !== ""; onClicked: { root.service.launchApp(root.contextId); root.contextId = "" } }
+      ActionButton { width: parent.width; text: root.service.tr("splitWithActive", "Split with active window"); visible: root.contextId !== ""; usable: root.service.hasWindowsForApp(root.contextId); onClicked: { root.service.splitAppWithActiveWindow(root.contextId); root.contextId = "" } }
       ActionButton { width: parent.width; text: root.service.tr("closeAllWindows", "Close all windows"); visible: root.contextId !== ""; usable: root.service.hasWindowsForApp(root.contextId); onClicked: { root.service.closeWindowsForApp(root.contextId); root.contextId = "" } }
       Text { visible: root.contextId !== ""; text: root.service.tr("addToFolder", "Add to folder"); color: Color.muted; font.pixelSize: Style.font.caption }
       Repeater {

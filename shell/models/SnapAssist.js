@@ -9,6 +9,11 @@ function engine() {
   return typeof LayoutEngine !== "undefined" ? LayoutEngine : {}
 }
 
+function setLayoutEngine(value) {
+  if (value && typeof value.zones === "function" && typeof value.layoutForZone === "function") Layout = value
+  return !!Layout
+}
+
 function text(value) { return String(value === undefined || value === null ? "" : value).trim().toLowerCase() }
 function number(value, fallback) { var result = Number(value); return isFinite(result) ? result : Number(fallback || 0) }
 function clone(value) { return JSON.parse(JSON.stringify(value)) }
@@ -323,6 +328,7 @@ var api = {
   selectZone: selectZone,
   cancel: cancel,
   commit: commit,
-  availableZones: availableZones
+  availableZones: availableZones,
+  setLayoutEngine: setLayoutEngine
 }
 if (typeof module !== "undefined") module.exports = api

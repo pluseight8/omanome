@@ -22,6 +22,7 @@ Item {
   property int selectedWorkspace: 0
   property int selectedSearchIndex: 0
   property var draggedWindow: null
+  property var splitSelection: []
 
   DesignTokens {
     id: tokens
@@ -136,6 +137,26 @@ Item {
   function fullscreenWindow(window) { var item = root.foreign(window); if (item) item.fullscreen = !item.fullscreen }
   function moveWindow(window, id) { root.service.moveWindowToWorkspace(window, id); root.draggedWindow = null }
 
+  function splitWindow(window) {
+    if (!root.service || !window) return
+    var id = root.service.multitaskingWindowIdentity(window)
+    if (!id) return
+    if (root.splitSelection.length === 0) {
+      root.splitSelection = [window]
+      root.revision++
+      return
+    }
+    var first = root.splitSelection[0]
+    if (root.service.multitaskingWindowIdentity(first) === id) {
+      root.splitSelection = []
+      root.revision++
+      return
+    }
+    root.service.splitWindows([first, window], {})
+    root.splitSelection = []
+    root.revision++
+  }
+
   function activateSearch(item) {
     if (!item) return
     if (item.kind === "app") { root.service.launchApp(item.id); if (root.panel) root.panel.close(); return }
@@ -171,7 +192,7 @@ Item {
     SectionHeader {
       Layout.fillWidth: true
       title: root.service.tr("overview", "Overview")
-      subtitle: root.service.tr("overviewHint", "Current workspace first · real windows · live preview only when available")
+      subtitle: root.splitSelection.length > 0 ? root.service.tr("splitSelectSecond", "Split View: select a second window") : root.service.tr("overviewHint", "Current workspace first · real windows · live preview only when available")
     }
 
     Rectangle {
@@ -217,6 +238,54 @@ Item {
             event.accepted = true
           }
         }
+      }
+    }
+
+    Rectangle {
+      visible: root.service && root.service.snapAssistState && root.service.snapAssistState.active
+      Layout.fillWidth: true
+      Layout.preferredHeight: tokens.target(52)
+      radius: tokens.radius(12)
+      color: Util.alpha(Color.accent, 0.16)
+      border.width: 1
+      border.color: Util.alpha(Color.accent, 0.46)
+      RowLayout {
+        anchors.fill: parent
+        anchors.leftMargin: tokens.space(12)
+        anchors.rightMargin: tokens.space(8)
+        spacing: tokens.space(8)
+        Text {
+          Layout.fillWidth: true
+          text: root.service.tr("snapPreview", "Snap preview") + " · " + String(root.service.snapAssistState.candidateId || root.service.snapAssistState.phase || "")
+          color: Color.foreground
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
+        }
+        ActionButton { compact: true; text: root.service.tr("cancel", "Cancel"); onClicked: root.service.cancelSnapAssist("user-cancelled") }
+        ActionButton { compact: true; text: root.service.tr("apply", "Apply"); usable: root.service.snapAssistState.phase === "ready"; onClicked: root.service.commitSnapAssist() }
+      }
+    }
+
+    Rectangle {
+      visible: root.service && root.service.splitViewState && root.service.splitViewState.phase === "dragging"
+      Layout.fillWidth: true
+      Layout.preferredHeight: tokens.target(52)
+      radius: tokens.radius(12)
+      color: Util.alpha(Color.foreground, 0.06)
+      RowLayout {
+        anchors.fill: parent
+        anchors.leftMargin: tokens.space(12)
+        anchors.rightMargin: tokens.space(8)
+        spacing: tokens.space(8)
+        Text {
+          Layout.fillWidth: true
+          text: root.service.tr("splitPreview", "Split View") + " · " + String(root.service.splitViewState.ratioName || "50/50") + " · " + String(root.service.splitViewState.pair.axis || "")
+          color: Color.foreground
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
+        }
+        ActionButton { compact: true; text: root.service.tr("rollback", "Rollback"); onClicked: root.service.rollbackSplitView("user-cancelled") }
+        ActionButton { compact: true; text: root.service.tr("apply", "Apply"); onClicked: root.service.commitSplitView() }
       }
     }
 
@@ -349,6 +418,9 @@ Item {
           property var application: root.appEntry(modelData)
           property string previewKey: "overview:" + String(modelData && (modelData.address || modelData.title) || index)
           property bool previewWanted: root.service && root.service.previewBudgetAllows("overview", index) && captureSource && typeof captureSource.activate === "function"
+          property bool snapMenuOpen: false
+          property var snapZones: root.service ? root.service.snapZonesForWindow(modelData, root.service.lastInput, {}) : []
+          property bool splitSelected: root.splitSelection.length > 0 && root.service && root.service.multitaskingWindowIdentity(root.splitSelection[0]) === root.service.multitaskingWindowIdentity(modelData)
           x: layoutRect.x
           y: layoutRect.y
           width: layoutRect.width
@@ -439,6 +511,31 @@ Item {
                 ActionButton { compact: true; minimumWidth: tokens.target(42); text: "—"; onClicked: root.minimizeWindow(modelData) }
                 ActionButton { compact: true; minimumWidth: tokens.target(42); text: "□"; onClicked: root.maximizeWindow(modelData) }
                 ActionButton { compact: true; minimumWidth: tokens.target(42); text: "⛶"; onClicked: root.fullscreenWindow(modelData) }
+                ActionButton { compact: true; minimumWidth: tokens.target(42); text: "⌗"; checked: windowCard.snapMenuOpen; onClicked: windowCard.snapMenuOpen = !windowCard.snapMenuOpen }
+                ActionButton { compact: true; minimumWidth: tokens.target(42); text: "⧉"; checked: windowCard.splitSelected; onClicked: root.splitWindow(modelData) }
+              }
+
+              Rectangle {
+                visible: windowCard.snapMenuOpen
+                width: parent.width
+                height: Math.max(tokens.target(48), Math.ceil(windowCard.snapZones.length / 3) * tokens.target(42))
+                radius: tokens.radius(10)
+                color: Util.alpha(Color.foreground, tokens.highContrast ? 0.10 : 0.05)
+                Flow {
+                  anchors.fill: parent
+                  anchors.margins: tokens.space(5)
+                  spacing: tokens.space(4)
+                  Repeater {
+                    model: windowCard.snapZones
+                    delegate: ActionButton {
+                      required property var modelData
+                      compact: true
+                      minimumHeight: tokens.target(36)
+                      text: String(modelData.id || "snap")
+                      onClicked: { root.service.snapWindowToZone(windowCard.modelData, modelData.id, root.service.lastInput, {}); windowCard.snapMenuOpen = false }
+                    }
+                  }
+                }
               }
             }
 

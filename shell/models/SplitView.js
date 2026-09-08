@@ -11,6 +11,11 @@ function engine() {
   return null
 }
 
+function setLayoutEngine(value) {
+  if (value && typeof value.splitPair === "function" && typeof value.normalizeMonitor === "function") Layout = value
+  return !!Layout
+}
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value))
 }
@@ -362,6 +367,7 @@ var api = {
   notifyDividerInteraction: notifyDividerInteraction,
   dividerVisibility: dividerVisibility,
   setDividerProximity: setDividerProximity,
-  dividerHit: dividerHit
+  dividerHit: dividerHit,
+  setLayoutEngine: setLayoutEngine
 }
 if (typeof module !== "undefined") module.exports = api
