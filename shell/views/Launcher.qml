@@ -20,6 +20,23 @@ Item {
   property string contextFolderId: ""
   property string folderNameDraft: ""
   property int selectedIndex: 0
+  property var draggedApp: null
+  property bool appDragActive: false
+
+  function dragInputKind() {
+    var kind = String(root.service ? root.service.lastInput : "mouse")
+    return ["touch", "stylus"].indexOf(kind) >= 0 ? kind : "mouse"
+  }
+
+  function commitAppDrop(zoneId) {
+    if (!root.draggedApp || !root.service) return false
+    var app = root.draggedApp
+    root.draggedApp = null
+    root.appDragActive = false
+    var result = root.service.launchAppToZone(app.id, zoneId, root.dragInputKind(), {})
+    if (result && (result.ok === true || result.pending === true) && root.panel) root.panel.close()
+    return result
+  }
   readonly property var folders: Apps.normalizeFolders(root.service ? root.service.cfg("launcher.folders", []) : [])
 
   DesignTokens {
@@ -294,7 +311,7 @@ Item {
         height: appGrid.cellHeight - tokens.space(8)
         Drag.active: appDrag.active
         Drag.source: appCard
-        Drag.keys: ["omanome-app"]
+        Drag.keys: ["omanome-app", "omanome-app-slot"]
 
         Surface {
           anchors.fill: parent
@@ -347,10 +364,11 @@ Item {
             onPressed: { root.selectedIndex = index; root.service.recordInput("mouse") }
             onClicked: function(mouse) {
               if (mouse.button === Qt.RightButton) root.openContext(modelData.id)
-              else root.launch(modelData)
+              else if (!root.appDragActive) root.launch(modelData)
             }
-            onPressAndHold: root.openContext(modelData.id)
-            onReleased: { appCard.x = 0; appCard.y = 0 }
+            onPositionChanged: if (drag.active) { root.draggedApp = modelData; root.appDragActive = true }
+            onPressAndHold: { root.draggedApp = modelData; root.appDragActive = true }
+            onReleased: { appCard.x = 0; appCard.y = 0; if (root.draggedApp === modelData) { root.draggedApp = null; root.appDragActive = false } }
           }
 
           DropArea {
@@ -425,6 +443,63 @@ Item {
       ActionButton { width: parent.width; text: root.contextFolderId !== "" ? root.service.tr("renameFolder", "Rename folder") : root.service.tr("createFolder", "Create folder"); visible: root.contextId !== "" || root.contextFolderId !== ""; onClicked: root.contextFolderId !== "" ? root.renameFolder() : root.createFolder() }
       ActionButton { width: parent.width; text: root.service.tr("deleteFolder", "Delete folder"); visible: root.contextFolderId !== ""; onClicked: root.deleteFolder() }
       ActionButton { width: parent.width; text: root.service.tr("close", "Close"); onClicked: { root.contextId = ""; root.contextFolderId = "" } }
+    }
+  }
+
+  Rectangle {
+    id: appSnapDropOverlay
+    anchors.fill: parent
+    z: 40
+    visible: root.appDragActive && root.draggedApp !== null
+    color: Util.alpha(Color.menu.scrim, 0.42)
+
+    Column {
+      anchors.centerIn: parent
+      width: Math.min(parent.width - tokens.space(32), tokens.space(680))
+      spacing: tokens.space(10)
+
+      Text {
+        width: parent.width
+        text: root.service.tr("appSnapDropTitle", "Launch app into a layout")
+        color: Color.foreground
+        font.pixelSize: Style.font.body
+        font.bold: true
+        horizontalAlignment: Text.AlignHCenter
+      }
+
+      Flow {
+        width: parent.width
+        spacing: tokens.space(6)
+        Repeater {
+          model: root.service ? root.service.snapZonesForTarget(null, root.dragInputKind(), {}) : []
+          delegate: Item {
+            required property var modelData
+            width: Math.min(tokens.space(150), Math.max(tokens.space(104), (parent ? parent.width : tokens.space(104)) / 4 - tokens.space(6)))
+            height: tokens.target(48)
+
+            DropArea {
+              anchors.fill: parent
+              keys: ["omanome-app", "omanome-app-slot"]
+              onDropped: root.commitAppDrop(modelData.id)
+            }
+            ActionButton {
+              anchors.fill: parent
+              compact: true
+              minimumHeight: tokens.target(48)
+              text: String(modelData.id || "snap")
+              accessibleName: root.service.tr(String(modelData.labelKey || "snap.custom"), String(modelData.id || "Snap zone"))
+              onClicked: root.commitAppDrop(modelData.id)
+            }
+          }
+        }
+      }
+
+      ActionButton {
+        anchors.horizontalCenter: parent.horizontalCenter
+        compact: true
+        text: root.service.tr("cancel", "Cancel")
+        onClicked: { root.draggedApp = null; root.appDragActive = false }
+      }
     }
   }
 }

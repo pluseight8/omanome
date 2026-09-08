@@ -23,6 +23,22 @@ Item {
   property int selectedSearchIndex: 0
   property var draggedWindow: null
   property var splitSelection: []
+  property bool windowDragActive: false
+
+  function dragInputKind() {
+    var kind = String(root.service ? root.service.lastInput : "mouse")
+    return ["touch", "stylus"].indexOf(kind) >= 0 ? kind : "mouse"
+  }
+
+  function commitWindowDrop(zoneId) {
+    if (!root.draggedWindow || !root.service) return false
+    var window = root.draggedWindow
+    root.draggedWindow = null
+    root.windowDragActive = false
+    var result = root.service.snapWindowToZone(window, zoneId, root.dragInputKind(), {})
+    if (result && (result.ok === true || result.pending === true) && root.panel) root.panel.close()
+    return result
+  }
 
   DesignTokens {
     id: tokens
@@ -427,7 +443,7 @@ Item {
           height: layoutRect.height
           Drag.active: cardDrag.active
           Drag.source: windowCard
-          Drag.keys: ["omanome-window"]
+          Drag.keys: ["omanome-window", "omanome-window-slot"]
 
           Surface {
             anchors.fill: parent
@@ -548,11 +564,13 @@ Item {
               drag.threshold: tokens.space(10)
               onPressed: { root.draggedWindow = modelData; root.service.recordInput("mouse") }
               onClicked: root.activateWindow(modelData)
-              onPressAndHold: root.draggedWindow = modelData
+              onPositionChanged: if (drag.active) root.windowDragActive = true
+              onPressAndHold: { root.draggedWindow = modelData; root.windowDragActive = true }
               onReleased: {
                 windowCard.x = windowCard.layoutRect.x
                 windowCard.y = windowCard.layoutRect.y
                 root.draggedWindow = null
+                root.windowDragActive = false
               }
             }
           }
@@ -565,6 +583,63 @@ Item {
         text: root.service.tr("noWindows", "No windows on this workspace")
         color: Color.muted
         font.pixelSize: Style.font.body
+      }
+    }
+  }
+
+  Rectangle {
+    id: snapDropOverlay
+    anchors.fill: parent
+    z: 40
+    visible: root.windowDragActive && root.draggedWindow !== null
+    color: Util.alpha(Color.menu.scrim, 0.42)
+
+    Column {
+      anchors.centerIn: parent
+      width: Math.min(parent.width - tokens.space(32), tokens.space(680))
+      spacing: tokens.space(10)
+
+      Text {
+        width: parent.width
+        text: root.service.tr("snapDropTitle", "Drop window into a layout")
+        color: Color.foreground
+        font.pixelSize: Style.font.body
+        font.bold: true
+        horizontalAlignment: Text.AlignHCenter
+      }
+
+      Flow {
+        width: parent.width
+        spacing: tokens.space(6)
+        Repeater {
+          model: root.service ? root.service.snapZonesForTarget(root.draggedWindow, root.dragInputKind(), {}) : []
+          delegate: Item {
+            required property var modelData
+            width: Math.min(tokens.space(150), Math.max(tokens.space(104), (parent ? parent.width : tokens.space(104)) / 4 - tokens.space(6)))
+            height: tokens.target(48)
+
+            DropArea {
+              anchors.fill: parent
+              keys: ["omanome-window", "omanome-window-slot"]
+              onDropped: root.commitWindowDrop(modelData.id)
+            }
+            ActionButton {
+              anchors.fill: parent
+              compact: true
+              minimumHeight: tokens.target(48)
+              text: String(modelData.id || "snap")
+              accessibleName: root.service.tr(String(modelData.labelKey || "snap.custom"), String(modelData.id || "Snap zone"))
+              onClicked: root.commitWindowDrop(modelData.id)
+            }
+          }
+        }
+      }
+
+      ActionButton {
+        anchors.horizontalCenter: parent.horizontalCenter
+        compact: true
+        text: root.service.tr("cancel", "Cancel")
+        onClicked: { root.draggedWindow = null; root.windowDragActive = false }
       }
     }
   }

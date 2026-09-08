@@ -196,7 +196,7 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertEqual(result["deleted"], [])
         launcher = (ROOT / "shell/views/Launcher.qml").read_text(encoding="utf-8")
         self.assertIn("adaptiveColumns", launcher)
-        self.assertIn('Drag.keys: ["omanome-app"]', launcher)
+        self.assertIn('Drag.keys: ["omanome-app"', launcher)
         self.assertIn("launcher.folders", launcher)
 
     def test_dock_contains_only_user_favorites_running_apps_and_explicit_items(self) -> None:
@@ -685,6 +685,31 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertIn("editClipboardText", clipboard_view)
         self.assertIn("DragHandler", notifications_view)
         self.assertIn("toggleNotificationMute", notifications_view)
+
+    def test_multitasking_launch_and_drop_paths_are_bounded_and_identity_safe(self) -> None:
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        matcher = (ROOT / "shell/models/WindowMatcher.js").read_text(encoding="utf-8")
+        dock = (ROOT / "shell/views/Dock.qml").read_text(encoding="utf-8")
+        overview = (ROOT / "shell/views/Overview.qml").read_text(encoding="utf-8")
+        launcher = (ROOT / "shell/views/Launcher.qml").read_text(encoding="utf-8")
+
+        self.assertIn('import "models/WindowMatcher.js" as WindowMatcherModel', service)
+        self.assertIn("resolveMultitaskingLaunch", service)
+        self.assertIn("multitaskingLaunchTimeout", service)
+        self.assertIn("root.resolveMultitaskingLaunch()", service)
+        self.assertIn("launchAppToZone", service)
+        self.assertIn("launchAppToSplit", service)
+        self.assertTrue("appId/PID" in matcher or "address/PID/app id" in matcher)
+        self.assertNotIn("title", matcher.split("function matchWindow", 1)[1])
+        self.assertIn("DropArea", dock)
+        self.assertIn("app-slot", dock)
+        self.assertIn("DropArea", overview)
+        self.assertIn("window-slot", overview)
+        self.assertIn("DropArea", launcher)
+        self.assertIn("app-slot", launcher)
+        self.assertIn("snapZonesForTarget", dock)
+        self.assertIn("snapZonesForTarget", launcher)
+        self.assertIn("snapWindowToZone", overview)
 
     def test_native_omarchy_validator_when_available(self) -> None:
         omarchy = shutil.which("omarchy")

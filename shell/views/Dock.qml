@@ -21,6 +21,32 @@ Item {
   property bool revealed: false
   property bool pointerInside: false
   property bool touchInside: false
+  property var draggedApp: null
+  property bool appDragActive: false
+
+  function dragInputKind() {
+    var kind = String(root.service ? root.service.lastInput : "touch")
+    return ["touch", "stylus"].indexOf(kind) >= 0 ? kind : "mouse"
+  }
+
+  function beginAppSlotDrag(item) {
+    if (!item || item.special || !root.service) return
+    root.draggedApp = item
+    root.appDragActive = true
+    root.reveal()
+  }
+
+  function commitAppSlot(zoneId) {
+    if (!root.draggedApp || !root.service) return false
+    var item = root.draggedApp
+    root.draggedApp = null
+    root.appDragActive = false
+    var result = item.window
+      ? root.service.snapWindowToZone(item.window, zoneId, root.dragInputKind(), {})
+      : root.service.launchAppToZone(item.id, zoneId, root.dragInputKind(), {})
+    root.contextId = ""
+    return result
+  }
 
   DesignTokens {
     id: tokens
@@ -339,9 +365,9 @@ Item {
                 Layout.minimumHeight: root.position === "bottom" || root.position === "top" ? Style.space(root.dockConfig.minIconSize) : Style.space(60)
                 implicitWidth: tokens.space(root.effectiveIconSize)
                 implicitHeight: tokens.space(root.effectiveIconSize)
-                Drag.active: handleDrag.active
+                Drag.active: handleDrag.active || slotDrag.active
                 Drag.source: tile
-                Drag.keys: ["omanome-dock"]
+                Drag.keys: ["omanome-dock", "omanome-app-slot"]
 
                 Surface {
                   anchors.fill: parent
@@ -393,6 +419,23 @@ Item {
                   opacity: 0
                   onClicked: root.activate(tile.modelData)
                   onPressAndHold: { root.contextId = tile.dockId; root.reveal() }
+                }
+                DragHandler {
+                  id: slotDrag
+                  target: tile
+                  acceptedButtons: Qt.LeftButton
+                  acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchScreen | PointerDevice.Stylus
+                  onActiveChanged: {
+                    if (active) root.beginAppSlotDrag(tile.modelData)
+                    else {
+                      tile.x = 0
+                      tile.y = 0
+                      if (root.draggedApp === tile.modelData) {
+                        root.draggedApp = null
+                        root.appDragActive = false
+                      }
+                    }
+                  }
                 }
                 MouseArea {
                   anchors.fill: parent
@@ -452,6 +495,62 @@ Item {
               ActionButton { width: parent.width; compact: true; text: root.service.tr("splitWindows", "Split first two windows"); usable: root.contextWindows().length > 1; onClicked: root.splitContextWindows() }
               ActionButton { width: parent.width; compact: true; text: root.service.tr("minimize", "Minimize"); usable: root.contextWindows().length > 0; onClicked: { var rows = root.contextWindows(); if (rows.length > 0 && root.firstForeign(rows[0])) root.firstForeign(rows[0]).minimized = true; root.contextId = "" } }
               ActionButton { width: parent.width; compact: true; text: root.service.tr("close", "Close"); usable: root.contextWindows().length > 0; onClicked: { var rows = root.contextWindows(); if (rows.length > 0 && root.firstForeign(rows[0]) && typeof root.firstForeign(rows[0]).close === "function") root.firstForeign(rows[0]).close(); root.contextId = "" } }
+            }
+          }
+        }
+        Rectangle {
+          id: appSnapDropOverlay
+          anchors.fill: parent
+          z: 40
+          visible: root.appDragActive && root.draggedApp !== null
+          color: Util.alpha(Color.menu.scrim, 0.42)
+
+          Column {
+            anchors.centerIn: parent
+            width: Math.min(parent.width - Style.space(32), Style.space(680))
+            spacing: Style.space(10)
+
+            Text {
+              width: parent.width
+              text: root.service.tr("appSnapDropTitle", "Launch app into a layout")
+              color: Color.foreground
+              font.pixelSize: Style.font.body
+              font.bold: true
+              horizontalAlignment: Text.AlignHCenter
+            }
+
+            Flow {
+              width: parent.width
+              spacing: Style.space(6)
+              Repeater {
+                model: root.service ? root.service.snapZonesForTarget(root.draggedApp && root.draggedApp.window, root.dragInputKind(), {}) : []
+                delegate: Item {
+                  required property var modelData
+                  width: Math.min(Style.space(150), Math.max(Style.space(104), (parent ? parent.width : Style.space(104)) / 4 - Style.space(6)))
+                  height: Style.space(48)
+
+                  DropArea {
+                    anchors.fill: parent
+                    keys: ["omanome-dock", "omanome-app-slot"]
+                    onDropped: root.commitAppSlot(modelData.id)
+                  }
+                  ActionButton {
+                    anchors.fill: parent
+                    compact: true
+                    minimumHeight: Style.space(48)
+                    text: String(modelData.id || "snap")
+                    accessibleName: root.service.tr(String(modelData.labelKey || "snap.custom"), String(modelData.id || "Snap zone"))
+                    onClicked: root.commitAppSlot(modelData.id)
+                  }
+                }
+              }
+            }
+
+            ActionButton {
+              anchors.horizontalCenter: parent.horizontalCenter
+              compact: true
+              text: root.service.tr("cancel", "Cancel")
+              onClicked: { root.draggedApp = null; root.appDragActive = false }
             }
           }
         }
