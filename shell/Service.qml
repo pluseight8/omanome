@@ -2447,6 +2447,8 @@ Item {
       touchDwellMs: Number(snap.dwellMs !== undefined ? snap.dwellMs : root.cfg("multitasking.snapAssist.dwellMs", 220)),
       touchMovementThreshold: Number(snap.movementThreshold !== undefined ? snap.movementThreshold : root.cfg("multitasking.snapAssist.movementThreshold", 18)),
       stylusDwellMs: Number(snap.stylusDwellMs !== undefined ? snap.stylusDwellMs : root.cfg("multitasking.snapAssist.stylusDwellMs", 120)),
+      portraitLayouts: snap.portraitLayouts !== false && root.cfg("multitasking.snapAssist.portraitLayouts", true) !== false,
+      autoSecondWindowPicker: snap.autoSecondWindowPicker !== false && root.cfg("multitasking.snapAssist.autoSecondWindowPicker", true) !== false,
       dividerEnabled: split.divider !== false && root.cfg("multitasking.splitView.divider", true) !== false,
       dividerAutoHide: split.autoHide !== false && root.cfg("multitasking.splitView.autoHide", true) !== false,
       dividerAutoHideMs: Number(split.autoHideMs !== undefined ? split.autoHideMs : root.cfg("multitasking.splitView.autoHideMs", 1800)),
@@ -2455,6 +2457,12 @@ Item {
       minSize: root.cfg("multitasking.minimumWindowSize", {}),
       groupClosePolicy: String(root.cfg("multitasking.closePolicy", "keep")),
       groupMonitorPolicy: String(root.cfg("multitasking.monitorPolicy", "active")),
+      duplicatePolicy: String(root.cfg("multitasking.duplicatePolicy", "ask")),
+      launchTimeoutMs: Math.max(500, Math.min(15000, Number(root.cfg("multitasking.launchTimeoutMs", 12000)))),
+      floating: root.cfg("multitasking.floating", {}),
+      gestures: root.cfg("multitasking.gestures", {}),
+      workspaceNavigation: root.cfg("multitasking.workspaceNavigation", {}),
+      multiMonitor: root.cfg("multitasking.multiMonitor", {}),
       sessionRestore: WindowGroupsModel.restorePolicy(root.cfg("multitasking.sessionRestore", "ask"))
     }
   }

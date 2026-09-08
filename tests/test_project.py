@@ -722,6 +722,7 @@ class OmanomeProjectTests(unittest.TestCase):
     def test_window_groups_are_persistent_metadata_only_and_service_wired(self) -> None:
         service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
         groups = (ROOT / "shell/models/WindowGroups.js").read_text(encoding="utf-8")
+        settings = (ROOT / "shell/views/Settings.qml").read_text(encoding="utf-8")
         defaults = json.loads((ROOT / "config/defaults.json").read_text(encoding="utf-8"))
         schema = json.loads((ROOT / "config/schema.json").read_text(encoding="utf-8"))
 
@@ -737,6 +738,10 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertIn("multitasking", schema["properties"])
         self.assertIn("sessionRestore", defaults["multitasking"])
         self.assertEqual(defaults["multitasking"]["sessionRestore"], "ask")
+        for section in ("floating", "gestures", "workspaceNavigation", "multiMonitor"):
+            self.assertIn(section, defaults["multitasking"])
+        for marker in ("Snap Assist", "Split View", "App Pairs", "Window Groups", "Floating Windows", "Gestures", "Workspace Navigation", "Multi-monitor", "Session Restore", "saveAppPairFromSettings", "ComboBox", "windowGroupRestoreSummary"):
+            self.assertIn(marker, settings)
         self.assertIn("metadataList", groups)
         self.assertIn("runtime", groups)
         persistent_section = groups.split("function metadata", 1)[1].split("function normalizeList", 1)[0]

@@ -1,8 +1,10 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Quickshell
 import qs.Commons
 import "../components"
+import "../models/Apps.js" as Apps
 import "../models/Config.js" as Config
 import "../models/Stylus.js" as StylusModel
 
@@ -15,6 +17,13 @@ Item {
   property string query: ""
   property string pendingQuery: ""
   property bool mobileDetails: false
+  property var multitaskingApplications: []
+  property string appPairNameDraft: ""
+  property string appPairFirstId: ""
+  property string appPairSecondId: ""
+  property string appPairRatio: "50/50"
+  property string appPairMonitorPolicy: "active"
+  property int multitaskingRevision: 0
   property var categories: [
     { key: "general", fallback: "General", description: "Mode, language and profiles", aliases: ["общие", "режим", "язык"] },
     { key: "appearance", fallback: "Appearance", description: "Theme, density and surfaces", aliases: ["вид", "тема", "оформление"] },
@@ -31,6 +40,7 @@ Item {
     { key: "dock", fallback: "Dock", description: "Favorites, running apps and reveal", aliases: ["док", "панель"] },
     { key: "overview", fallback: "Overview", description: "Windows, workspaces and search", aliases: ["обзор", "деятельность"] },
     { key: "launcher", fallback: "App Grid", description: "Applications, favorites and folders", aliases: ["приложения", "лаунчер", "сетка"] },
+    { key: "multitasking", fallback: "Multitasking", description: "Snap, Split View, App Pairs and restore", aliases: ["многозадачность", "snap", "split", "app pairs", "группы окон"] },
     { key: "workspaces", fallback: "Workspaces", description: "Dynamic or fixed workspace layout", aliases: ["рабочие столы", "пространства"] },
     { key: "quickSettings", fallback: "Quick settings", description: "Tiles and live system controls", aliases: ["быстрые настройки", "переключатели"] },
     { key: "notifications", fallback: "Notifications", description: "Groups, actions and history", aliases: ["уведомления", "центр уведомлений"] },
@@ -104,7 +114,81 @@ Item {
     return false
   }
 
-  Component.onCompleted: if (!root.compactLayout) root.mobileDetails = true
+  function refreshMultitaskingApplications() {
+    var result = []
+    try {
+      var values = DesktopEntries.applications.values || []
+      for (var i = 0; i < values.length; i++) {
+        var item = Apps.normalize(values[i])
+        if (!item || !item.id || item.noDisplay) continue
+        result.push({ id: item.id, label: item.name + " · " + item.id, icon: item.icon })
+      }
+      result.sort(function(a, b) { return a.label.localeCompare(b.label) })
+    } catch (error) {
+      result = []
+    }
+    root.multitaskingApplications = result.slice(0, 256)
+    if (root.applicationIndex(root.appPairFirstId) < 0) root.appPairFirstId = result.length > 0 ? result[0].id : ""
+    if (root.applicationIndex(root.appPairSecondId) < 0) root.appPairSecondId = result.length > 1 ? result[1].id : ""
+  }
+
+  function applicationIndex(id) {
+    var key = String(id || "")
+    for (var i = 0; i < root.multitaskingApplications.length; i++) if (root.multitaskingApplications[i].id === key) return i
+    return -1
+  }
+
+  function windowGroupEntries() {
+    try {
+      return root.service && typeof root.service.windowGroupSummaries === "function" ? root.service.windowGroupSummaries() : []
+    } catch (error) {
+      return []
+    }
+  }
+
+  function groupLabel(group) {
+    var apps = group && Array.isArray(group.apps) ? group.apps : []
+    return String(group && group.name || apps.join(" + ") || root.service.tr("windowGroup", "Window group"))
+  }
+
+  function setPairMonitorPolicy(policy) {
+    var value = String(policy || "active")
+    root.appPairMonitorPolicy = value
+    root.service.setConfig("multitasking.monitorPolicy", value)
+  }
+
+  function saveAppPairFromSettings() {
+    var first = String(root.appPairFirstId || "").trim()
+    var second = String(root.appPairSecondId || "").trim()
+    if (!root.service || !first || !second || first === second || typeof root.service.saveAppPair !== "function") return false
+    var options = {
+      name: String(root.appPairNameDraft || "").trim(),
+      layoutId: "split",
+      ratio: root.appPairRatio,
+      orientation: "auto",
+      preferences: { monitorPolicy: root.appPairMonitorPolicy, targetWorkspace: "" }
+    }
+    var result = root.service.saveAppPair([first, second], options)
+    if (result && result.id) root.appPairNameDraft = ""
+    return result
+  }
+
+  Component.onCompleted: {
+    root.refreshMultitaskingApplications()
+    if (!root.compactLayout) root.mobileDetails = true
+  }
+
+  Connections {
+    target: DesktopEntries.applications
+    function onValuesChanged() { root.refreshMultitaskingApplications() }
+  }
+
+  Connections {
+    target: root.service
+    function onConfigUpdated(path) {
+      if (String(path || "").indexOf("multitasking.") === 0) root.multitaskingRevision++
+    }
+  }
 
   RowLayout {
     anchors.fill: parent
@@ -309,6 +393,134 @@ Item {
 
             Column {
               width: parent.width
+              spacing: tokens.space(12)
+              visible: root.category === "multitasking"
+
+              SectionHeader { width: parent.width; title: root.service.tr("snapAssist", "Snap Assist"); subtitle: root.service.tr("snapAssistHint", "Preview safe zones while dragging a window") }
+              ActionButton { width: parent.width; text: root.service.tr("multitaskingEnabled", "Multitasking"); subtitle: root.service.cfg("multitasking.enabled", true) ? root.service.tr("multitaskingReady", "Snap and Split View are available") : root.service.tr("disabled", "Disabled"); checked: root.service.cfg("multitasking.enabled", true); onClicked: root.toggle("multitasking.enabled") }
+              ActionButton { width: parent.width; text: root.service.tr("snapEdgeZones", "Edge zones"); subtitle: root.service.tr("snapEdgeZonesHint", "Use the target monitor geometry and reserved bar/dock space"); checked: root.service.cfg("multitasking.snapAssist.edgeZones", true); usable: root.service.cfg("multitasking.enabled", true); onClicked: root.toggle("multitasking.snapAssist.edgeZones") }
+              ActionButton { width: parent.width; text: root.service.tr("snapPreview", "Preview before commit"); subtitle: root.service.tr("snapPreviewHint", "A visual preview never moves a real window"); checked: root.service.cfg("multitasking.snapAssist.preview", true); usable: root.service.cfg("multitasking.enabled", true); onClicked: root.toggle("multitasking.snapAssist.preview") }
+              Text { width: parent.width; text: root.service.tr("snapSensitivity", "Snap sensitivity") + ": " + Number(root.service.cfg("multitasking.snapAssist.sensitivity", 1.0)).toFixed(2); color: Color.foreground; font.pixelSize: Style.font.body }
+              Slider { width: parent.width; from: 0.5; to: 1.5; stepSize: 0.05; value: root.service.cfg("multitasking.snapAssist.sensitivity", 1.0); enabled: root.service.cfg("multitasking.enabled", true); onMoved: root.service.setConfig("multitasking.snapAssist.sensitivity", Math.round(value * 20) / 20) }
+              Text { width: parent.width; text: root.service.tr("snapDwell", "Touch dwell") + ": " + root.service.cfg("multitasking.snapAssist.dwellMs", 220) + " ms · stylus " + root.service.cfg("multitasking.snapAssist.stylusDwellMs", 120) + " ms"; color: Color.foreground; font.pixelSize: Style.font.body }
+              Slider { width: parent.width; from: 80; to: 600; stepSize: 10; value: root.service.cfg("multitasking.snapAssist.dwellMs", 220); enabled: root.service.cfg("multitasking.enabled", true); onMoved: root.service.setConfig("multitasking.snapAssist.dwellMs", Math.round(value)) }
+              Flow { width: parent.width; spacing: tokens.space(6); ActionButton { compact: true; text: root.service.tr("portraitLayouts", "Portrait layouts"); checked: root.service.cfg("multitasking.snapAssist.portraitLayouts", true); onClicked: root.toggle("multitasking.snapAssist.portraitLayouts") } ActionButton { compact: true; text: root.service.tr("autoSecondWindowPicker", "Second-window picker"); checked: root.service.cfg("multitasking.snapAssist.autoSecondWindowPicker", true); onClicked: root.toggle("multitasking.snapAssist.autoSecondWindowPicker") } }
+              Text { width: parent.width; text: root.service.tr("layoutCatalog", "Layouts") + ": " + root.service.cfg("multitasking.layouts", []).length + " configured · " + root.service.cfg("multitasking.customLayouts", []).length + " custom"; color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+
+              SectionHeader { width: parent.width; title: root.service.tr("splitView", "Split View"); subtitle: root.service.tr("splitViewHint", "Two-window layout with a large, transactional divider") }
+              ActionButton { width: parent.width; text: root.service.tr("splitDivider", "Divider handle"); subtitle: root.service.cfg("multitasking.splitView.handleSize", 48) + " px touch target"; checked: root.service.cfg("multitasking.splitView.divider", true); onClicked: root.toggle("multitasking.splitView.divider") }
+              Flow { width: parent.width; spacing: tokens.space(6); Repeater { model: ["33/67", "40/60", "50/50", "60/40", "67/33"]; delegate: ActionButton { required property string modelData; compact: true; text: modelData; checked: root.service.cfg("multitasking.splitView.defaultRatio", "50/50") === modelData; onClicked: root.service.setConfig("multitasking.splitView.defaultRatio", modelData) } } }
+              ActionButton { width: parent.width; text: root.service.tr("rememberRatio", "Remember manual ratio"); subtitle: root.service.tr("rememberRatioHint", "Manual resize updates the group instead of being overwritten"); checked: root.service.cfg("multitasking.splitView.rememberRatio", true); onClicked: root.toggle("multitasking.splitView.rememberRatio") }
+              ActionButton { width: parent.width; text: root.service.tr("autoConvertRotation", "Convert on rotation"); checked: root.service.cfg("multitasking.splitView.autoConvertOnRotation", true); onClicked: root.toggle("multitasking.splitView.autoConvertOnRotation") }
+              ActionButton { width: parent.width; text: root.service.tr("dividerAutohide", "Auto-hide divider"); subtitle: root.service.cfg("multitasking.splitView.autoHideMs", 1800) + " ms"; checked: root.service.cfg("multitasking.splitView.autoHide", true); onClicked: root.toggle("multitasking.splitView.autoHide") }
+
+              SectionHeader { width: parent.width; title: root.service.tr("appPairs", "App Pairs"); subtitle: root.service.tr("appPairsHint", "Save two application identities and restore their split layout") }
+              Rectangle {
+                width: parent.width
+                height: tokens.target(48)
+                radius: tokens.radius(12)
+                color: Util.alpha(Color.foreground, 0.06)
+                border.width: 1
+                border.color: Util.alpha(Color.foreground, 0.16)
+                TextInput {
+                  anchors.fill: parent
+                  anchors.leftMargin: tokens.space(12)
+                  anchors.rightMargin: tokens.space(12)
+                  verticalAlignment: Text.AlignVCenter
+                  color: Color.foreground
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.body
+                  text: root.appPairNameDraft
+                  placeholderText: root.service.tr("appPairName", "Pair name (optional)")
+                  onTextChanged: root.appPairNameDraft = text
+                }
+              }
+              RowLayout {
+                width: parent.width
+                spacing: tokens.space(8)
+                ComboBox {
+                  id: pairFirstApplication
+                  Layout.fillWidth: true
+                  model: root.multitaskingApplications
+                  textRole: "label"
+                  valueRole: "id"
+                  currentIndex: root.applicationIndex(root.appPairFirstId)
+                  Accessible.name: root.service.tr("appA", "Application A")
+                  onActivated: function(index) { if (index >= 0 && index < root.multitaskingApplications.length) root.appPairFirstId = root.multitaskingApplications[index].id }
+                }
+                ComboBox {
+                  id: pairSecondApplication
+                  Layout.fillWidth: true
+                  model: root.multitaskingApplications
+                  textRole: "label"
+                  valueRole: "id"
+                  currentIndex: root.applicationIndex(root.appPairSecondId)
+                  Accessible.name: root.service.tr("appB", "Application B")
+                  onActivated: function(index) { if (index >= 0 && index < root.multitaskingApplications.length) root.appPairSecondId = root.multitaskingApplications[index].id }
+                }
+              }
+              Flow { width: parent.width; spacing: tokens.space(6); Repeater { model: ["33/67", "40/60", "50/50", "60/40", "67/33"]; delegate: ActionButton { required property string modelData; compact: true; text: modelData; checked: root.appPairRatio === modelData; onClicked: root.appPairRatio = modelData } } }
+              Flow { width: parent.width; spacing: tokens.space(6); Repeater { model: ["active", "original", "ask"]; delegate: ActionButton { required property string modelData; compact: true; text: modelData === "active" ? root.service.tr("activeMonitor", "Active monitor") : modelData === "original" ? root.service.tr("originalMonitor", "Original monitor") : root.service.tr("ask", "Ask"); checked: root.appPairMonitorPolicy === modelData; onClicked: root.setPairMonitorPolicy(modelData) } } }
+              ActionButton { width: parent.width; text: root.service.tr("saveAppPair", "Save App Pair"); subtitle: root.multitaskingApplications.length < 2 ? root.service.tr("notEnoughApps", "At least two visible applications are required") : root.service.tr("saveAppPairHint", "Only app IDs and layout metadata are stored"); usable: root.multitaskingApplications.length >= 2 && root.appPairFirstId !== root.appPairSecondId; onClicked: root.saveAppPairFromSettings() }
+              Repeater {
+                model: root.multitaskingRevision >= 0 ? root.windowGroupEntries() : []
+                delegate: Surface {
+                  required property var modelData
+                  width: parent.width
+                  height: tokens.target(66)
+                  surfaceRadius: tokens.radius(12)
+                  surfaceColor: Color.foreground
+                  surfaceOpacity: 0.05
+                  Row {
+                    anchors.fill: parent
+                    anchors.margins: tokens.space(8)
+                    spacing: tokens.space(8)
+                    Column {
+                      width: parent.width - tokens.space(92)
+                      anchors.verticalCenter: parent.verticalCenter
+                      Text { width: parent.width; text: root.groupLabel(modelData); color: Color.foreground; font.pixelSize: Style.font.body; elide: Text.ElideRight }
+                      Text { width: parent.width; text: String(modelData.type || "group") + " · " + String(modelData.layout && modelData.layout.ratio || "50/50") + " · " + String(modelData.monitorPolicy || "active"); color: Color.muted; font.pixelSize: Style.font.caption; elide: Text.ElideRight }
+                    }
+                    ActionButton { anchors.verticalCenter: parent.verticalCenter; compact: true; text: root.service.tr("delete", "Delete"); accessibleName: root.service.tr("deleteGroup", "Delete window group"); onClicked: root.service.removeWindowGroup(modelData.id) }
+                  }
+                }
+              }
+
+              SectionHeader { width: parent.width; title: root.service.tr("windowGroups", "Window Groups"); subtitle: root.service.tr("windowGroupsHint", "Runtime identities stay ephemeral; persistent data is metadata only") }
+              Text { width: parent.width; text: root.service.windowGroupEntries().length + " group(s) · " + root.service.tr("groupLifecycleHint", "Groups break gracefully when a member closes or is manually retiled"); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+              ActionButton { width: parent.width; text: root.service.tr("breakRuntimeGroups", "Break active group"); subtitle: root.service.tr("breakRuntimeGroupsHint", "Use the list above to remove a saved group; live Split View remains compositor-owned"); usable: false }
+
+              SectionHeader { width: parent.width; title: root.service.tr("floatingWindows", "Floating Windows"); subtitle: root.service.tr("floatingWindowsHint", "Real Hyprland floating windows; no fake freeform container") }
+              ActionButton { width: parent.width; text: root.service.tr("floatingEnabled", "Floating mode"); checked: root.service.cfg("multitasking.floating.enabled", true); onClicked: root.toggle("multitasking.floating.enabled") }
+              Flow { width: parent.width; spacing: tokens.space(6); ActionButton { compact: true; text: root.service.tr("miniWindow", "Mini window"); checked: root.service.cfg("multitasking.floating.miniEnabled", true); onClicked: root.toggle("multitasking.floating.miniEnabled") } ActionButton { compact: true; text: root.service.tr("pictureInPicture", "Picture-in-picture"); checked: root.service.cfg("multitasking.floating.pictureInPicture", true); onClicked: root.toggle("multitasking.floating.pictureInPicture") } ActionButton { compact: true; text: root.service.tr("keepAbove", "Keep above"); checked: root.service.cfg("multitasking.floating.keepAbove", true); onClicked: root.toggle("multitasking.floating.keepAbove") } }
+              Flow { width: parent.width; spacing: tokens.space(6); ActionButton { compact: true; text: root.service.tr("edgeSnap", "Edge snap"); checked: root.service.cfg("multitasking.floating.edgeSnap", true); onClicked: root.toggle("multitasking.floating.edgeSnap") } ActionButton { compact: true; text: root.service.tr("rememberPosition", "Remember position"); checked: root.service.cfg("multitasking.floating.rememberPosition", true); onClicked: root.toggle("multitasking.floating.rememberPosition") } ActionButton { compact: true; text: root.service.tr("resizeHandle", "Resize handle"); checked: root.service.cfg("multitasking.floating.resizeHandle", true); onClicked: root.toggle("multitasking.floating.resizeHandle") } }
+              ActionButton { width: parent.width; text: root.service.tr("windowThrow", "Window throw"); subtitle: root.service.tr("windowThrowHint", "Experimental and disabled by default"); checked: root.service.cfg("multitasking.experimentalWindowThrow", false); onClicked: root.toggle("multitasking.experimentalWindowThrow") }
+
+              SectionHeader { width: parent.width; title: root.service.tr("gestures", "Gestures"); subtitle: root.service.tr("gestureCoordinatorHint", "One coordinator owns edge gestures; drawing apps and fullscreen policies can opt out") }
+              Text { width: parent.width; text: "← edge → " + root.service.tr("snapAssist", "Snap Assist") + "   ·   ↑ bottom → " + root.service.tr("overview", "Overview") + "   ·   3 fingers ↔ " + root.service.tr("workspace", "Workspace") + "   ·   top-right → " + root.service.tr("quickSettings", "Quick settings"); color: Color.foreground; font.pixelSize: Style.font.body; wrapMode: Text.WordWrap }
+              ActionButton { width: parent.width; text: root.service.tr("gestureCoordinator", "Gesture coordinator"); subtitle: root.service.tr("gestureCoordinatorStatus", "Touchscreen gesture ownership is explicit and event-driven"); checked: root.service.cfg("multitasking.gestures.enabled", true); onClicked: root.toggle("multitasking.gestures.enabled") }
+              Flow { width: parent.width; spacing: tokens.space(6); Repeater { model: [{ key: "workspaceSwipe", label: "Workspace swipe" }, { key: "overviewSwipe", label: "Overview swipe" }, { key: "dockReveal", label: "Dock reveal" }, { key: "quickSettings", label: "Quick settings" }]; delegate: ActionButton { required property var modelData; compact: true; text: root.service.tr(modelData.key, modelData.label); checked: root.service.cfg("multitasking.gestures." + modelData.key, true); onClicked: root.toggle("multitasking.gestures." + modelData.key) } } }
+              ActionButton { width: parent.width; text: root.service.tr("touchscreenOnly", "Touchscreen gestures only"); subtitle: root.service.tr("touchscreenOnlyHint", "Touchpad settings remain separate"); checked: root.service.cfg("multitasking.gestures.touchscreenOnly", true); onClicked: root.toggle("multitasking.gestures.touchscreenOnly") }
+              Flow { width: parent.width; spacing: tokens.space(6); Repeater { model: ["suppress-in-fullscreen", "allow-in-fullscreen"]; delegate: ActionButton { required property string modelData; compact: true; text: modelData === "suppress-in-fullscreen" ? root.service.tr("suppressFullscreen", "Suppress in fullscreen") : root.service.tr("allowFullscreen", "Allow in fullscreen"); checked: root.service.cfg("multitasking.gestures.conflictPolicy", "suppress-in-fullscreen") === modelData; onClicked: root.service.setConfig("multitasking.gestures.conflictPolicy", modelData) } } }
+
+              SectionHeader { width: parent.width; title: root.service.tr("workspaceNavigation", "Workspace Navigation"); subtitle: root.service.tr("workspaceNavigationHint", "Uses the existing Hyprland workspace model") }
+              Flow { width: parent.width; spacing: tokens.space(6); Repeater { model: ["swipe", "buttons", "keyboard"]; delegate: ActionButton { required property string modelData; compact: true; text: modelData; checked: root.service.cfg("multitasking.workspaceNavigation.mode", "swipe") === modelData; onClicked: root.service.setConfig("multitasking.workspaceNavigation.mode", modelData) } } }
+              ActionButton { width: parent.width; text: root.service.tr("workspaceOverlay", "Workspace switcher overlay"); checked: root.service.cfg("multitasking.workspaceNavigation.showOverlay", true); onClicked: root.toggle("multitasking.workspaceNavigation.showOverlay") }
+              ActionButton { width: parent.width; text: root.service.tr("activateEmptyWorkspace", "Activate empty workspace"); checked: root.service.cfg("multitasking.workspaceNavigation.activateEmpty", true); onClicked: root.toggle("multitasking.workspaceNavigation.activateEmpty") }
+
+              SectionHeader { width: parent.width; title: root.service.tr("multiMonitor", "Multi-monitor"); subtitle: root.service.tr("multiMonitorHint", "Zones and recovery are calculated per output") }
+              ActionButton { width: parent.width; text: root.service.tr("multiMonitorEnabled", "Multi-monitor layouts"); checked: root.service.cfg("multitasking.multiMonitor.enabled", true); onClicked: root.toggle("multitasking.multiMonitor.enabled") }
+              Flow { width: parent.width; spacing: tokens.space(6); Repeater { model: ["active", "original", "ask"]; delegate: ActionButton { required property string modelData; compact: true; text: modelData === "active" ? root.service.tr("activeMonitor", "Active monitor") : modelData === "original" ? root.service.tr("originalMonitor", "Original monitor") : root.service.tr("ask", "Ask"); checked: root.service.cfg("multitasking.monitorPolicy", "active") === modelData; onClicked: root.setPairMonitorPolicy(modelData) } } }
+              ActionButton { width: parent.width; text: root.service.tr("hotplugRecovery", "Recover on monitor disconnect"); subtitle: root.service.monitors.length + " monitor(s) detected"; checked: root.service.cfg("multitasking.multiMonitor.hotplugRecovery", true); onClicked: root.toggle("multitasking.multiMonitor.hotplugRecovery") }
+
+              SectionHeader { width: parent.width; title: root.service.tr("sessionRestore", "Session Restore"); subtitle: root.service.tr("sessionRestoreHint", "Only Omanome-managed group metadata is considered") }
+              Flow { width: parent.width; spacing: tokens.space(6); Repeater { model: ["off", "ask", "automatic"]; delegate: ActionButton { required property string modelData; compact: true; text: modelData === "off" ? root.service.tr("off", "Off") : modelData === "ask" ? root.service.tr("ask", "Ask") : root.service.tr("automatic", "Automatic"); checked: root.service.cfg("multitasking.sessionRestore", "ask") === modelData; onClicked: root.service.setConfig("multitasking.sessionRestore", modelData) } } }
+              Text { width: parent.width; text: root.service.windowGroupRestoreSummary ? root.service.windowGroupRestoreSummary().policy + " · " + root.service.windowGroupRestoreSummary().reason : root.service.tr("restoreNotPrepared", "Restore plan is not prepared"); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+              ActionButton { width: parent.width; text: root.service.tr("restoreSafety", "Restore safety"); subtitle: root.service.tr("restoreSafetyHint", "Off and Ask never launch applications without an explicit user action"); checked: root.service.cfg("multitasking.sessionRestore", "ask") !== "automatic"; usable: false }
+            }
+
+            Column {
+              width: parent.width
               spacing: tokens.space(8)
               visible: root.category === "effects" || root.category === "blur" || root.category === "animations" || root.category === "performance" || root.category === "battery"
               ActionButton { width: parent.width; visible: root.category === "effects"; text: root.service.tr("advancedEffects", "Advanced compositor effects"); subtitle: root.service.cfg("effects.enabled", true) ? root.service.tr("nativeWhenAvailable", "Native backends when available") : root.service.tr("effectsDisabled", "Effects bypassed"); checked: root.service.cfg("effects.enabled", true); onClicked: root.toggle("effects.enabled") }
@@ -402,7 +614,7 @@ Item {
             Column {
               width: parent.width
               spacing: tokens.space(8)
-              visible: ["general", "appearance", "tabletMode", "touch", "gestures", "stylus", "stylusButtons", "palmRejection", "handwriting", "keyboard", "suggestions", "windowControls", "dock", "overview", "launcher", "workspaces", "quickSettings", "notifications", "clipboard", "altTab", "blur", "effects", "rotation", "displays", "animations", "performance", "battery", "privacy", "accessibility", "applications", "shortcuts", "updates", "backup", "recovery", "diagnostics", "about"].indexOf(root.category) < 0
+              visible: ["general", "appearance", "tabletMode", "touch", "gestures", "stylus", "stylusButtons", "palmRejection", "handwriting", "keyboard", "suggestions", "windowControls", "dock", "overview", "launcher", "multitasking", "workspaces", "quickSettings", "notifications", "clipboard", "altTab", "blur", "effects", "rotation", "displays", "animations", "performance", "battery", "privacy", "accessibility", "applications", "shortcuts", "updates", "backup", "recovery", "diagnostics", "about"].indexOf(root.category) < 0
               Text { width: parent.width; text: root.service.tr("unavailable", "Unavailable"); color: Color.muted; font.pixelSize: Style.font.body }
               Text { width: parent.width; text: root.categoryDescription(); color: Color.muted; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
             }
