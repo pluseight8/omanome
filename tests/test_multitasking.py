@@ -121,6 +121,38 @@ class LayoutEngineTests(unittest.TestCase):
         self.assertTrue(result["signature"])
         self.assertIsNone(result["bad"])
 
+    def test_snap_drag_preview_is_geometry_only_and_commits_once(self) -> None:
+        result = self.run_node(
+            "const S=require('./shell/models/SnapAssist.js'); "
+            "const monitors=[{name:'tablet',x:0,y:0,width:1080,height:1920,scale:2}]; "
+            "let state=S.beginDrag({address:'0xabc',appId:'org.example.App',pid:42},'touch',{x:24,y:960},{}); "
+            "state=S.updateDrag(state,{x:50,y:960},monitors,{gap:12,now:1000}); "
+            "const pending=state.phase; "
+            "state=S.updateDrag(state,{x:50,y:960},monitors,{gap:12,now:1300}); "
+            "const ready=state.phase; const selected=S.selectZone(state,'half-bottom',monitors[0],{gap:12,now:1400}); "
+            "const committed=S.commit(selected); "
+            "console.log(JSON.stringify({pending,ready,preview:selected.preview,committed}));"
+        )
+        self.assertEqual(result["pending"], "previewing")
+        self.assertEqual(result["ready"], "ready")
+        self.assertEqual(result["preview"]["axis"], "horizontal")
+        self.assertEqual(result["committed"]["action"]["zoneId"], "half-bottom")
+        self.assertEqual(result["committed"]["action"]["layout"]["slots"][0]["windowId"], "address:0xabc")
+        self.assertTrue(result["committed"]["state"]["committed"])
+
+    def test_touch_accidental_protection_and_stylus_proximity_rule(self) -> None:
+        result = self.run_node(
+            "const S=require('./shell/models/SnapAssist.js'); const m=[{name:'main',width:1920,height:1080}]; "
+            "let touch=S.beginDrag('address:touch','touch',{x:10,y:10},{}); "
+            "touch=S.updateDrag(touch,{x:20,y:20},m,{now:1000}); "
+            "let pen=S.beginDrag({address:'pen',appId:'ink'},'stylus',{x:10,y:10},{proximity:true}); "
+            "pen=S.updateDrag(pen,{x:900,y:20},m,{proximity:true,contact:false,now:1000}); "
+            "console.log(JSON.stringify({touch:{phase:touch.phase,reason:touch.reason},pen:{active:pen.active,phase:pen.phase,reason:pen.reason}}));"
+        )
+        self.assertEqual(result["touch"]["phase"], "waiting-for-movement")
+        self.assertEqual(result["pen"]["phase"], "blocked")
+        self.assertEqual(result["pen"]["reason"], "stylus-proximity-is-not-a-drag")
+
 
 if __name__ == "__main__":
     unittest.main()
