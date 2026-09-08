@@ -32,6 +32,7 @@ import "models/WindowMatcher.js" as WindowMatcherModel
 import "models/WindowGroups.js" as WindowGroupsModel
 import "models/FloatingWindows.js" as FloatingWindowsModel
 import "models/GestureCoordinator.js" as GestureCoordinatorModel
+import "models/MonitorRecovery.js" as MonitorRecoveryModel
 
 // Omanome's one shared service. It is deliberately headless: all visible
 // surfaces are summoned through the existing Omarchy shell host, so Omanome
@@ -175,6 +176,8 @@ Item {
   property var gestureState: GestureCoordinatorModel.emptyState()
   property var gestureLastAction: ({ type: "gesture", ok: false, reason: "not-used" })
   property int gestureRevision: 0
+  property var monitorRecoveryState: ({ ok: true, reason: "not-used", topology: { removed: [], added: [], changed: [] }, moved: [], skipped: [], commands: [], rollback: [] })
+  property int monitorRecoveryRevision: 0
   property string blurRuleSignature: ""
   property string lastInput: "keyboard"
   property string inputCandidate: ""
@@ -2048,14 +2051,67 @@ Item {
   function updateMonitors(raw) {
     var parsed = parseJson(raw, [])
     var nextMonitors = Array.isArray(parsed) ? parsed : []
+    var previousMonitors = Array.isArray(root.monitors) ? root.monitors.slice() : []
+    var activeName = ""
+    for (var monitorIndex = 0; monitorIndex < nextMonitors.length; monitorIndex++) {
+      if (nextMonitors[monitorIndex] && (nextMonitors[monitorIndex].focused === true || nextMonitors[monitorIndex].active === true)) {
+        activeName = String(nextMonitors[monitorIndex].name || nextMonitors[monitorIndex].monitor || nextMonitors[monitorIndex].output || "")
+        break
+      }
+    }
+    var recovery = MonitorRecoveryModel.plan(
+      previousMonitors,
+      nextMonitors,
+      root.clients,
+      root.windowGroups,
+      { activeMonitor: activeName, minimumWindowSize: root.cfg("multitasking.minimumWindowSize", {}), recoverOffscreen: true }
+    )
+    root.monitorRecoveryState = recovery
+    root.monitorRecoveryRevision++
     var availableNames = nextMonitors.map(function(item) { return root.rotationMonitorName(item && item.name) }).filter(function(name) { return name !== "" })
     var missingTarget = root.rotationTargets.some(function(name) { return availableNames.indexOf(root.rotationMonitorName(name)) < 0 })
     if (missingTarget) root.abortRotation("Rotation was cancelled because a target monitor disappeared")
     root.monitors = nextMonitors
+    if (root.cfg("multitasking.multiMonitor.enabled", true) !== false && root.cfg("multitasking.multiMonitor.hotplugRecovery", true) !== false && recovery.commands.length > 0)
+      root.applyMonitorRecoveryPlan(recovery)
     root.updateInputMapping()
     root.updateResponsiveContext()
     root.stateRevision++
     root.stateUpdated()
+  }
+
+  function applyMonitorRecoveryPlan(plan) {
+    var source = plan || {}
+    if (source.ok !== true) return root.multitaskingRecord({ type: "monitor-recovery", ok: false, reason: String(source.reason || "invalid-plan") })
+    if (!root.hyprlandAvailable) {
+      root.monitorRecoveryState = Object.assign({}, source, { applied: 0, failed: true, rolledBack: false, reason: "hyprland-unavailable" })
+      root.monitorRecoveryRevision++
+      return root.multitaskingRecord({ type: "monitor-recovery", ok: false, reason: "hyprland-unavailable", moved: 0 })
+    }
+    var commands = Array.isArray(source.commands) ? source.commands.slice(0, MonitorRecoveryModel.MAX_COMMANDS) : []
+    var applied = 0
+    var failed = false
+    for (var i = 0; i < commands.length; i++) {
+      if (!root.dispatch(commands[i])) { failed = true; break }
+      applied++
+    }
+    var rolledBack = false
+    if (failed) {
+      var rollback = Array.isArray(source.rollback) ? source.rollback.slice(0, MonitorRecoveryModel.MAX_COMMANDS) : []
+      for (var j = 0; j < rollback.length; j++) if (root.dispatch(rollback[j])) rolledBack = true
+    }
+    root.monitorRecoveryState = Object.assign({}, source, { applied: applied, failed: failed, rolledBack: rolledBack })
+    root.monitorRecoveryRevision++
+    if (!failed && source.affectedGroups && root.splitViewState && root.splitViewWindows.length > 0) {
+      var splitGroup = root.windowGroupForWindow(root.splitViewWindows[0])
+      if (splitGroup && source.affectedGroups.indexOf(String(splitGroup.id || "")) >= 0) {
+        root.splitViewState = null
+        root.splitViewWindows = []
+      }
+    }
+    root.reconcileWindowGroups()
+    root.stateUpdated()
+    return root.multitaskingRecord({ type: "monitor-recovery", ok: !failed, reason: failed ? "dispatch-rejected" : "queued", moved: applied / 2, rolledBack: rolledBack })
   }
 
   function updateClients(raw) {
@@ -2209,6 +2265,7 @@ Item {
           revision: root.gestureRevision,
           lastAction: { ok: root.gestureLastAction.ok === true, action: String(root.gestureLastAction.action || ""), reason: String(root.gestureLastAction.reason || "") }
         },
+        monitorRecovery: MonitorRecoveryModel.summary(root.monitorRecoveryState),
         groups: root.windowGroupSummaries(),
         sessionRestore: root.windowGroupRestoreSummary(),
         floating: {
@@ -2270,6 +2327,7 @@ Item {
           lastAction: String(root.gestureLastAction.action || ""),
           lastReason: String(root.gestureLastAction.reason || "")
         },
+        monitorRecovery: MonitorRecoveryModel.summary(root.monitorRecoveryState),
         groups: root.windowGroupSummaries(),
         sessionRestore: root.windowGroupRestoreSummary(),
         floating: {

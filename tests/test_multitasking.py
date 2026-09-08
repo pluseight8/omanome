@@ -409,6 +409,54 @@ class LayoutEngineTests(unittest.TestCase):
         self.assertEqual(result["cancelled"]["phase"], "cancelled")
         self.assertEqual(result["committed"], {"ok": True, "action": "workspace-next"})
 
+    def test_monitor_recovery_uses_logical_geometry_and_recovers_removed_output(self) -> None:
+        result = self.run_node(
+            "const M=require('./shell/models/MonitorRecovery.js'); "
+            "const before=[{name:'tablet',x:0,y:0,physicalWidth:2160,physicalHeight:3840,scale:2},{name:'external',x:1080,y:0,width:1920,height:1080,scale:1}]; "
+            "const after=[{name:'tablet',x:0,y:0,width:1080,height:1920,scale:2,usable:{x:0,y:48,width:1080,height:1872}}]; "
+            "const windows=[{address:'0xabc',monitor:'external',at:{x:1200,y:100},size:{width:1200,height:900}},{pid:42,monitor:'external',at:{x:10,y:10},size:{width:300,height:200}}]; "
+            "const plan=M.plan(before,after,windows,[{id:'pair-1',runtime:{memberIds:['address:0xabc'],members:[{identity:'address:0xabc',monitorName:'external'}]}}],{activeMonitor:'tablet',minimumWindowSize:{width:320,height:240}}); "
+            "console.log(JSON.stringify({logical:M.normalizeMonitor(before[0]),plan,summary:M.summary(plan)}));"
+        )
+        self.assertEqual(result["logical"]["width"], 1080)
+        self.assertEqual(result["logical"]["height"], 1920)
+        self.assertEqual(result["plan"]["topology"]["removed"], ["external"])
+        self.assertEqual(len(result["plan"]["moved"]), 1)
+        moved = result["plan"]["moved"][0]
+        self.assertEqual(moved["to"], "tablet")
+        self.assertGreaterEqual(moved["rect"]["x"], 0)
+        self.assertGreaterEqual(moved["rect"]["y"], 48)
+        self.assertLessEqual(moved["rect"]["x"] + moved["rect"]["width"], 1080)
+        self.assertLessEqual(moved["rect"]["y"] + moved["rect"]["height"], 1920)
+        self.assertTrue(all("address:0xabc" in command for command in result["plan"]["commands"]))
+        self.assertEqual(result["plan"]["affectedGroups"], ["pair-1"])
+        self.assertEqual(result["plan"]["skipped"][0]["reason"], "window-address-unavailable")
+
+    def test_monitor_recovery_is_event_driven_and_bounded_for_topology_changes(self) -> None:
+        result = self.run_node(
+            "const M=require('./shell/models/MonitorRecovery.js'); "
+            "const same=M.plan([{name:'one',width:1600,height:1000,scale:1}],[{name:'one',width:1600,height:1000,scale:1}],[],[],{}); "
+            "const changed=M.plan([{name:'one',width:1600,height:1000,scale:1}],[{name:'one',width:1200,height:800,scale:1}],Array.from({length:90},(_,i)=>({address:'0x'+i.toString(16),monitor:'one',at:{x:2000,y:2000},size:{width:400,height:300}})),[],{}); "
+            "console.log(JSON.stringify({same,changed:{reason:changed.reason,commands:changed.commands.length,rollback:changed.rollback.length,moved:changed.moved.length}}));"
+        )
+        self.assertEqual(result["same"]["reason"], "topology-unchanged")
+        self.assertEqual(result["same"]["commands"], [])
+        self.assertLessEqual(result["changed"]["commands"], 128)
+        self.assertLessEqual(result["changed"]["rollback"], 128)
+        self.assertLessEqual(result["changed"]["moved"], 64)
+
+    def test_monitor_recovery_never_selects_a_window_by_title_or_moves_without_address(self) -> None:
+        result = self.run_node(
+            "const M=require('./shell/models/MonitorRecovery.js'); "
+            "const before=[{name:'external',x:0,y:0,width:1920,height:1080}]; const after=[{name:'tablet',x:0,y:0,width:1080,height:1920}]; "
+            "const plan=M.plan(before,after,[{pid:11,monitor:'external',title:'Sensitive'}],[],{activeMonitor:'tablet'}); "
+            "const raw=JSON.stringify(plan); console.log(JSON.stringify({skipped:plan.skipped,commands:plan.commands,hasTitle:raw.indexOf('Sensitive')>=0,hasAddress:raw.indexOf('address:')>=0}));"
+        )
+        self.assertEqual(result["commands"], [])
+        self.assertEqual(result["skipped"][0]["reason"], "window-address-unavailable")
+        self.assertFalse(result["hasTitle"])
+        self.assertFalse(result["hasAddress"])
+
 
 if __name__ == "__main__":
     unittest.main()

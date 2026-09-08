@@ -770,6 +770,7 @@ class OmanomeProjectTests(unittest.TestCase):
     def test_gesture_coordinator_is_unified_touch_safe_and_event_driven(self) -> None:
         service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
         gesture = (ROOT / "shell/models/GestureCoordinator.js").read_text(encoding="utf-8")
+        recovery = (ROOT / "shell/models/MonitorRecovery.js").read_text(encoding="utf-8")
         quicksettings = (ROOT / "shell/views/QuickSettings.qml").read_text(encoding="utf-8")
         dock = (ROOT / "shell/views/Dock.qml").read_text(encoding="utf-8")
         defaults = json.loads((ROOT / "config/defaults.json").read_text(encoding="utf-8"))
@@ -780,6 +781,11 @@ class OmanomeProjectTests(unittest.TestCase):
         for marker in ("ownerFor", "availableOwners", "begin", "update", "end", "cancel", "touchpad", "fullscreen-suppressed", "drawing-app-suppressed", "game-suppressed"):
             self.assertIn(marker, gesture)
         self.assertNotIn("title", gesture)
+        for marker in ("MonitorRecoveryModel", "monitorRecoveryState", "applyMonitorRecoveryPlan", "monitor-recovery"):
+            self.assertIn(marker, service)
+        for marker in ("normalizeMonitors", "diff", "safeRect", "plan", "MAX_COMMANDS", "window-address-unavailable"):
+            self.assertIn(marker, recovery)
+        self.assertNotIn("title", recovery)
         self.assertIn("touchGesturesLock", quicksettings)
         self.assertIn("onGestureActionRequested", dock)
         gestures = defaults["multitasking"]["gestures"]
