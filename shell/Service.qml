@@ -30,6 +30,7 @@ import "models/SnapAssist.js" as SnapAssistModel
 import "models/SplitView.js" as SplitViewModel
 import "models/WindowMatcher.js" as WindowMatcherModel
 import "models/WindowGroups.js" as WindowGroupsModel
+import "models/FloatingWindows.js" as FloatingWindowsModel
 
 // Omanome's one shared service. It is deliberately headless: all visible
 // surfaces are summoned through the existing Omarchy shell host, so Omanome
@@ -168,6 +169,8 @@ Item {
   property var windowGroupEvents: []
   property var windowGroupRestorePlan: null
   property var multitaskingPairLaunch: null
+  property var floatingLastAction: ({ type: "floating-window", ok: false, reason: "not-used" })
+  property int floatingRevision: 0
   property string blurRuleSignature: ""
   property string lastInput: "keyboard"
   property string inputCandidate: ""
@@ -2195,7 +2198,14 @@ Item {
           deadline: Number(root.multitaskingPairLaunch.deadline || 0)
         } : null,
         groups: root.windowGroupSummaries(),
-        sessionRestore: root.windowGroupRestoreSummary()
+        sessionRestore: root.windowGroupRestoreSummary(),
+        floating: {
+          enabled: root.cfg("multitasking.floating.enabled", true) === true,
+          mini: root.cfg("multitasking.floating.miniEnabled", true) === true,
+          pictureInPicture: root.cfg("multitasking.floating.pictureInPicture", true) === true,
+          revision: root.floatingRevision,
+          lastAction: { ok: root.floatingLastAction.ok === true, reason: String(root.floatingLastAction.reason || ""), mode: String(root.floatingLastAction.mode || "") }
+        }
       },
       performance: root.performanceState,
       preview: {
@@ -2240,7 +2250,14 @@ Item {
         launchAppId: root.multitaskingLaunch ? String(root.multitaskingLaunch.appId || "") : "",
         pairLaunchPending: !!root.multitaskingPairLaunch,
         groups: root.windowGroupSummaries(),
-        sessionRestore: root.windowGroupRestoreSummary()
+        sessionRestore: root.windowGroupRestoreSummary(),
+        floating: {
+          enabled: root.cfg("multitasking.floating.enabled", true) === true,
+          mini: root.cfg("multitasking.floating.miniEnabled", true) === true,
+          pictureInPicture: root.cfg("multitasking.floating.pictureInPicture", true) === true,
+          revision: root.floatingRevision,
+          lastAction: { ok: root.floatingLastAction.ok === true, reason: String(root.floatingLastAction.reason || ""), mode: String(root.floatingLastAction.mode || ""), appId: String(root.floatingLastAction.appId || "") }
+        }
       },
       companion: { installed: companion.installed === true, built: companion.built === true, loaded: companion.loaded === true, compatible: companion.compatible === true, crashMarker: companion.crashMarker === true, abiMatch: companion.abiMatch === true },
       effects: { blur: root.effectBackend.layerRulesAvailable === true, livePreview: root.livePreviewState.available === true, wobbly: root.effectCapabilities.wobblyWindows === true, cube: root.effectCapabilities.desktopCube === true },
@@ -2517,6 +2534,67 @@ Item {
     root.multitaskingRevision++
     root.stateUpdated()
     return action
+  }
+
+  function floatingWindowState(window) {
+    return FloatingWindowsModel.normalizeWindow(window)
+  }
+
+  function applyFloatingPlan(plan) {
+    var source = plan || {}
+    if (source.ok !== true) {
+      root.floatingLastAction = { type: "floating-window", ok: false, reason: String(source.reason || "invalid-plan") }
+      root.floatingRevision++
+      return root.multitaskingRecord(root.floatingLastAction)
+    }
+    var commands = Array.isArray(source.commands) ? source.commands.slice(0, FloatingWindowsModel.MAX_COMMANDS) : []
+    var applied = []
+    var failed = false
+    for (var i = 0; i < commands.length; i++) {
+      if (!root.dispatch(commands[i])) { failed = true; break }
+      applied.push(commands[i])
+    }
+    var rolledBack = false
+    if (failed) {
+      var rollback = Array.isArray(source.rollback) ? source.rollback.slice(0, FloatingWindowsModel.MAX_COMMANDS) : []
+      for (var j = 0; j < rollback.length; j++) if (root.dispatch(rollback[j])) rolledBack = true
+    }
+    root.floatingLastAction = {
+      type: "floating-window",
+      ok: !failed && applied.length === commands.length,
+      reason: failed ? "dispatch-rejected" : "queued",
+      mode: String(source.mode || "toggle"),
+      identity: String(source.identity || ""),
+      appId: String(source.appId || ""),
+      monitor: String(source.monitor || ""),
+      target: source.target || null,
+      commands: applied,
+      rolledBack: rolledBack
+    }
+    root.floatingRevision++
+    return root.multitaskingRecord(root.floatingLastAction)
+  }
+
+  function toggleWindowFloating(window) {
+    if (root.cfg("multitasking.enabled", true) === false || root.cfg("multitasking.floating.enabled", true) === false)
+      return root.multitaskingRecord({ type: "floating-window", ok: false, reason: "disabled" })
+    return root.applyFloatingPlan(FloatingWindowsModel.toggleFloating(window))
+  }
+
+  function setWindowMini(window, options) {
+    if (root.cfg("multitasking.enabled", true) === false || root.cfg("multitasking.floating.miniEnabled", true) === false)
+      return root.multitaskingRecord({ type: "floating-window", ok: false, reason: "mini-disabled" })
+    var settings = Object.assign(root.multitaskingOptions(), options || {})
+    var monitor = settings.monitor || root.multitaskingMonitorForWindow(window)
+    return root.applyFloatingPlan(FloatingWindowsModel.mini(window, monitor, settings))
+  }
+
+  function setWindowPictureInPicture(window, options) {
+    if (root.cfg("multitasking.enabled", true) === false || root.cfg("multitasking.floating.pictureInPicture", true) === false)
+      return root.multitaskingRecord({ type: "floating-window", ok: false, reason: "pip-disabled" })
+    var settings = Object.assign(root.multitaskingOptions(), options || {})
+    var monitor = settings.monitor || root.multitaskingMonitorForWindow(window)
+    return root.applyFloatingPlan(FloatingWindowsModel.pip(window, monitor, settings))
   }
 
   function windowGroupById(groupId) {

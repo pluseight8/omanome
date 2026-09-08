@@ -692,6 +692,8 @@ class OmanomeProjectTests(unittest.TestCase):
         dock = (ROOT / "shell/views/Dock.qml").read_text(encoding="utf-8")
         overview = (ROOT / "shell/views/Overview.qml").read_text(encoding="utf-8")
         launcher = (ROOT / "shell/views/Launcher.qml").read_text(encoding="utf-8")
+        controls = (ROOT / "shell/views/WindowControls.qml").read_text(encoding="utf-8")
+        floating = (ROOT / "shell/models/FloatingWindows.js").read_text(encoding="utf-8")
 
         self.assertIn('import "models/WindowMatcher.js" as WindowMatcherModel', service)
         self.assertIn("resolveMultitaskingLaunch", service)
@@ -710,6 +712,13 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertIn("snapZonesForTarget", dock)
         self.assertIn("snapZonesForTarget", launcher)
         self.assertIn("snapWindowToZone", overview)
+        self.assertIn('import "models/FloatingWindows.js" as FloatingWindowsModel', service)
+        for marker in ("floatingWindowState", "toggleWindowFloating", "setWindowMini", "setWindowPictureInPicture", "applyFloatingPlan"):
+            self.assertIn(marker, service)
+        for marker in ("GridLayout", "toggleWindowFloating", "setWindowMini", "setWindowPictureInPicture", "floatingWindowState"):
+            self.assertIn(marker, controls)
+        self.assertIn("address-scoped commands", floating)
+        self.assertNotIn("title", floating)
         self.assertIn("pairEntries", launcher)
         self.assertIn("pairIcon", launcher)
         self.assertIn("launchPair", launcher)

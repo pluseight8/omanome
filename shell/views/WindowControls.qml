@@ -41,6 +41,10 @@ Item {
     target: ToplevelManager.toplevels
     function onValuesChanged() { root.refresh() }
   }
+  Connections {
+    target: root.service
+    function onFloatingRevisionChanged() { root.refresh() }
+  }
 
   Component.onCompleted: root.refresh()
 
@@ -63,8 +67,8 @@ Item {
 
         Surface {
           id: toolbar
-          width: Math.min(parent.width - Style.space(24), Style.space(320))
-          height: Style.space(58)
+          width: Math.min(parent.width - Style.space(24), Style.space(520))
+          height: Style.space(112)
           anchors.top: parent.top
           anchors.right: parent.right
           anchors.topMargin: Style.space(42)
@@ -73,12 +77,14 @@ Item {
           surfaceColor: Color.menu.background
           surfaceOpacity: root.service.surfaceOpacity("windowControls", root.service.cfg("windowControls.opacity", 0.94))
 
-          RowLayout {
+          GridLayout {
             anchors.fill: parent
             anchors.margins: Style.space(6)
             spacing: Style.space(5)
+            columns: 3
 
             ActionButton {
+              Layout.preferredWidth: Style.space(150)
               Layout.fillWidth: true
               Layout.fillHeight: true
               minimumWidth: Style.space(48)
@@ -95,12 +101,42 @@ Item {
               onClicked: if (root.activeWindow) root.activeWindow.maximized = !root.activeWindow.maximized
             }
             ActionButton {
+              Layout.preferredWidth: Style.space(150)
+              Layout.fillWidth: true
+              Layout.fillHeight: true
+              minimumWidth: Style.space(48)
+              icon: root.service && root.service.floatingWindowState(root.activeWindow).floating ? "▣" : "□"
+              text: root.service && root.service.floatingWindowState(root.activeWindow).floating ? root.service.tr("tileWindow", "Tile") : root.service.tr("floatWindow", "Float")
+              onClicked: if (root.activeWindow && root.service) root.service.toggleWindowFloating(root.activeWindow)
+            }
+            ActionButton {
+              Layout.preferredWidth: Style.space(150)
               Layout.fillWidth: true
               Layout.fillHeight: true
               minimumWidth: Style.space(48)
               icon: "×"
               text: root.service.tr("close", "Close")
               onClicked: if (root.activeWindow && typeof root.activeWindow.close === "function") root.activeWindow.close()
+            }
+            ActionButton {
+              Layout.preferredWidth: Style.space(150)
+              Layout.fillWidth: true
+              Layout.fillHeight: true
+              minimumWidth: Style.space(48)
+              icon: "◇"
+              text: root.service.tr("miniWindow", "Mini")
+              Accessible.description: root.service.tr("miniWindowHint", "Resize and move the active window to a safe floating corner")
+              onClicked: if (root.activeWindow && root.service) root.service.setWindowMini(root.activeWindow, {})
+            }
+            ActionButton {
+              Layout.preferredWidth: Style.space(150)
+              Layout.fillWidth: true
+              Layout.fillHeight: true
+              minimumWidth: Style.space(48)
+              icon: "▣"
+              text: root.service.tr("pictureInPicture", "PiP")
+              Accessible.description: root.service.tr("pictureInPictureHint", "Resize, move and pin the active window on the current monitor")
+              onClicked: if (root.activeWindow && root.service) root.service.setWindowPictureInPicture(root.activeWindow, {})
             }
           }
         }

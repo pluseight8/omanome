@@ -317,6 +317,37 @@ class LayoutEngineTests(unittest.TestCase):
         self.assertTrue(result["automatic"]["autoLaunch"])
         self.assertEqual(result["autoPlan"]["status"], "ready")
 
+    def test_floating_plans_are_address_scoped_and_geometry_stays_on_monitor(self) -> None:
+        result = self.run_node(
+            "const F=require('./shell/models/FloatingWindows.js'); "
+            "const monitor={name:'tablet',x:0,y:0,width:1080,height:1920,usable:{x:0,y:48,width:1080,height:1780}}; "
+            "const mini=F.mini({address:'0xabc',pid:77,appId:'org.video.App',title:'Private'},monitor,{gap:16}); "
+            "const pip=F.pip({address:'0xabc',pid:77,appId:'org.video.App'},monitor,{corner:'top-left',pipSize:{width:420,height:300}}); "
+            "const invalid=F.mini({pid:77,appId:'org.video.App'},monitor,{}); "
+            "console.log(JSON.stringify({mini,pip,invalid}));"
+        )
+        self.assertTrue(result["mini"]["ok"])
+        self.assertTrue(all("address:0xabc" in command for command in result["mini"]["commands"]))
+        self.assertGreaterEqual(result["mini"]["target"]["x"], 0)
+        self.assertGreaterEqual(result["mini"]["target"]["y"], 48)
+        self.assertLessEqual(result["mini"]["target"]["x"] + result["mini"]["target"]["width"], 1080)
+        self.assertIn("pin address:0xabc", result["pip"]["commands"])
+        self.assertEqual(result["invalid"]["reason"], "window-address-required")
+
+    def test_floating_persistent_position_uses_app_metadata_not_runtime_identity(self) -> None:
+        result = self.run_node(
+            "const F=require('./shell/models/FloatingWindows.js'); "
+            "const saved=F.persistablePosition({address:'0xdead',pid:99,appId:'org.editor.App',title:'Sensitive'}, {name:'HDMI-A-1',x:100,y:40,width:1920,height:1080},{x:1100,y:140,width:640,height:480}); "
+            "console.log(JSON.stringify(saved));"
+        )
+        self.assertEqual(result["appId"], "org.editor.App")
+        self.assertEqual(result["monitor"], "HDMI-A-1")
+        self.assertNotIn("address", result)
+        self.assertNotIn("pid", result)
+        self.assertNotIn("title", result)
+        self.assertGreaterEqual(result["x"], 0)
+        self.assertLessEqual(result["x"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
