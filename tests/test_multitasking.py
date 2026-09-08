@@ -348,6 +348,67 @@ class LayoutEngineTests(unittest.TestCase):
         self.assertGreaterEqual(result["x"], 0)
         self.assertLessEqual(result["x"], 1)
 
+    def test_gesture_coordinator_reserves_one_owner_and_keeps_touchpad_separate(self) -> None:
+        result = self.run_node(
+            "const G=require('./shell/models/GestureCoordinator.js'); "
+            "const config={enabled:true,fullscreenPolicy:'disable',drawingApps:['org.paint.App'],touchscreen:{enabled:true,threeFingerAction:'workspace',fourFingerAction:'workspace'},touchpad:{enabled:false}}; "
+            "const touch=G.begin({inputKind:'touch',edge:'bottom',point:{x:500,y:1000}},config,{},0); "
+            "const reserved=G.begin({inputKind:'touch',edge:'top',point:{x:500,y:0}},config,{},1,touch); "
+            "const pad=G.ownerFor({inputKind:'touchpad',edge:'bottom',point:{x:500,y:1000}},config,{}); "
+            "const full=G.ownerFor({inputKind:'touch',edge:'bottom',point:{x:500,y:1000}},config,{fullscreen:true}); "
+            "const drawing=G.ownerFor({inputKind:'touch',edge:'bottom',point:{x:500,y:1000}},config,{appId:'org.paint.App'}); "
+            "console.log(JSON.stringify({owner:touch.owner,phase:touch.phase,reserved:{phase:reserved.phase,reason:reserved.reason},pad,full,drawing}));"
+        )
+        self.assertEqual(result["owner"], "edge-swipe")
+        self.assertEqual(result["phase"], "armed")
+        self.assertEqual(result["reserved"]["phase"], "suppressed")
+        self.assertEqual(result["reserved"]["reason"], "owner-reserved")
+        self.assertFalse(result["pad"]["ok"])
+        self.assertEqual(result["pad"]["reason"], "input-profile-disabled")
+        self.assertFalse(result["full"]["ok"])
+        self.assertEqual(result["full"]["reason"], "fullscreen-suppressed")
+        self.assertFalse(result["drawing"]["ok"])
+        self.assertEqual(result["drawing"]["reason"], "drawing-app-suppressed")
+
+    def test_gesture_hysteresis_velocity_and_bottom_edge_actions_are_bounded(self) -> None:
+        result = self.run_node(
+            "const G=require('./shell/models/GestureCoordinator.js'); "
+            "const config={enabled:true,bottomEdge:{short:'dock',long:'overview'},touchscreen:{enabled:true,thresholdPx:100,movementThresholdPx:20,velocityThreshold:0.5,inertia:false}}; "
+            "let pending=G.begin({inputKind:'touch',edge:'bottom',point:{x:500,y:1000}},config,{},0); "
+            "pending=G.update(pending,{point:{x:500,y:985},velocity:0},10); const armed=pending.phase; "
+            "pending=G.update(pending,{point:{x:500,y:910},velocity:0.2},20); const tracking=pending.phase; "
+            "const cancelled=G.end(pending,{point:{x:500,y:910},velocity:0},{},20); "
+            "let short=G.begin({inputKind:'touch',edge:'bottom',point:{x:500,y:1000}},config,{},100); "
+            "const shortEnd=G.end(short,{point:{x:500,y:900},velocity:0},{},200); "
+            "let long=G.begin({inputKind:'touch',edge:'bottom',point:{x:500,y:1000}},config,{},300); "
+            "const longEnd=G.end(long,{point:{x:500,y:800},velocity:0},{},400); "
+            "console.log(JSON.stringify({armed,tracking,cancelled:{ok:cancelled.ok,reason:cancelled.reason},short:{ok:shortEnd.ok,action:shortEnd.action&&shortEnd.action.action},long:{ok:longEnd.ok,action:longEnd.action&&longEnd.action.action}}));"
+        )
+        self.assertEqual(result["armed"], "armed")
+        self.assertEqual(result["tracking"], "tracking")
+        self.assertFalse(result["cancelled"]["ok"])
+        self.assertEqual(result["cancelled"]["reason"], "threshold-not-reached")
+        self.assertEqual(result["short"], {"ok": True, "action": "dock"})
+        self.assertEqual(result["long"], {"ok": True, "action": "overview"})
+
+    def test_workspace_gesture_reports_interactive_progress_and_cancels_when_reversed(self) -> None:
+        result = self.run_node(
+            "const G=require('./shell/models/GestureCoordinator.js'); "
+            "const config={enabled:true,touchscreen:{enabled:true,threeFingerAction:'workspace',fourFingerAction:'workspace',thresholdPx:120,movementThresholdPx:18,inertia:false}}; "
+            "let state=G.begin({inputKind:'touch',fingers:3,point:{x:500,y:500}},config,{},0); "
+            "state=G.update(state,{point:{x:560,y:500},velocity:0},100); const preview=G.summary(state); "
+            "const cancelled=G.end(state,{point:{x:502,y:500},velocity:0},{},120); "
+            "let committed=G.begin({inputKind:'touch',fingers:3,point:{x:500,y:500}},config,{},200); "
+            "const result=G.end(committed,{point:{x:700,y:500},velocity:0},{},300); "
+            "console.log(JSON.stringify({owner:state.owner,preview:{progress:preview.progress,active:preview.active},cancelled:{ok:cancelled.ok,phase:cancelled.state.phase},committed:{ok:result.ok,action:result.action&&result.action.action}}));"
+        )
+        self.assertEqual(result["owner"], "workspace-swipe")
+        self.assertGreater(result["preview"]["progress"], 0)
+        self.assertTrue(result["preview"]["active"])
+        self.assertFalse(result["cancelled"]["ok"])
+        self.assertEqual(result["cancelled"]["phase"], "cancelled")
+        self.assertEqual(result["committed"], {"ok": True, "action": "workspace-next"})
+
 
 if __name__ == "__main__":
     unittest.main()

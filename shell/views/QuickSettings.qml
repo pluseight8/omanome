@@ -56,6 +56,7 @@ Item {
       { key: "nightLight", label: root.service.tr("nightLight", "Night light"), icon: "☼" },
       { key: "dnd", label: root.service.tr("doNotDisturb", "Do not disturb"), icon: "◌" },
       { key: "rotationLock", label: root.service.tr("rotationLock", "Rotation lock"), icon: "⟳" },
+      { key: "touchGesturesLock", label: root.service.tr("touchGesturesLock", "Touch Gestures Lock"), icon: "⌁" },
       { key: "powerProfile", label: root.service.tr("powerProfile", "Power profile"), icon: "ϟ" }
     ]
   }
@@ -89,13 +90,16 @@ Item {
           usable: root.usable(modelData.key)
           checked: modelData.key === "powerProfile"
                     ? root.service.systemState.powerProfile !== "balanced"
+                    : modelData.key === "touchGesturesLock"
+                    ? root.service.cfg("multitasking.gestures.touchLock", false) === true
                     : root.service.quickState[modelData.key] === true
           subtitle: modelData.key === "powerProfile"
                     ? String(root.service.systemState.powerProfile || "balanced")
                     : (!usable ? root.service.tr("systemUnavailable", "Backend unavailable") : "")
           onClicked: {
             root.service.recordInput("touch")
-            root.service.quickAction(modelData.key)
+            if (modelData.key === "touchGesturesLock") root.service.setConfig("multitasking.gestures.touchLock", !root.service.cfg("multitasking.gestures.touchLock", false))
+            else root.service.quickAction(modelData.key)
             if (modelData.key === "wifi") root.wifiExpanded = true
             if (modelData.key === "bluetooth") root.bluetoothExpanded = true
           }

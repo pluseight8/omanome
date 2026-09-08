@@ -767,6 +767,27 @@ class OmanomeProjectTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_gesture_coordinator_is_unified_touch_safe_and_event_driven(self) -> None:
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        gesture = (ROOT / "shell/models/GestureCoordinator.js").read_text(encoding="utf-8")
+        quicksettings = (ROOT / "shell/views/QuickSettings.qml").read_text(encoding="utf-8")
+        dock = (ROOT / "shell/views/Dock.qml").read_text(encoding="utf-8")
+        defaults = json.loads((ROOT / "config/defaults.json").read_text(encoding="utf-8"))
+
+        self.assertIn('import "models/GestureCoordinator.js" as GestureCoordinatorModel', service)
+        for marker in ("gestureContext", "beginGesture", "updateGesture", "endGesture", "cancelGesture", "gestureAvailableOwners", "gestureActionRequested"):
+            self.assertIn(marker, service)
+        for marker in ("ownerFor", "availableOwners", "begin", "update", "end", "cancel", "touchpad", "fullscreen-suppressed", "drawing-app-suppressed", "game-suppressed"):
+            self.assertIn(marker, gesture)
+        self.assertNotIn("title", gesture)
+        self.assertIn("touchGesturesLock", quicksettings)
+        self.assertIn("onGestureActionRequested", dock)
+        gestures = defaults["multitasking"]["gestures"]
+        self.assertIn("touchscreen", gestures)
+        self.assertIn("touchpad", gestures)
+        self.assertFalse(gestures["touchpad"]["enabled"])
+        self.assertEqual(gestures["fullscreenPolicy"], "disable")
+
 
 if __name__ == "__main__":
     unittest.main()

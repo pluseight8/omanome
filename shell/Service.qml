@@ -31,6 +31,7 @@ import "models/SplitView.js" as SplitViewModel
 import "models/WindowMatcher.js" as WindowMatcherModel
 import "models/WindowGroups.js" as WindowGroupsModel
 import "models/FloatingWindows.js" as FloatingWindowsModel
+import "models/GestureCoordinator.js" as GestureCoordinatorModel
 
 // Omanome's one shared service. It is deliberately headless: all visible
 // surfaces are summoned through the existing Omarchy shell host, so Omanome
@@ -171,6 +172,9 @@ Item {
   property var multitaskingPairLaunch: null
   property var floatingLastAction: ({ type: "floating-window", ok: false, reason: "not-used" })
   property int floatingRevision: 0
+  property var gestureState: GestureCoordinatorModel.emptyState()
+  property var gestureLastAction: ({ type: "gesture", ok: false, reason: "not-used" })
+  property int gestureRevision: 0
   property string blurRuleSignature: ""
   property string lastInput: "keyboard"
   property string inputCandidate: ""
@@ -204,6 +208,7 @@ Item {
 
   signal stateUpdated()
   signal configUpdated(string path)
+  signal gestureActionRequested(string action)
 
   function tr(key, fallback) {
     var language = String(cfg("general.language", "system"))
@@ -2197,6 +2202,13 @@ Item {
           nextIndex: Number(root.multitaskingPairLaunch.nextIndex || 0),
           deadline: Number(root.multitaskingPairLaunch.deadline || 0)
         } : null,
+        gestures: {
+          enabled: root.cfg("multitasking.gestures.enabled", true) === true,
+          touchLock: root.cfg("multitasking.gestures.touchLock", false) === true,
+          state: root.gestureSummary(),
+          revision: root.gestureRevision,
+          lastAction: { ok: root.gestureLastAction.ok === true, action: String(root.gestureLastAction.action || ""), reason: String(root.gestureLastAction.reason || "") }
+        },
         groups: root.windowGroupSummaries(),
         sessionRestore: root.windowGroupRestoreSummary(),
         floating: {
@@ -2249,6 +2261,15 @@ Item {
         launchPending: !!root.multitaskingLaunch,
         launchAppId: root.multitaskingLaunch ? String(root.multitaskingLaunch.appId || "") : "",
         pairLaunchPending: !!root.multitaskingPairLaunch,
+        gestures: {
+          enabled: root.cfg("multitasking.gestures.enabled", true) === true,
+          touchLock: root.cfg("multitasking.gestures.touchLock", false) === true,
+          phase: String(root.gestureState.phase || "idle"),
+          owner: String(root.gestureState.owner || ""),
+          inputKind: String(root.gestureState.inputKind || ""),
+          lastAction: String(root.gestureLastAction.action || ""),
+          lastReason: String(root.gestureLastAction.reason || "")
+        },
         groups: root.windowGroupSummaries(),
         sessionRestore: root.windowGroupRestoreSummary(),
         floating: {
@@ -2526,6 +2547,154 @@ Item {
 
   function multitaskingTouchInput(kind) {
     return SnapAssistModel.inputKind(kind)
+  }
+
+  // Gesture ownership is resolved once at contact time and released at end or
+  // cancel. The coordinator receives only transient capability/context flags;
+  // no window title, document name or runtime identity is retained in the
+  // gesture state.
+  function gestureContext(overrides) {
+    var active = root.activeClient() || {}
+    var rules = root.appRuleDecision()
+    var base = {
+      activeWindow: active,
+      fullscreen: root.fullscreenActive(),
+      drawing: active.drawing === true || active.drawingApp === true,
+      game: active.game === true || active.gameMode === true || active.isGame === true,
+      osk: root.inputTextFocusActive === true || root.oskPolicyState.visible === true,
+      overviewOpen: root.panel && root.panel.opened === true && String(root.panel.activeView || "") === "overview",
+      floatingDrag: root.snapAssistState.active === true || (root.splitViewState && String(root.splitViewState.phase || "") === "dragging"),
+      stylus: root.lastInput === "stylus" || root.stylusInputState.contact === true || root.stylusInputState.proximity === true,
+      appRuleDisabled: rules.disableGestures === true,
+      backShortcut: root.cfg("multitasking.gestures.backShortcut", ""),
+      systemEdge: false
+    }
+    return Object.assign(base, overrides || {})
+  }
+
+  function gestureRecord(action) {
+    root.gestureLastAction = action || { type: "gesture", ok: false, reason: "unknown" }
+    root.gestureRevision++
+    root.stateUpdated()
+    return action
+  }
+
+  function gestureShortcut(shortcut) {
+    var parts = String(shortcut || "").split("+").map(function(value) { return String(value || "").trim() }).filter(function(value) { return value !== "" })
+    if (parts.length === 0) return false
+    var key = parts.pop()
+    var modifiers = []
+    for (var i = 0; i < parts.length; i++) {
+      var modifier = parts[i].toLowerCase()
+      if (modifier === "super" || modifier === "meta") modifier = "super"
+      else if (modifier === "control" || modifier === "ctrl") modifier = "ctrl"
+      else if (modifier === "alt") modifier = "alt"
+      else if (modifier === "shift") modifier = "shift"
+      else continue
+      modifiers.push(modifier)
+    }
+    if (key.toLowerCase() === "space") key = "space"
+    else if (key.toLowerCase() === "esc") key = "Escape"
+    else if (key.toLowerCase() === "left") key = "Left"
+    else if (key.toLowerCase() === "right") key = "Right"
+    else if (key.toLowerCase() === "up") key = "Up"
+    else if (key.toLowerCase() === "down") key = "Down"
+    return root.sendModifiedKey(key, modifiers)
+  }
+
+  function performGestureAction(action) {
+    var source = action || {}
+    var name = String(source.action || "")
+    if (name === "overview" || name === "quick-settings" || name === "notifications") {
+      var view = name === "quick-settings" ? "quicksettings" : name
+      if (root.panel) {
+        root.panel.activeView = view
+        root.panel.opened = true
+        return { ok: true, type: "gesture", action: name, owner: source.owner || "" }
+      }
+      var opened = root.open(view)
+      return { ok: opened, type: "gesture", action: name, owner: source.owner || "", reason: opened ? "opened" : "open-rejected" }
+    }
+    if (name === "dock") {
+      root.gestureActionRequested("dock")
+      return { ok: true, type: "gesture", action: name, owner: source.owner || "" }
+    }
+    if (name === "workspace-next" || name === "workspace-previous") {
+      var workspaceCommand = name === "workspace-next" ? "workspace e+1" : "workspace e-1"
+      return { ok: root.dispatch(workspaceCommand), type: "gesture", action: name, owner: source.owner || "", reason: root.hyprlandAvailable ? "workspace-dispatched" : "hyprland-unavailable" }
+    }
+    if (name === "back") {
+      if (String(source.backend || "") === "shortcut" && source.shortcut)
+        return { ok: root.gestureShortcut(source.shortcut), type: "gesture", action: name, owner: source.owner || "", reason: "shortcut" }
+      if (String(source.backend || "") === "backend") {
+        root.gestureActionRequested("back")
+        return { ok: true, type: "gesture", action: name, owner: source.owner || "", reason: "backend-requested" }
+      }
+      return { ok: false, type: "gesture", action: name, owner: source.owner || "", reason: "back-backend-unavailable" }
+    }
+    return { ok: false, type: "gesture", action: name, owner: source.owner || "", reason: "action-disabled" }
+  }
+
+  function beginGesture(inputKind, edge, point, options) {
+    var settings = root.cfg("multitasking.gestures", {})
+    var source = Object.assign({}, options || {})
+    source.inputKind = inputKind || source.inputKind || root.lastInput
+    source.edge = edge || source.edge || ""
+    source.point = point || source.point || { x: 0, y: 0 }
+    var monitor = root.focusedMonitor()
+    if (source.width === undefined) source.width = Number(monitor.width || 0)
+    if (source.height === undefined) source.height = Number(monitor.height || 0)
+    if (source.edgeWidth === undefined) source.edgeWidth = Number(root.cfg("touch.edgeWidth", 36))
+    root.recordInput(source.inputKind)
+    var result = GestureCoordinatorModel.begin(source, settings, root.gestureContext(source.context || {}), Date.now(), root.gestureState)
+    root.gestureState = result
+    if (result.phase === "suppressed") root.gestureLastAction = { type: "gesture", ok: false, reason: String(result.reason || "gesture-rejected"), owner: String(result.owner || "") }
+    root.gestureRevision++
+    root.stateUpdated()
+    return result
+  }
+
+  function updateGesture(point, options) {
+    if (!GestureCoordinatorModel.active(root.gestureState)) return root.gestureState
+    var source = Object.assign({}, options || {})
+    source.point = point || source.point || root.gestureState.point
+    root.gestureState = GestureCoordinatorModel.update(root.gestureState, source, Date.now())
+    root.gestureRevision++
+    root.stateUpdated()
+    return root.gestureState
+  }
+
+  function endGesture(point, options) {
+    if (!GestureCoordinatorModel.active(root.gestureState)) return root.gestureRecord({ type: "gesture", ok: false, reason: "gesture-not-active" })
+    var source = Object.assign({}, options || {})
+    source.point = point || source.point || root.gestureState.point
+    var result = GestureCoordinatorModel.end(root.gestureState, source, root.gestureContext(source.context || {}), Date.now())
+    root.gestureState = result.state
+    var actionResult = result.ok && result.action ? root.performGestureAction(result.action) : { ok: false, type: "gesture", reason: String(result.reason || "gesture-cancelled") }
+    var record = {
+      type: "gesture",
+      ok: result.ok === true && actionResult.ok === true,
+      owner: String(result.state.owner || ""),
+      action: result.action ? String(result.action.action || "") : "",
+      reason: result.ok ? String(actionResult.reason || (actionResult.ok ? "committed" : "action-rejected")) : String(result.reason || "gesture-cancelled")
+    }
+    root.gestureRevision++
+    root.gestureLastAction = record
+    root.stateUpdated()
+    return { ok: record.ok, state: result.state, action: result.action, result: actionResult, reason: record.reason }
+  }
+
+  function cancelGesture(reason) {
+    root.gestureState = GestureCoordinatorModel.cancel(root.gestureState, reason || "cancelled")
+    return root.gestureRecord({ type: "gesture", ok: false, reason: String(root.gestureState.reason || "cancelled"), owner: String(root.gestureState.owner || "") })
+  }
+
+  function gestureAvailableOwners(inputKind, options) {
+    return GestureCoordinatorModel.availableOwners(root.cfg("multitasking.gestures", {}), root.gestureContext(options || {}), inputKind || root.lastInput)
+  }
+
+  function gestureSummary() {
+    return GestureCoordinatorModel.summary(root.gestureState)
   }
 
   function multitaskingRecord(action) {

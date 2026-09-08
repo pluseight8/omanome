@@ -273,6 +273,7 @@ Item {
   Connections { target: DesktopEntries.applications; function onValuesChanged() { root.refresh() } }
   Connections { target: Hyprland.toplevels; function onValuesChanged() { root.refresh() } }
   Connections { target: Hyprland; function onFocusedWorkspaceChanged() { root.refresh() } }
+  Connections { target: root.service; function onGestureActionRequested(action) { if (String(action || "") === "dock") root.reveal() } }
 
   Timer {
     id: hideTimer
