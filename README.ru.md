@@ -2,7 +2,7 @@
 
 Omanome — открытый набор улучшений рабочего стола для актуального Omarchy Quattro на Hyprland. Он добавляет GNOME-подобный интерфейс для touchscreen и стилуса, но остаётся обычным Omarchy Shell Plugin: стандартная верхняя панель не заменяется, второй Quickshell не запускается, GNOME Shell и Mutter не нужны.
 
-Это запускаемая релизная фаза версии 1.0.0. Ядро использует публичные API Omarchy/Quickshell/Hyprland, а дополнительные compositor-возможности подключаются только через явные version-aware companion boundaries. Нативный Wayland input helper держит одно bounded-соединение с seat/keyboard/tablet, использует xkbcommon EN/RU и честно сообщает недоступные протоколы. Если настоящего backend нет, функция остаётся явно недоступной, а не подменяется декоративной имитацией.
+Это запускаемая релизная фаза версии 1.1.0. Ядро использует публичные API Omarchy/Quickshell/Hyprland, а дополнительные compositor-возможности подключаются только через явные version-aware companion boundaries. Нативный Wayland input helper держит одно bounded-соединение с seat/keyboard/tablet, использует xkbcommon EN/RU и честно сообщает недоступные протоколы. Если настоящего backend нет, функция остаётся явно недоступной, а не подменяется декоративной имитацией.
 
 ## Экраны и возможности
 
@@ -11,6 +11,13 @@ Omanome — открытый набор улучшений рабочего ст
 - Единая ленивая панель: Overview, workspaces, launcher, Quick Settings, OSK, clipboard, notifications и Settings.
 - GNOME-подобный Overview с mosaic реальных окон, текущим workspace первым,
   dynamic/fixed strip и поиском по приложениям, окнам, настройкам и actions.
+- Планшетный multitasking с Snap Assist для halves/thirds/quarters и portrait,
+  bounded geometry preview и Split View с ratio/divider rollback.
+- Window Groups и App Pairs с сохранением layout intent, выбором duplicate window,
+  floating/mini/PiP actions и явной политикой session restore `ask`.
+- Единый координатор touchscreen-жестов, transient workspace switcher, проверка
+  конфликтов пользовательских shortcuts и monitor hotplug recovery без polling
+  geometry по кадрам и subprocess на drag event.
 - Полноценная адаптивная App Grid с настоящими desktop icons, общим с Dock
   избранным, категориями, recent ordering, folders, drag reorder и context menu.
 - First-run onboarding: input mode, позиция Dock, Overview, OSK, stylus,

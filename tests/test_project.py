@@ -34,7 +34,7 @@ class OmanomeProjectTests(unittest.TestCase):
 
     def test_manifest_preserves_the_standard_bar(self) -> None:
         manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "1.0.0")
+        self.assertEqual(manifest["version"], "1.1.0")
         self.assertNotIn("bar", manifest["kinds"])
         self.assertEqual(set(manifest["entryPoints"]), {"service", "barWidget", "panel"})
         for entry in manifest["entryPoints"].values():
@@ -45,8 +45,8 @@ class OmanomeProjectTests(unittest.TestCase):
         readme_ru = (ROOT / "README.ru.md").read_text(encoding="utf-8")
         performance = (ROOT / "docs/PERFORMANCE.md").read_text(encoding="utf-8")
         release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
-        self.assertIn("runnable 1.0.0 release", readme)
-        self.assertIn("версии 1.0.0", readme_ru)
+        self.assertIn("runnable 1.1.0 release", readme)
+        self.assertIn("версии 1.1.0", readme_ru)
         self.assertIn("ownerCpuPercent", performance)
         self.assertIn("systemCpuPercent", performance)
         self.assertIn("notify-only", performance)
@@ -110,11 +110,12 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertTrue(result["legacy"]["completed"])
         self.assertEqual(result["legacyMode"], "performance")
 
-    def test_08_to_09_input_migration_preserves_user_intent(self) -> None:
+    def test_input_and_multitasking_migrations_preserve_user_intent(self) -> None:
         result = self.run_node(
             "const C=require('./shell/models/Config.js'); "
             "const migrated=C.migrateDetailed({schemaVersion:2,performance:{mode:'performance'},keyboard:{layout:'ru',autoShow:false},stylus:{pressureCurve:'soft'},rotation:{orientation:'portrait'},tabletMode:{enabled:true}}); "
-            "console.log(JSON.stringify({applied:migrated.applied,input:migrated.config.input,keyboard:migrated.config.keyboard,stylus:migrated.config.stylus,rotation:migrated.config.rotation}));"
+            "const multitasking=C.migrateDetailed({schemaVersion:2,multitasking:{layoutPersistence:{maxRecent:3},shortcuts:{'snap-left':'CTRL+L'}}}); "
+            "console.log(JSON.stringify({applied:migrated.applied,input:migrated.config.input,keyboard:migrated.config.keyboard,stylus:migrated.config.stylus,rotation:migrated.config.rotation,multitaskingApplied:multitasking.applied,multitasking:multitasking.config.multitasking}));"
         )
         self.assertIn("input-v1", result["applied"])
         self.assertEqual(result["input"]["nativeBackend"], "auto")
@@ -123,6 +124,10 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertFalse(result["keyboard"]["autoShow"])
         self.assertEqual(result["stylus"]["pressureCurve"], "soft")
         self.assertEqual(result["rotation"]["orientation"], "portrait")
+        self.assertIn("multitasking-1.1-defaults", result["multitaskingApplied"])
+        self.assertEqual(result["multitasking"]["layoutPersistence"]["maxRecent"], 3)
+        self.assertEqual(result["multitasking"]["shortcuts"]["snap-left"], "CTRL+L")
+        self.assertIn("snap-right", result["multitasking"]["shortcuts"])
 
         service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
         panel = (ROOT / "shell/Panel.qml").read_text(encoding="utf-8")
@@ -434,7 +439,7 @@ class OmanomeProjectTests(unittest.TestCase):
         metadata = json.loads((companion / "compatibility.json").read_text(encoding="utf-8"))
         cli = (ROOT / "cli/omanome").read_text(encoding="utf-8")
         self.assertEqual(metadata["protocolVersion"], 2)
-        self.assertEqual(metadata["pluginVersion"], "1.0.0")
+        self.assertEqual(metadata["pluginVersion"], "1.1.0")
         self.assertEqual(metadata["statusIpc"], "hyprctl -j omanome-effects")
         self.assertIn("__hyprland_api_get_hash", source)
         self.assertIn("__hyprland_api_get_client_hash", source)
@@ -459,9 +464,9 @@ class OmanomeProjectTests(unittest.TestCase):
 
         result = self.run_node(
             "const C=require('./shell/models/Companion.js'); "
-            "const good={installed:true,built:true,loaded:true,protocolVersion:2,pluginVersion:'1.0.0'," \
-            "runtime:{version:'0.56.2',abi:'same'},build:{version:'0.56.2',abi:'same',pluginBuild:'1.0.0'}," \
-            "versionMatch:true,pluginBuildMatch:true,artifactHashMatch:true,compatibility:{pluginVersion:'1.0.0'}," \
+            "const good={installed:true,built:true,loaded:true,protocolVersion:2,pluginVersion:'1.1.0'," \
+            "runtime:{version:'0.56.2',abi:'same'},build:{version:'0.56.2',abi:'same',pluginBuild:'1.1.0'}," \
+            "versionMatch:true,pluginBuildMatch:true,artifactHashMatch:true,compatibility:{pluginVersion:'1.1.0'}," \
             "capabilities:{desktopCube:true}}; " \
             "const bad={...good,runtime:{abi:'new'},build:{abi:'old'}}; " \
             "const crashed={...good,crashMarker:true}; "

@@ -28,11 +28,11 @@ deterministic config projection/JSON round-trip budget check; it is not a
 frame-rate certification. `performance-check` additionally audits unbounded
 loops, fast/process polling, Lua invocations, ownership markers, and hot-path
 config writes. `hardware-test` consumes a fixture and explicitly reports
-`realHardwareValidated: false`. The 1.0 fixtures cover native tablet
+`realHardwareValidated: false`. The 1.1 fixtures cover native tablet
 pressure/tilt/distance/rotation/eraser/buttons, bounded ink, input/display
 hotplug, suspend/resume, output remap, and rollback; fixture evidence never
 certifies physical hardware.
-`multitasking-check` additionally runs the bounded multitasking model suite,
+`multitasking-check` additionally runs the bounded 1.1 multitasking model suite,
 validates the 1.1 source/config contracts, and checks the eight interactive
 scenarios as `Untested` fixture evidence; it never simulates a touchscreen or
 stylus. `version-check` verifies that the manifest,
@@ -59,7 +59,7 @@ The QML code is designed for the following manual matrix when hardware is availa
 | Scale | 1.0x through 2.0x fractional scaling |
 | Apps | GTK, Qt, Electron, terminal, browser, fullscreen client, drawing application |
 | Lifecycle | disable, safe-mode, clean install, update check/dry-run, successful update, health-failure rollback, interrupted journal recovery, rollback inventory, uninstall with and without settings |
-| 1.0 performance/lifecycle | owner-only process snapshot and watchdog, strict identity, bounded restarts/backoff, search/write debounce, panel resource release, performance modes/migration, repeated open/close fixture, native input suspend/reconnect lifecycle, portable install/update/reload/rollback/uninstall E2E |
+| 1.1 performance/lifecycle | owner-only process snapshot and watchdog, strict identity, bounded restarts/backoff, search/write debounce, panel resource release, performance modes/migration, repeated open/close fixture, native input suspend/reconnect lifecycle, portable install/update/reload/rollback/uninstall E2E, multitasking no-polling/no-drag-subprocess gate |
 | 0.7 lifecycle | transactional journal, bounded snapshots, config migration refusal, ownership manifest, dry-run/JSON uninstall, symlink refusal, support bundle redaction |
 | 0.6 surfaces retained | responsive Overview/App Grid/Dock, Settings deep links, onboarding migration, accessibility semantics, multi-signal Tablet Mode |
 | 0.6 effects retained | real layer-rule blur, native toplevel Coverflow, compositor-owned ScreencopyView streams, public-API Wobbly workbuffer renderer, external cube detection |

@@ -2,7 +2,7 @@
 
 Omanome is an open-source, GNOME-inspired touch and stylus enhancement suite for the current Omarchy Quattro shell on Hyprland. It is intentionally an Omarchy plugin, not a replacement desktop session: the standard Omarchy bar remains in charge of the top edge, the existing Quickshell process hosts the plugin, and all plugin state is namespaced under `io.omanome.shell`.
 
-This repository is the runnable 1.0.0 release. It uses public Omarchy/Quickshell/Hyprland interfaces for the core and explicit, version-aware optional compositor integrations for advanced effects. The native Wayland input helper owns one bounded seat/keyboard/tablet connection, supports xkbcommon EN/RU layouts, and reports unavailable compositor protocols honestly. Features without a real backend remain visibly unavailable rather than becoming fake overlays.
+This repository is the runnable 1.1.0 release. It uses public Omarchy/Quickshell/Hyprland interfaces for the core and explicit, version-aware optional compositor integrations for advanced effects. The native Wayland input helper owns one bounded seat/keyboard/tablet connection, supports xkbcommon EN/RU layouts, and reports unavailable compositor protocols honestly. Features without a real backend remain visibly unavailable rather than becoming fake overlays.
 
 ## What is Omanome
 
@@ -19,6 +19,13 @@ namespaced `io.omanome.shell` / `omanome` paths.
 - One lazy-loaded panel with Overview, workspaces, launcher, quick settings, OSK, clipboard, notifications, and settings views.
 - GNOME-like Overview with current-workspace-first mosaic windows, dynamic/fixed
   workspace strip, real app/window/settings/action search, and native activation.
+- Tablet multitasking with Snap Assist halves, thirds, quarters, portrait
+  layouts, bounded geometry previews, and Split View ratios/divider rollback.
+- Window Groups and App Pairs with persistent layout intent, duplicate-window
+  choice, floating/mini/PiP actions, and an explicit `ask` session-restore policy.
+- Unified touchscreen gesture arbitration, a transient workspace switcher,
+  user-owned shortcut conflict checks, and monitor hotplug recovery without
+  per-frame geometry polling or subprocesses on drag events.
 - A full adaptive App Grid with real desktop icons, shared favorites with Dock,
   recent ordering, categories, folders, drag reorder, context actions, and
   keyboard/touch navigation.

@@ -1,5 +1,81 @@
 # Changelog
 
+## 1.1.0
+
+### Highlights
+
+- Delivers the tablet multitasking release while preserving the standard
+  Omarchy bar, the existing Quickshell host, and normal Hyprland ownership.
+- Adds portable safety evidence for snap, split, group, gesture, workspace,
+  and multi-monitor state without claiming GUI or physical-device certification.
+
+### Multitasking
+
+- Adds bounded Snap Assist layout families for halves, thirds, quarters,
+  portrait, gaps, reserved bar space, fractional scale, and minimum geometry.
+- Adds Split View with a large divider handle, clamped ratios, portrait
+  conversion, second-window selection, and transaction rollback on rejection.
+- Connects Dock, Overview, and App Grid drops to split slots with deterministic
+  application matching and no arbitrary app insertion.
+- Adds floating, mini-window, picture-in-picture, edge-snap, and per-monitor
+  placement policies through explicit context actions.
+
+### Window groups and App Pairs
+
+- Adds bounded Omanome-managed Window Groups and App Pairs with duplicate-window
+  choice, close/break handling, workspace movement, persistence, and monitor
+  recovery.
+- Session restore remains `ask` by default; metadata stores app identities and
+  layout intent, never live PIDs, addresses, titles, or stale window handles.
+
+### Gestures
+
+- Adds one event-driven gesture coordinator for touchscreen navigation, edge
+  actions, workspace switching, Overview, Dock, Quick Settings, and back.
+- Keeps touchpad gestures opt-in and separate from touchscreen policy, with
+  thresholds, velocity, hysteresis, cancellation, reduced-motion handling,
+  fullscreen/game/drawing-app suppression, and presentation/touch locks.
+- Adds the transient workspace switcher overlay and user-owned shortcut
+  conflict checks without silently rewriting Hyprland bindings.
+
+### Multi-monitor
+
+- Adds active-output snap geometry, scale/orientation-aware layout conversion,
+  hotplug recovery, and bounded movement back inside a surviving output.
+- Reconciles groups, split pairs, overlays, and saved layouts after monitor
+  removal or reappearance without continuously forcing geometry.
+
+### Tablet
+
+- Adds a large-card tablet switcher with swipe navigation and explicit close
+  policy, plus bounded recent/saved layout persistence.
+- Keeps portrait/landscape behavior, stylus drag thresholds, native tablet
+  semantics, rotation rollback, and capability-driven unavailable states.
+
+### Performance
+
+- Adds a portable multitasking safety gate covering no subprocess per drag,
+  no polling loop, bounded update lanes, stable process ownership, and
+  debounced persistence.
+- Keeps idle CPU, process-count, subprocess-rate, input, companion, privacy,
+  update, rollback, and uninstall invariants as release blockers.
+
+### Fixes
+
+- Completes the 1.0.0 to 1.1.0 configuration migration for tablet switcher,
+  layout persistence, and multitasking shortcuts while preserving user values.
+- Aligns manifest, companion, native helper, diagnostics, documentation, and
+  stable update fixtures on the same release version.
+
+### Known limitations
+
+- The committed multitasking fixture is portable contract evidence, not a
+  certification artifact. No physical touchscreen, stylus, sensor, external
+  monitor, suspend/resume matrix, or loaded optional companion was available.
+- Live previews, sensor auto-rotation, handwriting recognition, Wobbly, and
+  other optional capabilities remain unavailable or untested when their real
+  host backend is absent; no fake screenshots or cloud telemetry are used.
+
 ## 1.0.0
 
 ### Highlights

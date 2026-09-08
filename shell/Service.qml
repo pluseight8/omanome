@@ -2179,7 +2179,7 @@ Item {
 
   function statusObject() {
     return {
-      version: root.manifest ? String(root.manifest.version || "1.0.0") : "1.0.0",
+      version: root.manifest ? String(root.manifest.version || "1.1.0") : "1.1.0",
       quickshell: String(Quickshell.env("QUICKSHELL_VERSION") || "host-provided"),
       service: "ready",
       safeMode: root.safeMode,

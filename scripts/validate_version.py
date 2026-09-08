@@ -28,6 +28,10 @@ def main() -> int:
     compatibility = load_json(ROOT / "hypr/omanome-hypr/compatibility.json")
     defaults = load_json(ROOT / "config/defaults.json")
     schema = load_json(ROOT / "config/schema.json")
+    companion_source = (ROOT / "hypr/omanome-hypr/omanome-hypr.cpp").read_text(encoding="utf-8")
+    native_manifest = (ROOT / "input/omanome-input/Cargo.toml").read_text(encoding="utf-8")
+    native_lock = (ROOT / "input/omanome-input/Cargo.lock").read_text(encoding="utf-8")
+    native_source = (ROOT / "input/omanome-input/src/main.rs").read_text(encoding="utf-8")
     version = str(manifest.get("version", ""))
     errors: list[str] = []
     if not SEMVER.fullmatch(version):
@@ -38,6 +42,14 @@ def main() -> int:
         errors.append("companion pluginVersion is out of sync")
     if compatibility.get("build", {}).get("pluginBuild") != version:
         errors.append("companion build.pluginBuild is out of sync")
+    if f'constexpr std::string_view kPluginVersion = "{version}";' not in companion_source:
+        errors.append("companion source version is out of sync")
+    if not re.search(rf'^version\s*=\s*"{re.escape(version)}"$', native_manifest, re.MULTILINE):
+        errors.append("native helper Cargo.toml version is out of sync")
+    if f'name = "omanome-input"\nversion = "{version}"' not in native_lock:
+        errors.append("native helper Cargo.lock version is out of sync")
+    if f'omanome-input {{PROTOCOL_VERSION}} ({version})' not in native_source:
+        errors.append("native helper runtime version is out of sync")
     if defaults.get("schemaVersion") != 2 or schema.get("properties", {}).get("schemaVersion", {}).get("const") != 2:
         errors.append("config schema must remain at schemaVersion 2")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
