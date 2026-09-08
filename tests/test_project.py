@@ -711,6 +711,28 @@ class OmanomeProjectTests(unittest.TestCase):
         self.assertIn("snapZonesForTarget", launcher)
         self.assertIn("snapWindowToZone", overview)
 
+    def test_window_groups_are_persistent_metadata_only_and_service_wired(self) -> None:
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        groups = (ROOT / "shell/models/WindowGroups.js").read_text(encoding="utf-8")
+        defaults = json.loads((ROOT / "config/defaults.json").read_text(encoding="utf-8"))
+        schema = json.loads((ROOT / "config/schema.json").read_text(encoding="utf-8"))
+
+        self.assertIn('import "models/WindowGroups.js" as WindowGroupsModel', service)
+        for marker in ("loadWindowGroups", "persistWindowGroups", "reconcileWindowGroups", "createWindowGroup", "saveAppPair", "breakWindowGroup", "windowGroupSummaries"):
+            self.assertIn(marker, service)
+        self.assertIn("WindowGroupsModel.metadataList", service)
+        self.assertIn("root.reconcileWindowGroups()", service)
+        self.assertIn("multitasking", defaults)
+        self.assertIn("multitasking", schema["properties"])
+        self.assertIn("sessionRestore", defaults["multitasking"])
+        self.assertEqual(defaults["multitasking"]["sessionRestore"], "ask")
+        self.assertIn("metadataList", groups)
+        self.assertIn("runtime", groups)
+        persistent_section = groups.split("function metadata", 1)[1].split("function normalizeList", 1)[0]
+        self.assertNotIn("identity", persistent_section)
+        self.assertNotIn("address", persistent_section)
+        self.assertNotIn("pid", persistent_section)
+
     def test_native_omarchy_validator_when_available(self) -> None:
         omarchy = shutil.which("omarchy")
         if not omarchy:

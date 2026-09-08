@@ -276,7 +276,13 @@
   },
   "altTab": {
     "style": "coverflow",
-    "modes": ["coverflow", "carousel", "gnome", "grid", "compact"],
+    "modes": [
+      "coverflow",
+      "carousel",
+      "gnome",
+      "grid",
+      "compact"
+    ],
     "groupByApp": true,
     "scope": "current-workspace",
     "perspective": 0.8,
@@ -326,17 +332,39 @@
     "border": true,
     "shadow": true,
     "surfaces": {
-      "dock": { "enabled": true },
-      "overview": { "enabled": true },
-      "launcher": { "enabled": true },
-      "quickSettings": { "enabled": true },
-      "notifications": { "enabled": true },
-      "clipboard": { "enabled": true },
-      "altTab": { "enabled": true },
-      "osk": { "enabled": true },
-      "settings": { "enabled": true },
-      "windowControls": { "enabled": true },
-      "annotation": { "enabled": true }
+      "dock": {
+        "enabled": true
+      },
+      "overview": {
+        "enabled": true
+      },
+      "launcher": {
+        "enabled": true
+      },
+      "quickSettings": {
+        "enabled": true
+      },
+      "notifications": {
+        "enabled": true
+      },
+      "clipboard": {
+        "enabled": true
+      },
+      "altTab": {
+        "enabled": true
+      },
+      "osk": {
+        "enabled": true
+      },
+      "settings": {
+        "enabled": true
+      },
+      "windowControls": {
+        "enabled": true
+      },
+      "annotation": {
+        "enabled": true
+      }
     }
   },
   "effects": {
@@ -441,7 +469,7 @@
     "cancelButton": true,
     "stylusSecondaryButton": true
   },
-    "rotation": {
+  "rotation": {
     "enabled": true,
     "lock": false,
     "orientation": "auto",

@@ -33,6 +33,7 @@
     "dock": { "type": "object" },
     "overview": { "type": "object" },
     "launcher": { "type": "object" },
+    "multitasking": { "type": "object" },
     "keyboard": { "type": "object" },
     "clipboard": { "type": "object" },
     "notifications": { "type": "object" },

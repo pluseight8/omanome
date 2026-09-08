@@ -29,6 +29,7 @@ import "models/LayoutEngine.js" as LayoutEngineModel
 import "models/SnapAssist.js" as SnapAssistModel
 import "models/SplitView.js" as SplitViewModel
 import "models/WindowMatcher.js" as WindowMatcherModel
+import "models/WindowGroups.js" as WindowGroupsModel
 
 // Omanome's one shared service. It is deliberately headless: all visible
 // surfaces are summoned through the existing Omarchy shell host, so Omanome
@@ -163,6 +164,9 @@ Item {
   property int multitaskingRevision: 0
   property var multitaskingLaunch: null
   property var multitaskingLaunchTarget: null
+  property var windowGroups: []
+  property var windowGroupEvents: []
+  property var windowGroupRestorePlan: null
   property string blurRuleSignature: ""
   property string lastInput: "keyboard"
   property string inputCandidate: ""
@@ -1233,6 +1237,41 @@ Item {
     return true
   }
 
+  function loadWindowGroups() {
+    var result = WindowGroupsModel.restore(root.cfg("multitasking.groups", []))
+    if (result.ok !== true) {
+      root.windowGroups = []
+      root.windowGroupEvents = [{ type: "load", reason: result.reason || "invalid-groups" }]
+      root.windowGroupRestorePlan = null
+      return false
+    }
+    root.windowGroups = WindowGroupsModel.normalizeList(result.groups)
+    root.windowGroupEvents = []
+    root.windowGroupRestorePlan = null
+    return true
+  }
+
+  function persistWindowGroups() {
+    if (!root.configReady || root._loadingConfig || ["ok", "fresh", "migrated"].indexOf(root.configLoadStatus) < 0) return false
+    var saved = (Array.isArray(root.windowGroups) ? root.windowGroups : []).filter(function(group) { return group && group.persistent !== false })
+    root.config = Config.set(root.config, "multitasking.groups", WindowGroupsModel.metadataList(saved))
+    root.saveConfig()
+    root.configUpdated("multitasking.groups")
+    return true
+  }
+
+  function prepareWindowGroupRestore() {
+    var result = WindowGroupsModel.restorePlan(
+      root.windowGroups,
+      root.clients,
+      root.cfg("multitasking.sessionRestore", "ask"),
+      Date.now(),
+      { safeMode: root.safeMode, duplicatePolicy: root.cfg("multitasking.duplicatePolicy", "ask") }
+    )
+    root.windowGroupRestorePlan = result
+    return result
+  }
+
   function loadConfig(raw) {
     root._loadingConfig = true
     var loaded = Config.loadDetailed(raw)
@@ -1254,8 +1293,10 @@ Item {
       root.configMigration = { applied: loaded.applied || [], from: loaded.from, to: loaded.to }
       root.safeMode = false
     }
+    root.loadWindowGroups()
     root._loadingConfig = false
     root.configReady = true
+    root.prepareWindowGroupRestore()
     root.startDeviceMonitor()
     root.startSessionMonitor()
     if (root.cfg("clipboard.privateMode", false) || root.cfg("privacy.clipboardPrivate", false))
@@ -1281,6 +1322,8 @@ Item {
     root.config = Config.set(root.config, path, value)
     root.saveConfig()
     root.configUpdated(String(path))
+    if (String(path) === "multitasking.groups") root.loadWindowGroups()
+    if (String(path).indexOf("multitasking.sessionRestore") === 0 || String(path) === "multitasking.groups") root.prepareWindowGroupRestore()
     if (String(path) === "keyboard.layout") root.setInputLanguage(String(value || "auto"))
     if (String(path).indexOf("clipboard.") === 0 || String(path).indexOf("privacy.clipboard") === 0) {
       if (root.cfg("clipboard.privateMode", false) || root.cfg("privacy.clipboardPrivate", false)) root.stopClipboardWatchers()
@@ -1329,6 +1372,7 @@ Item {
 
   function resetConfig() {
     root.config = Config.defaults()
+    root.loadWindowGroups()
     root.saveConfig()
     root.startClipboardWatchers()
     root.syncNativeInputLanguage()
@@ -1340,6 +1384,7 @@ Item {
     root.wobblyConfigSynced = false
     root.wobblyConfigFailed = false
     root.applyBlurRules()
+    root.prepareWindowGroupRestore()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -2006,6 +2051,7 @@ Item {
 
   function updateClients(raw) {
     root.clients = parseJson(raw, [])
+    root.reconcileWindowGroups()
     root.resolveMultitaskingLaunch()
     if (root.hyprlandAvailable) root.applyTouchIntegration()
     root.performanceState = PerformanceModel.snapshot(root.cfg("performance", {}), root.performanceContext())
@@ -2139,7 +2185,9 @@ Item {
           reason: String(root.multitaskingLaunch.reason || ""),
           deadline: Number(root.multitaskingLaunch.deadline || 0),
           attempts: Number(root.multitaskingLaunch.attempts || 0)
-        } : null
+        } : null,
+        groups: root.windowGroupSummaries(),
+        sessionRestore: root.windowGroupRestoreSummary()
       },
       performance: root.performanceState,
       preview: {
@@ -2181,7 +2229,9 @@ Item {
         splitRatio: root.splitViewState ? Number(root.splitViewState.ratio || 0) : 0,
         lastAction: String(root.multitaskingLastAction.type || "none"),
         launchPending: !!root.multitaskingLaunch,
-        launchAppId: root.multitaskingLaunch ? String(root.multitaskingLaunch.appId || "") : ""
+        launchAppId: root.multitaskingLaunch ? String(root.multitaskingLaunch.appId || "") : "",
+        groups: root.windowGroupSummaries(),
+        sessionRestore: root.windowGroupRestoreSummary()
       },
       companion: { installed: companion.installed === true, built: companion.built === true, loaded: companion.loaded === true, compatible: companion.compatible === true, crashMarker: companion.crashMarker === true, abiMatch: companion.abiMatch === true },
       effects: { blur: root.effectBackend.layerRulesAvailable === true, livePreview: root.livePreviewState.available === true, wobbly: root.effectCapabilities.wobblyWindows === true, cube: root.effectCapabilities.desktopCube === true },
@@ -2381,7 +2431,7 @@ Item {
     var split = root.cfg("multitasking.splitView", {})
     var customLayouts = root.cfg("multitasking.customLayouts", [])
     return {
-      enabled: root.cfg("multitasking.enabled", true) !== false,
+      enabled: root.cfg("multitasking.enabled", true) !== false && snap.enabled !== false,
       gap: Number(root.cfg("multitasking.gap", 12)),
       layouts: root.cfg("multitasking.layouts", []),
       customLayouts: Array.isArray(customLayouts) ? customLayouts : [],
@@ -2393,7 +2443,10 @@ Item {
       dividerAutoHideMs: Number(split.autoHideMs !== undefined ? split.autoHideMs : root.cfg("multitasking.splitView.autoHideMs", 1800)),
       dividerHandleSize: Number(split.handleSize !== undefined ? split.handleSize : root.cfg("multitasking.splitView.handleSize", 48)),
       defaultRatio: String(split.defaultRatio || root.cfg("multitasking.splitView.defaultRatio", "50/50")),
-      minSize: root.cfg("multitasking.minimumWindowSize", {})
+      minSize: root.cfg("multitasking.minimumWindowSize", {}),
+      groupClosePolicy: String(root.cfg("multitasking.closePolicy", "keep")),
+      groupMonitorPolicy: String(root.cfg("multitasking.monitorPolicy", "active")),
+      sessionRestore: WindowGroupsModel.restorePolicy(root.cfg("multitasking.sessionRestore", "ask"))
     }
   }
 
@@ -2447,6 +2500,142 @@ Item {
     root.multitaskingRevision++
     root.stateUpdated()
     return action
+  }
+
+  function windowGroupById(groupId) {
+    var wanted = String(groupId || "")
+    var list = Array.isArray(root.windowGroups) ? root.windowGroups : []
+    for (var i = 0; i < list.length; i++) if (list[i] && String(list[i].id || "") === wanted) return list[i]
+    return null
+  }
+
+  function windowGroupForWindow(window) {
+    var identity = root.multitaskingWindowIdentity(window)
+    if (!identity) return null
+    var list = Array.isArray(root.windowGroups) ? root.windowGroups : []
+    for (var i = 0; i < list.length; i++) {
+      var members = list[i] && list[i].runtime ? list[i].runtime.memberIds : []
+      if (Array.isArray(members) && members.indexOf(identity) >= 0) return list[i]
+    }
+    return null
+  }
+
+  function windowGroupSummaries() {
+    var list = Array.isArray(root.windowGroups) ? root.windowGroups : []
+    return list.slice(0, WindowGroupsModel.MAX_GROUPS).map(function(group) {
+      var item = group || {}
+      var layout = item.layout || {}
+      var runtime = item.runtime || {}
+      return {
+        id: String(item.id || ""),
+        type: String(item.type || "split-pair"),
+        name: String(item.name || "Window group"),
+        apps: Array.isArray(item.apps) ? item.apps.slice(0, WindowGroupsModel.MAX_MEMBERS) : [],
+        persistent: item.persistent !== false,
+        status: String(runtime.status || "idle"),
+        memberCount: Array.isArray(runtime.memberIds) ? runtime.memberIds.length : 0,
+        layout: { id: String(layout.id || "split"), orientation: String(layout.orientation || "auto"), ratio: String(layout.ratio || "50/50") },
+        targetWorkspace: String(item.preferences && item.preferences.targetWorkspace || ""),
+        monitorPolicy: String(item.preferences && item.preferences.monitorPolicy || "active")
+      }
+    })
+  }
+
+  function windowGroupRestoreSummary() {
+    var plan = root.windowGroupRestorePlan || {}
+    return {
+      policy: String(plan.decision && plan.decision.policy || root.cfg("multitasking.sessionRestore", "ask")),
+      reason: String(plan.decision && plan.decision.reason || "not-prepared"),
+      requiresConfirmation: plan.decision && plan.decision.requiresConfirmation === true,
+      plans: Array.isArray(plan.plans) ? plan.plans.slice(0, WindowGroupsModel.MAX_GROUPS) : []
+    }
+  }
+
+  function createWindowGroup(type, windows, options) {
+    var settings = Object.assign({}, options || {})
+    var kind = String(type || settings.type || "split-pair")
+    if (root.cfg("multitasking.enabled", true) === false)
+      return root.multitaskingRecord({ type: "group-create", ok: false, reason: "disabled" })
+    if (root.safeMode && kind === "app-pair")
+      return root.multitaskingRecord({ type: "group-create", ok: false, reason: "safe-mode" })
+    var result = WindowGroupsModel.createGroup(kind, windows, settings, Date.now())
+    if (result.ok !== true)
+      return root.multitaskingRecord({ type: "group-create", ok: false, reason: result.reason || "invalid-group" })
+    var next = Array.isArray(root.windowGroups) ? root.windowGroups.filter(function(group) { return String(group.id || "") !== String(result.group.id) }) : []
+    next.push(result.group)
+    root.windowGroups = WindowGroupsModel.normalizeList(next)
+    if (result.group.persistent !== false) root.persistWindowGroups()
+    root.multitaskingRecord({ type: "group-create", ok: true, groupId: result.group.id, groupType: result.group.type, appCount: result.group.apps.length, memberCount: result.group.runtime.memberIds.length })
+    return result.group
+  }
+
+  function saveAppPair(appIds, options) {
+    var settings = Object.assign({}, options || {}, { apps: Array.isArray(appIds) ? appIds : [], persistent: true })
+    return root.createWindowGroup("app-pair", [], settings)
+  }
+
+  function removeWindowGroup(groupId) {
+    var group = root.windowGroupById(groupId)
+    if (!group) return root.multitaskingRecord({ type: "group-remove", ok: false, reason: "group-not-found" })
+    root.windowGroups = WindowGroupsModel.removeGroup(root.windowGroups, group.id)
+    root.persistWindowGroups()
+    return root.multitaskingRecord({ type: "group-remove", ok: true, groupId: group.id })
+  }
+
+  function breakWindowGroup(groupId) {
+    return root.removeWindowGroup(groupId)
+  }
+
+  function reconcileWindowGroups() {
+    var result = WindowGroupsModel.reconcile(
+      root.windowGroups,
+      root.clients,
+      Date.now(),
+      { duplicatePolicy: root.cfg("multitasking.duplicatePolicy", "ask") }
+    )
+    root.windowGroups = result.groups
+    root.windowGroupEvents = result.events || []
+    for (var i = 0; i < root.windowGroupEvents.length; i++) {
+      var event = root.windowGroupEvents[i]
+      if (!event || event.type !== "break" || !root.splitViewState || root.splitViewWindows.length < 1) continue
+      var splitGroup = root.windowGroupForWindow(root.splitViewWindows[0])
+      if (splitGroup && splitGroup.id === event.groupId) {
+        root.splitViewState = null
+        root.splitViewWindows = []
+      }
+    }
+    if (result.events && result.events.length > 0) root.multitaskingRevision++
+    return result
+  }
+
+  function syncSplitWindowGroup(windows, options) {
+    var list = Array.isArray(windows) ? windows.slice(0, 2) : []
+    var settings = Object.assign({}, options || {})
+    var created = WindowGroupsModel.createGroup("split-pair", list, {
+      id: settings.id || ("split-runtime-" + String(root.multitaskingRevision + 1)),
+      ratio: settings.ratio || settings.defaultRatio || root.cfg("multitasking.splitView.defaultRatio", "50/50"),
+      persistent: settings.persistent === true
+    }, Date.now())
+    if (created.ok !== true) return false
+    var wanted = created.group.runtime.memberIds.slice().sort().join("|")
+    var next = Array.isArray(root.windowGroups) ? root.windowGroups.slice() : []
+    var found = -1
+    for (var i = 0; i < next.length; i++) {
+      var current = next[i] || {}
+      var currentIds = current.runtime && Array.isArray(current.runtime.memberIds) ? current.runtime.memberIds.slice().sort().join("|") : ""
+      if (current.type === "split-pair" && currentIds && currentIds === wanted) { found = i; break }
+    }
+    if (found < 0) next.push(created.group)
+    else {
+      var existing = next[found]
+      next[found] = WindowGroupsModel.normalizeGroup(Object.assign({}, existing, {
+        layout: Object.assign({}, existing.layout || {}, { ratio: created.group.layout.ratio }),
+        runtime: created.group.runtime,
+        updatedAt: Date.now()
+      }), found)
+    }
+    root.windowGroups = WindowGroupsModel.normalizeList(next)
+    return root.windowGroups[found < 0 ? root.windowGroups.length - 1 : found]
   }
 
   function beginSnapAssist(window, kind, start, options) {
@@ -2551,6 +2740,13 @@ Item {
     return root.availableSnapZones(kind || root.lastInput, options).filter(function(zone) { return String(zone.monitorName || "") === wanted })
   }
 
+  function snapZonesForTarget(window, kind, options) {
+    if (window) return root.snapZonesForWindow(window, kind, options)
+    var zones = root.availableSnapZones(kind || root.lastInput, options)
+    var firstMonitor = zones.length > 0 ? String(zones[0].monitorName || "") : ""
+    return zones.filter(function(zone) { return String(zone.monitorName || "") === firstMonitor })
+  }
+
   function multitaskingHalfZone(window, side) {
     var monitor = root.multitaskingMonitorForWindow(window)
     var portrait = Number(monitor.width || 0) < Number(monitor.height || 0)
@@ -2589,6 +2785,7 @@ Item {
     var monitor = settings.monitor || root.multitaskingMonitorForWindow(list[0])
     root.splitViewWindows = list.slice(0, 2)
     root.splitViewState = SplitViewModel.createState(monitor, ids, settings)
+    root.syncSplitWindowGroup(root.splitViewWindows, { ratio: root.splitViewState.ratioName })
     root.multitaskingRecord({ type: "split-create", ok: true, ratio: root.splitViewState.ratioName, axis: root.splitViewState.pair.axis })
     return root.splitViewState
   }
@@ -2722,6 +2919,7 @@ Item {
     var result = SplitViewModel.commit(root.splitViewState, applied)
     root.splitViewState = result.state
     if (!result.ok && result.rolledBack && applied.applied > 0) root.applySplitPair(result.pair, root.splitViewWindows)
+    if (result.ok) root.syncSplitWindowGroup(root.splitViewWindows, { ratio: root.splitViewState.ratioName })
     return root.multitaskingRecord({ type: "split-commit", ok: result.ok, reason: result.reason || "committed", rolledBack: result.rolledBack === true, applied: applied })
   }
 
