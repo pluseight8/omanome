@@ -199,6 +199,19 @@ class LayoutEngineTests(unittest.TestCase):
         self.assertTrue(result["same"])
         self.assertEqual(result["phase"], "rolled-back")
 
+    def test_initial_split_apply_uses_the_same_transaction_boundary(self) -> None:
+        result = self.run_node(
+            "const S=require('./shell/models/SplitView.js'); "
+            "let state=S.createState({name:'main',width:1600,height:1000},['a','b'],{ratio:'50/50'}); "
+            "state=S.beginApply(state,{}); const committed=S.commit(state,{ok:true}); "
+            "console.log(JSON.stringify({phase:state.phase,status:state.transaction.status,ok:committed.ok,final:committed.state.phase,ids:committed.pair.slots.map(x=>x.windowId)}));"
+        )
+        self.assertEqual(result["phase"], "applying")
+        self.assertEqual(result["status"], "active")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["final"], "committed")
+        self.assertEqual(result["ids"], ["a", "b"])
+
     def test_divider_autohide_is_event_driven_and_input_proximity_reveals_it(self) -> None:
         result = self.run_node(
             "const S=require('./shell/models/SplitView.js'); "

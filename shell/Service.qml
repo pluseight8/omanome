@@ -2582,6 +2582,8 @@ Item {
 
   function splitWindows(windows, options) {
     if (!root.createSplitView(windows, options)) return false
+    SplitViewModel.setLayoutEngine(LayoutEngineModel)
+    root.splitViewState = SplitViewModel.beginApply(root.splitViewState, Object.assign(root.multitaskingOptions(), options || {}))
     return root.commitSplitView().ok === true
   }
 

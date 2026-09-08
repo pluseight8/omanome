@@ -245,9 +245,26 @@ function updateDividerDrag(state, point, options) {
 function begin(state) { return beginDividerDrag.apply(null, arguments) }
 function update(state) { return updateDividerDrag.apply(null, arguments) }
 
+// Initial pair placement is also transactional, but it has no divider
+// pointer yet.  Keep this separate from beginDividerDrag so callers cannot
+// accidentally turn a normal split request into a synthetic pointer event.
+function beginApply(state, options) {
+  var source = clone(state || {})
+  if (!source.pair || !Array.isArray(source.pair.slots) || source.pair.slots.length < 2)
+    return Object.assign(source, { phase: "blocked", error: "split-pair-required" })
+  if (source.transaction && source.transaction.status === "active") return source
+  var settings = Object.assign({}, source.options || {}, options || {})
+  source.phase = "applying"
+  source.error = ""
+  source.options = settings
+  source.transaction = { status: "active", baseline: clone(source.committedPair || source.pair), candidate: clone(source.pair), reason: "initial-layout" }
+  source.divider = Object.assign(source.divider || {}, { active: true, visible: true, opacity: 1, near: false })
+  return source
+}
+
 function commit(state, result) {
   var source = clone(state || {})
-  if (source.phase !== "dragging" || !source.transaction || source.transaction.status !== "active")
+  if (["dragging", "applying"].indexOf(source.phase) < 0 || !source.transaction || source.transaction.status !== "active")
     return { ok: false, reason: "no-active-transaction", state: source }
   if (result === false || (result && result.ok === false)) return rollback(source, result && result.reason || "apply-failed")
   source.phase = "committed"
@@ -359,6 +376,7 @@ var api = {
   updateDividerDrag: updateDividerDrag,
   begin: begin,
   update: update,
+  beginApply: beginApply,
   chooseRatio: chooseRatio,
   commit: commit,
   rollback: rollback,
