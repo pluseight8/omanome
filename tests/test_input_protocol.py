@@ -24,6 +24,7 @@ class InputProtocolContractTests(unittest.TestCase):
         cls.osk = (ROOT / "shell/views/Osk.qml").read_text(encoding="utf-8")
         cls.osk_policy = (ROOT / "shell/models/OskPolicy.js").read_text(encoding="utf-8")
         cls.devices = (ROOT / "shell/models/InputDevices.js").read_text(encoding="utf-8")
+        cls.keyboard_devices = (ROOT / "shell/models/KeyboardDevices.js").read_text(encoding="utf-8")
         cls.tablet_mode = (ROOT / "shell/models/TabletMode.js").read_text(encoding="utf-8")
         cls.stylus_input = (ROOT / "shell/models/StylusInput.js").read_text(encoding="utf-8")
         cls.mapping = (ROOT / "shell/models/Mapping.js").read_text(encoding="utf-8")
@@ -149,6 +150,37 @@ class InputProtocolContractTests(unittest.TestCase):
         self.assertIn("--property", monitor)
         self.assertNotIn("wtype", monitor)
         self.assertIn("device.event", monitor)
+
+    def test_keyboard_classification_uses_capabilities_and_form_factor(self) -> None:
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        expression = (
+            "const K=require('./shell/models/KeyboardDevices.js'); "
+            "const rows=K.classify({keyboards:["
+            "{name:'Built-in keyboard',type:'keyboard',bus:'i2c',vendorId:'1',productId:'2'},"
+            "{name:'Keyboard cover',type:'keyboard',detachable:true,transport:'pogo-pin',vendorId:'3',productId:'4',serial:'PRIVATE-COVER'},"
+            "{name:'Dock keyboard',type:'keyboard',dock:true,transport:'usb-c-dock',vendorId:'5',productId:'6'},"
+            "{name:'Wireless keyboard',type:'keyboard',transport:'bluetooth',address:'AA:BB:CC:DD:EE:FF',capabilities:['keyboard','KEY_A']},"
+            "{name:'Volume buttons',type:'consumer-control',capabilities:{keyboard:true,volume:true}},"
+            "{name:'Game controller',type:'gamepad',capabilities:{keyboard:true}},"
+            "{name:'Number pad',type:'keyboard',numpadOnly:true,capabilities:{keyboard:true}},"
+            "{name:'Keyboard'}]}); "
+            "console.log(JSON.stringify({rows,summary:K.summary(rows)}));"
+        )
+        result = subprocess.run([node, "-e", expression], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(len(payload["rows"]), 4)
+        self.assertEqual([row["formFactorRelation"] for row in payload["rows"]], ["built-in", "detachable", "dock", "external"])
+        self.assertEqual([row["transport"] for row in payload["rows"]], ["i2c", "pogo-pin", "usb-c-dock", "bluetooth"])
+        self.assertTrue(all("PRIVATE-COVER" not in row["id"] for row in payload["rows"]))
+        self.assertTrue(all("AA:BB:CC:DD:EE:FF" not in row["id"] for row in payload["rows"]))
+        self.assertFalse(any(row["name"] == "Keyboard" for row in payload["rows"]))
+        self.assertIn("KeyboardDevicesModel.classify", self.service)
+        self.assertIn("capabilities", self.keyboard_devices)
+        self.assertIn("numpad-only input", self.keyboard_devices)
+        self.assertIn("device names are useful", self.keyboard_devices.lower())
 
     def test_native_stylus_state_is_bounded_and_provider_is_honest(self) -> None:
         node = shutil.which("node")

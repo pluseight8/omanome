@@ -20,6 +20,7 @@ import "models/Lifecycle.js" as LifecycleModel
 import "models/Rotation.js" as RotationModel
 import "models/Touch.js" as TouchModel
 import "models/InputDevices.js" as InputDevicesModel
+import "models/KeyboardDevices.js" as KeyboardDevicesModel
 import "models/Responsive.js" as ResponsiveModel
 import "models/Input.js" as InputModel
 import "models/OskPolicy.js" as OskPolicy
@@ -280,6 +281,10 @@ Item {
     signals.stylus = root.hasStylus && root.cfg("stylus.enabled", true) === true
     signals.orientation = root.orientation
     signals.externalMonitor = Array.isArray(root.monitors) && root.monitors.length > 1
+    signals.physicalKeyboard = root.keyboardDevices.length > 0
+    signals.detachableKeyboard = root.hasDetachableKeyboard
+    signals.bluetoothKeyboard = root.hasBluetoothKeyboard
+    signals.externalKeyboard = root.keyboardDevices.some(function(device) { return device && device.formFactorRelation !== "built-in" })
     return signals
   }
 
@@ -340,6 +345,10 @@ Item {
   function featureEnabled(id) {
     var row = root.featureState(id)
     return !!row && row.effectiveEnabled === true
+  }
+
+  function keyboardDeviceSummaries() {
+    return KeyboardDevicesModel.summary(root.keyboardDevices)
   }
 
   function releaseOmanomeInput(reason) {
@@ -2213,10 +2222,10 @@ Item {
     root.hasTouchscreen = touches.length > 0 || root.inputDeviceState.devices.some(function(item) { return item.role === "touchscreen" })
     root.stylusDevices = styluses
     root.hasStylus = styluses.length > 0
-    root.keyboardDevices = StylusModel.classifyKeyboards(parsed.keyboards)
+    root.keyboardDevices = KeyboardDevicesModel.classify(parsed)
     root.hasPhysicalKeyboard = root.keyboardDevices.length > 0
-    root.hasDetachableKeyboard = root.keyboardDevices.some(function(device) { return StylusModel.isDetachableKeyboard(device.raw || device) })
-    root.hasBluetoothKeyboard = root.keyboardDevices.some(function(device) { return StylusModel.isBluetoothKeyboard(device.raw || device) })
+    root.hasDetachableKeyboard = root.keyboardDevices.some(function(device) { return device && device.formFactorRelation === "detachable" })
+    root.hasBluetoothKeyboard = root.keyboardDevices.some(function(device) { return device && device.transport === "bluetooth" })
     root.updateInputMapping()
     root.refreshStylusInputPolicy()
     root.reconcileOskPolicy()
@@ -2411,6 +2420,7 @@ Item {
       bluetoothKeyboard: root.hasBluetoothKeyboard,
       tabletMode: { mode: root.effectiveMode, switchAvailable: root.tabletSwitchAvailable, switchActive: root.tabletSwitchActive, reason: root.tabletModeState.reason, profile: root.tabletProfile },
       physicalKeyboardCount: root.keyboardDevices.length,
+      keyboards: root.keyboardDeviceSummaries(),
       inputDevices: {
         backend: root.inputDeviceState.backend,
         revision: Number(root.inputDeviceState.revision || 0),
@@ -2583,7 +2593,7 @@ Item {
       input: { last: root.lastInput, pending: root.inputCandidate, touchscreen: root.hasTouchscreen, stylus: root.hasStylus, physicalKeyboard: root.hasPhysicalKeyboard, detachableKeyboard: root.hasDetachableKeyboard, bluetoothKeyboard: root.hasBluetoothKeyboard, deviceBackend: root.inputDeviceState.backend, hotplug: root.inputDeviceMonitorAvailable, stylusInput: root.stylusInputState, stylusProvider: root.stylusProviderState, palm: root.stylusPalmState, mapping: root.inputMappingState },
       tabletMode: { mode: root.effectiveMode, reason: root.tabletModeState.reason, switchAvailable: root.tabletSwitchAvailable, switchActive: root.tabletSwitchActive, profile: root.tabletProfile },
       onboarding: { completed: root.cfg("onboarding.completed", false) === true, skipped: root.cfg("onboarding.skipped", false) === true, version: Number(root.cfg("onboarding.version", 1)) },
-      devices: { monitors: root.monitors.length, stylus: root.stylusDevices.length, keyboards: root.keyboardDevices.length },
+      devices: { monitors: root.monitors.length, stylus: root.stylusDevices.length, keyboards: root.keyboardDeviceSummaries() },
       rotation: { available: root.systemState.rotationAvailable === true, sensor: root.systemState.rotationSensorAvailable === true, backend: String(root.systemState.rotationSensorBackend || "manual") },
       multitasking: {
         enabled: root.cfg("multitasking.enabled", true) !== false,
