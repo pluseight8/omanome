@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: check validate test qmllint integration companion-check hardware-test dependency-audit performance-test performance-check version-check input-check
+.PHONY: check validate test qmllint integration companion-check hardware-test dependency-audit performance-test performance-check version-check input-check multitasking-check
 
 check: validate test qmllint
 
@@ -58,4 +58,8 @@ input-check:
 	cargo build --manifest-path input/omanome-input/Cargo.toml --release --locked
 	python3 -m json.tool input/omanome-input/protocol.json >/dev/null
 	python3 -m unittest tests.test_input_protocol -v
+	python3 scripts/performance_check.py --json
+
+multitasking-check:
+	python3 -m unittest tests.test_multitasking -v
 	python3 scripts/performance_check.py --json
