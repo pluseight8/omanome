@@ -13,7 +13,7 @@ QtObject {
   property real viewportHeight: 720
   property real viewportScale: 1
   property string inputKind: service ? String(service.lastInput || "keyboard") : "keyboard"
-  property string mode: service ? String(service.detectedMode || "desktop") : "desktop"
+  property string mode: service ? String(service.effectiveMode || service.detectedMode || "desktop") : "desktop"
   property bool largeUi: service ? service.cfg("general.largeUi", false) === true : false
   property string touchTargetSize: service ? String(service.cfg("accessibility.touchTargetSize", "default")) : "default"
   property real textScale: service ? Number(service.cfg("accessibility.textScale", 1)) : 1

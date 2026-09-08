@@ -105,7 +105,7 @@ Item {
               font.bold: true
             }
             Text {
-              text: root.service ? (root.service.detectedMode + " · " + (root.service.lastInput || "keyboard")) : ""
+              text: root.service ? ((root.service.adaptiveProfile || "auto") + " → " + (root.service.effectiveMode || root.service.detectedMode) + " · " + (root.service.lastInput || "keyboard")) : ""
               color: Color.muted
               font.pixelSize: Style.font.caption
             }

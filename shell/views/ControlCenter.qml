@@ -156,7 +156,7 @@ Item {
         minimumHeight: tokens.target(50)
         text: root.text("mode", "Mode")
         icon: "◈"
-        subtitle: root.profileLabel() + " · " + (root.service ? root.service.detectedMode : "desktop")
+        subtitle: root.profileLabel() + " → " + (root.service ? (root.service.effectiveMode || "desktop") : "desktop")
         checked: root.service && root.service.adaptiveProfile !== "auto"
         onClicked: root.moreOpen = true
       }
@@ -204,6 +204,36 @@ Item {
       text: root.moreOpen ? root.text("showLess", "Show less") : root.text("more", "More")
       icon: root.moreOpen ? "⌃" : "⌄"
       onClicked: root.moreOpen = !root.moreOpen
+    }
+
+    ColumnLayout {
+      visible: !root.contextMenu && root.moreOpen
+      Layout.fillWidth: true
+      spacing: tokens.space(5)
+
+      Text {
+        Layout.fillWidth: true
+        text: root.text("profile", "Profile") + " · " + root.profileLabel() + " → " + (root.service ? (root.service.effectiveMode || "desktop") : "desktop")
+        color: Color.muted
+        font.family: Style.font.family
+        font.pixelSize: Style.font.caption
+      }
+      Flow {
+        Layout.fillWidth: true
+        spacing: tokens.space(6)
+        Repeater {
+          model: root.service && typeof root.service.adaptiveProfiles === "function" ? root.service.adaptiveProfiles() : []
+          delegate: ActionButton {
+            required property var modelData
+            compact: true
+            text: modelData.label
+            checked: root.service && root.service.adaptiveProfile === modelData.id
+            usable: !!root.service
+            accessibleDescription: modelData.description
+            onClicked: if (root.service) root.service.setAdaptiveProfile(modelData.id)
+          }
+        }
+      }
     }
 
     Flickable {
@@ -255,7 +285,7 @@ Item {
       }
       Text {
         Layout.fillWidth: true
-        text: root.service && root.service.safeMode ? root.text("safeMode", "Safe Mode") : (root.service ? root.service.detectedMode : "desktop")
+        text: root.service && root.service.safeMode ? root.text("safeMode", "Safe Mode") : (root.service ? (root.service.effectiveMode || "desktop") : "desktop")
         color: root.service && root.service.safeMode ? Color.urgent : Color.muted
         font.family: Style.font.family
         font.pixelSize: Style.font.caption

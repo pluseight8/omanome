@@ -25,6 +25,7 @@ import "models/Input.js" as InputModel
 import "models/OskPolicy.js" as OskPolicy
 import "models/TabletMode.js" as TabletModeModel
 import "models/FeatureState.js" as FeatureStateModel
+import "models/AdaptiveMode.js" as AdaptiveModeModel
 import "models/ProcessPolicy.js" as ProcessPolicy
 import "models/LayoutEngine.js" as LayoutEngineModel
 import "models/SnapAssist.js" as SnapAssistModel
@@ -207,6 +208,9 @@ Item {
   property var postureState: ({ current: "", candidate: "", candidateSince: 0, lastChangedAt: 0, reason: "not-evaluated" })
   property var tabletProfile: ({ mode: "desktop", tabletLike: false, touchTarget: 44, dockPosition: "bottom", oskAutoShow: false, windowControls: false, gestures: false, quickSettingsDensity: "comfortable", launcherDensity: "compact" })
   property string detectedMode: "desktop"
+  property string effectiveMode: "desktop"
+  property var adaptiveState: AdaptiveModeModel.effective("auto", Config.defaults(), { baseMode: "desktop", currentMode: "desktop" })
+  property var componentPolicy: ({ mode: "desktop", density: "compact", touchTargetSize: 40, osk: "suppressed", oskAutoShow: false, dock: "desktop", dockReveal: true, gestures: "conservative", windowControls: "optional", snapAssist: true, splitView: true, rotation: "preserve", quickSettings: "compact", overview: "compact", launcher: "compact", notificationPopups: true, notificationDensity: "compact", effects: "normal", previews: true, backgroundWork: "normal", animations: "enabled", animationPreset: "smooth", reason: "desktop mode" })
   property string lastError: ""
   property int stateRevision: 0
 
@@ -271,10 +275,37 @@ Item {
     }
   }
 
+  function adaptiveSignals() {
+    var signals = InputDevicesModel.postureSignals(root.devices, root.inputDeviceState, root.lastInput)
+    signals.stylus = root.hasStylus && root.cfg("stylus.enabled", true) === true
+    signals.orientation = root.orientation
+    signals.externalMonitor = Array.isArray(root.monitors) && root.monitors.length > 1
+    return signals
+  }
+
+  function refreshAdaptiveState() {
+    var adaptive = root.cfg("adaptive", {})
+    var state = AdaptiveModeModel.effective(root.adaptiveProfile, root.config, {
+      baseMode: root.detectedMode,
+      currentMode: root.effectiveMode,
+      signals: root.adaptiveSignals(),
+      transitioning: root.postureState && root.postureState.candidate !== "",
+      adaptiveEnabled: adaptive.enabled !== false,
+      automaticTransitions: adaptive.automaticTransitions !== false,
+      reducedMotion: root.cfg("general.reduceMotion", false) === true || root.cfg("accessibility.reducedMotion", false) === true || root.cfg("animations.reducedMotion", false) === true
+    })
+    root.adaptiveState = state
+    root.effectiveMode = String(state.effectiveMode || root.detectedMode || "desktop")
+    root.componentPolicy = state.componentPolicy || root.componentPolicy
+    return state
+  }
+
   function featureStateContext() {
     return {
       config: root.config,
       profile: root.adaptiveProfile,
+      autoOverrides: root.adaptiveState && root.adaptiveState.autoOverrides ? root.adaptiveState.autoOverrides : {},
+      componentPolicy: root.componentPolicy,
       masterEnabled: root.masterEnabled,
       suspended: root.suspended,
       safeMode: root.safeMode,
@@ -369,6 +400,10 @@ Item {
     var value = FeatureStateModel.normalizedProfile(profile)
     root.setConfig("adaptive.profile", value)
     return root.adaptiveProfile === value
+  }
+
+  function adaptiveProfiles() {
+    return AdaptiveModeModel.profiles()
   }
 
   function toggleFeature(id) {
@@ -504,8 +539,9 @@ Item {
   }
 
   function oskPolicySource() {
+    var policy = root.componentPolicy || {}
     return {
-      autoShow: root.masterEnabled && !root.suspended && !root.safeMode && root.inputTextBackendAvailable && root.cfg("keyboard.enabled", true) === true && root.cfg("keyboard.autoShow", true) === true,
+      autoShow: root.masterEnabled && !root.suspended && !root.safeMode && root.inputTextBackendAvailable && root.featureEnabled("osk") && policy.oskAutoShow === true && root.cfg("keyboard.autoShow", true) === true,
       textFocus: root.inputTextFocusActive,
       secure: root.inputSecureContext,
       securePolicy: "allow",
@@ -513,7 +549,7 @@ Item {
       detachableKeyboard: root.hasDetachableKeyboard,
       bluetoothKeyboard: root.hasBluetoothKeyboard,
       lastInput: root.lastInput,
-      mode: root.detectedMode,
+      mode: root.effectiveMode,
       posture: String(root.postureState.current || ""),
       touchscreen: root.hasTouchscreen,
       laptopSuppressAutoShow: root.cfg("tabletMode.posture.laptopSuppressAutoShow", true) === true,
@@ -1615,6 +1651,7 @@ Item {
     root.startClipboardWatchers()
     root.syncNativeInputLanguage()
     root.detectedMode = root.computeMode()
+    root.updateResponsiveContext()
     root.refreshRotationBackend()
     root.blurRuleSignature = ""
     root.wobblyBackendFailed = false
@@ -1629,40 +1666,19 @@ Item {
   }
 
   function applyProfile(profile) {
-    var name = String(profile || "Desktop")
-    var next = Config.set(root.config, "general.profile", name)
-    if (name === "Tablet") {
-      next = Config.set(next, "general.mode", "tablet")
-      next = Config.set(next, "tabletMode.touchTarget", 52)
-      next = Config.set(next, "keyboard.mode", "standard")
-    } else if (name === "Stylus") {
-      next = Config.set(next, "general.mode", "hybrid")
-      next = Config.set(next, "stylus.enabled", true)
-    } else if (name === "Performance" || name === "Battery Saver") {
-      next = Config.set(next, "general.reduceMotion", true)
-      next = Config.set(next, "blur.enabled", false)
-      next = Config.set(next, "wobbly.enabled", false)
-      next = Config.set(next, "cube.enabled", false)
-    } else if (name === "GNOME-like") {
-      next = Config.set(next, "general.mode", "hybrid")
-      next = Config.set(next, "overview.style", "gnome")
-      next = Config.set(next, "altTab.style", "gnome")
-    } else {
-      next = Config.set(next, "general.mode", "automatic")
-    }
-    root.config = next
-    root.saveConfig()
-    root.detectedMode = root.computeMode()
-    root.wobblyBackendFailed = false
-    root.reconcileWobblyBackend()
-    root.stateRevision++
-    root.stateUpdated()
+    var raw = String(profile || "auto")
+    var name = raw.toLowerCase().replace(/[\s_]+/g, "-")
+    if (name === "stylus" || name === "gnome-like") name = "hybrid"
+    if (name === "performance" || name === "battery-saver") name = "desktop"
+    if (["auto", "desktop", "tablet", "hybrid", "presentation", "gaming", "custom"].indexOf(name) < 0) return false
+    // Keep this legacy entry point for older settings deep links, but route it
+    // through the adaptive profile state. Profiles are overlays and must not
+    // rewrite general, input, effect or accessibility preferences.
+    return root.setAdaptiveProfile(name)
   }
 
   function computeMode() {
-    var signals = InputDevicesModel.postureSignals(root.devices, root.inputDeviceState, root.lastInput)
-    signals.stylus = root.hasStylus && root.cfg("stylus.enabled", true) === true
-    signals.orientation = root.orientation
+    var signals = root.adaptiveSignals()
     // TabletModeModel.decide remains the deterministic baseline; transition()
     // adds debounce/dwell without hiding the underlying reason.
     var transition = TabletModeModel.transition(signals, { mode: root.cfg("general.mode", "automatic"), tabletMode: root.cfg("tabletMode", {}) }, root.postureState, Date.now())
@@ -1684,11 +1700,12 @@ Item {
   }
 
   function updateResponsiveContext() {
+    root.refreshAdaptiveState()
     var monitor = root.focusedMonitor()
     var width = Number(monitor.width || (monitor.resolution && monitor.resolution.width) || 1280)
     var height = Number(monitor.height || (monitor.resolution && monitor.resolution.height) || 720)
     var scale = Number(monitor.scale || monitor.factor || 1)
-    root.responsiveState = ResponsiveModel.context(width, height, scale, root.lastInput, root.detectedMode, {
+    root.responsiveState = ResponsiveModel.context(width, height, scale, root.lastInput, root.effectiveMode, {
       largeUi: root.cfg("general.largeUi", false) === true,
       touchTargetSize: root.cfg("accessibility.touchTargetSize", "default"),
       textScale: root.cfg("accessibility.textScale", 1),
@@ -1696,7 +1713,18 @@ Item {
       reduceTransparency: root.cfg("accessibility.reduceTransparency", false) === true,
       highContrast: root.cfg("accessibility.highContrast", false) === true
     })
-    root.tabletProfile = TabletModeModel.profile(root.detectedMode, root.config, root.responsiveState)
+    var profile = TabletModeModel.profile(root.effectiveMode, root.config, root.responsiveState)
+    var policy = root.componentPolicy || {}
+    root.tabletProfile = Object.assign({}, profile, {
+      mode: root.effectiveMode,
+      touchTarget: Number(policy.touchTargetSize || profile.touchTarget),
+      oskAutoShow: policy.oskAutoShow === true,
+      windowControls: policy.windowControls !== "hidden" && policy.windowControls !== "optional" && root.effectiveMode !== "desktop",
+      gestures: policy.gestures !== "disabled" && profile.gestures,
+      quickSettingsDensity: String(policy.quickSettings || profile.quickSettingsDensity),
+      launcherDensity: String(policy.launcher || profile.launcherDensity)
+    })
+    root.refreshFeatureStates()
   }
 
   function recordInput(kind) {
@@ -2367,8 +2395,8 @@ Item {
       suspended: root.suspended,
       profile: root.adaptiveProfile,
       mode: root.detectedMode,
-      effectiveMode: root.detectedMode,
-      transitioning: false,
+      effectiveMode: root.effectiveMode,
+      transitioning: root.adaptiveState && root.adaptiveState.transitioning === true,
       keyboardState: root.hasPhysicalKeyboard ? "connected" : "disconnected",
       features: root.featureStateSummary,
       requestedMode: root.cfg("general.mode", "automatic"),
@@ -2381,7 +2409,7 @@ Item {
       physicalKeyboard: root.hasPhysicalKeyboard,
       detachableKeyboard: root.hasDetachableKeyboard,
       bluetoothKeyboard: root.hasBluetoothKeyboard,
-      tabletMode: { switchAvailable: root.tabletSwitchAvailable, switchActive: root.tabletSwitchActive, reason: root.tabletModeState.reason, profile: root.tabletProfile },
+      tabletMode: { mode: root.effectiveMode, switchAvailable: root.tabletSwitchAvailable, switchActive: root.tabletSwitchActive, reason: root.tabletModeState.reason, profile: root.tabletProfile },
       physicalKeyboardCount: root.keyboardDevices.length,
       inputDevices: {
         backend: root.inputDeviceState.backend,
@@ -2548,12 +2576,12 @@ Item {
       enabled: root.masterEnabled,
       suspended: root.suspended,
       profile: root.adaptiveProfile,
-      effectiveMode: root.detectedMode,
-      transitioning: false,
+      effectiveMode: root.effectiveMode,
+      transitioning: root.adaptiveState && root.adaptiveState.transitioning === true,
       keyboardState: root.hasPhysicalKeyboard ? "connected" : "disconnected",
       features: root.featureStateSummary,
       input: { last: root.lastInput, pending: root.inputCandidate, touchscreen: root.hasTouchscreen, stylus: root.hasStylus, physicalKeyboard: root.hasPhysicalKeyboard, detachableKeyboard: root.hasDetachableKeyboard, bluetoothKeyboard: root.hasBluetoothKeyboard, deviceBackend: root.inputDeviceState.backend, hotplug: root.inputDeviceMonitorAvailable, stylusInput: root.stylusInputState, stylusProvider: root.stylusProviderState, palm: root.stylusPalmState, mapping: root.inputMappingState },
-      tabletMode: { mode: root.detectedMode, reason: root.tabletModeState.reason, switchAvailable: root.tabletSwitchAvailable, switchActive: root.tabletSwitchActive, profile: root.tabletProfile },
+      tabletMode: { mode: root.effectiveMode, reason: root.tabletModeState.reason, switchAvailable: root.tabletSwitchAvailable, switchActive: root.tabletSwitchActive, profile: root.tabletProfile },
       onboarding: { completed: root.cfg("onboarding.completed", false) === true, skipped: root.cfg("onboarding.skipped", false) === true, version: Number(root.cfg("onboarding.version", 1)) },
       devices: { monitors: root.monitors.length, stylus: root.stylusDevices.length, keyboards: root.keyboardDevices.length },
       rotation: { available: root.systemState.rotationAvailable === true, sensor: root.systemState.rotationSensorAvailable === true, backend: String(root.systemState.rotationSensorBackend || "manual") },
@@ -2818,7 +2846,7 @@ Item {
     if (options.enabled === false || root.cfg("multitasking.enabled", true) === false) return false
     if (options.mode === "always") return true
     if (options.mode === "never") return false
-    return root.detectedMode === "tablet" || root.detectedMode === "hybrid" || root.lastInput === "touch" || root.lastInput === "stylus"
+    return root.effectiveMode === "tablet" || root.effectiveMode === "hybrid" || root.lastInput === "touch" || root.lastInput === "stylus"
   }
 
   function tabletSwitcherCards(windows, context) {

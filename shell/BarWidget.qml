@@ -17,7 +17,7 @@ BarWidget {
   readonly property bool safeMode: root.service && root.service.safeMode === true
   readonly property bool attention: root.service && String(root.service.lastError || "") !== ""
   readonly property bool partial: root.service && root.service.featureStateSummary ? root.service.featureStateSummary.partial === true : false
-  readonly property string mode: root.service ? String(root.service.detectedMode || "desktop") : "desktop"
+  readonly property string mode: root.service ? String(root.service.effectiveMode || root.service.detectedMode || "desktop") : "desktop"
   readonly property string statusState: root.safeMode ? "safe" : root.suspended ? "suspended" : !root.masterEnabled ? "off" : root.attention ? "attention" : root.partial ? "partial" : "active"
   readonly property string visualState: root.statusState !== "active" ? root.statusState : root.mode === "tablet" ? "tablet" : "desktop"
   readonly property color iconColor: ["safe", "partial", "attention"].indexOf(root.statusState) >= 0

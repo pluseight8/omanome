@@ -90,6 +90,57 @@ class AdaptiveStateTests(unittest.TestCase):
         self.assertTrue(result["largeUi"])
         self.assertTrue(result["snap"])
 
+    def test_profiles_keep_selected_source_and_effective_modes_separate(self) -> None:
+        result = self.run_node(
+            "const A=require('./shell/models/AdaptiveMode.js'); "
+            "const auto=A.effective('auto',{}, {signals:{touchscreen:true,physicalKeyboard:false,lastInput:'touch'}}); "
+            "const desktop=A.effective('desktop',{}, {baseMode:'tablet'}); "
+            "const presentation=A.effective('presentation',{}, {baseMode:'tablet'}); "
+            "const paused=A.effective('auto',{adaptive:{enabled:true,automaticTransitions:false}}, {baseMode:'tablet',currentMode:'desktop'}); "
+            "console.log(JSON.stringify({profiles:A.profiles().map(row=>row.id),auto,desktop,presentation,paused}));"
+        )
+        self.assertEqual(result["profiles"], ["auto", "desktop", "tablet", "hybrid", "presentation", "gaming", "custom"])
+        self.assertEqual(result["auto"]["sourceMode"], "tablet")
+        self.assertEqual(result["auto"]["effectiveMode"], "tablet")
+        self.assertEqual(result["desktop"]["sourceMode"], "tablet")
+        self.assertEqual(result["desktop"]["effectiveMode"], "desktop")
+        self.assertEqual(result["presentation"]["effectiveMode"], "tablet")
+        self.assertEqual(result["presentation"]["componentPolicy"]["gestures"], "disabled")
+        self.assertFalse(result["presentation"]["componentPolicy"]["notificationPopups"])
+        self.assertEqual(result["paused"]["effectiveMode"], "desktop")
+        self.assertFalse(result["paused"]["automatic"])
+
+    def test_custom_profile_changes_component_policy_without_mutating_config(self) -> None:
+        result = self.run_node(
+            "const C=require('./shell/models/Config.js'); const A=require('./shell/models/AdaptiveMode.js'); "
+            "const config=C.defaults(); const before=JSON.stringify(config); "
+            "const custom=C.set(config,'adaptive.profiles.custom.componentBehavior',{mode:'tablet',osk:'auto',dock:'tablet',gestures:'enabled',windowControls:'always',touchTargetSize:60,animationPreset:'playful'}); "
+            "const state=A.effective('custom',custom,{baseMode:'desktop'}); "
+            "console.log(JSON.stringify({same:before===JSON.stringify(config),profile:state.profile,mode:state.effectiveMode,policy:state.componentPolicy,adaptive:custom.adaptive.profiles.custom}));"
+        )
+        self.assertTrue(result["same"])
+        self.assertEqual(result["profile"], "custom")
+        self.assertEqual(result["mode"], "tablet")
+        self.assertEqual(result["policy"]["touchTargetSize"], 60)
+        self.assertEqual(result["policy"]["osk"], "auto")
+        self.assertEqual(result["policy"]["windowControls"], "always")
+        self.assertEqual(result["policy"]["animationPreset"], "playful")
+
+    def test_service_and_surfaces_use_effective_adaptive_mode(self) -> None:
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        tokens = (ROOT / "shell/components/DesignTokens.qml").read_text(encoding="utf-8")
+        control_center = (ROOT / "shell/views/ControlCenter.qml").read_text(encoding="utf-8")
+        settings = (ROOT / "shell/views/Settings.qml").read_text(encoding="utf-8")
+        widget = (ROOT / "shell/BarWidget.qml").read_text(encoding="utf-8")
+        self.assertIn('"models/AdaptiveMode.js" as AdaptiveModeModel', service)
+        self.assertIn("AdaptiveModeModel.effective", service)
+        self.assertIn("property string effectiveMode", service)
+        self.assertIn("effectiveMode: root.effectiveMode", service)
+        self.assertIn("service.effectiveMode", tokens)
+        self.assertIn("service.adaptiveProfiles()", control_center)
+        self.assertIn("setAdaptiveProfile(modelData.id)", settings)
+        self.assertIn("service.effectiveMode", widget)
+
 
 if __name__ == "__main__":
     unittest.main()

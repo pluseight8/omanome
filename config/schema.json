@@ -40,7 +40,19 @@
         "externalKeyboardPolicy": { "enum": ["nothing", "hide-osk", "hybrid", "desktop", "ask"] },
         "unknownKeyboardPolicy": { "enum": ["ignore", "generic", "hybrid", "desktop", "ask"] },
         "transition": { "type": "object" },
-        "profiles": { "type": "object" },
+        "profiles": {
+          "type": "object",
+          "properties": {
+            "custom": {
+              "type": "object",
+              "properties": {
+                "mode": { "enum": ["auto", "desktop", "tablet", "hybrid"] },
+                "featureOverrides": { "type": "object" },
+                "componentBehavior": { "type": "object" }
+              }
+            }
+          }
+        },
         "deviceRules": { "type": "array" },
         "dockedMode": { "type": "object" }
       }
