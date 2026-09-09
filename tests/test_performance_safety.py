@@ -105,6 +105,21 @@ class PerformanceSafetyTests(unittest.TestCase):
         # Every live preview reports its release on delegate destruction.
         self.assertIn("Component.onDestruction: if (root.service) root.service.reportLivePreview", overview)
 
+    def test_live_preview_registry_is_bounded_and_teardown_is_explicit(self) -> None:
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        panel = (ROOT / "shell/Panel.qml").read_text(encoding="utf-8")
+        surface = (ROOT / "shell/components/Surface.qml").read_text(encoding="utf-8")
+
+        self.assertIn("maxLivePreviewReports: 8", service)
+        self.assertIn("Object.keys(reports).length >= root.maxLivePreviewReports", service)
+        self.assertIn("delete reports[id]", service)
+        self.assertIn("function releaseLivePreviews(reason)", service)
+        self.assertIn('root.releaseLivePreviews("shutdown")', service)
+        self.assertIn('root.releaseLivePreviews(String(reason || "enhancements-disabled"))', service)
+        self.assertIn('root.service.releaseLivePreviews("panel-closed")', panel)
+        self.assertIn("effectiveOpacity", surface)
+        self.assertNotIn("reports[id] = value", service)
+
     def test_wobbly_backend_can_disable_stale_renderer_but_will_not_enable_without_companion(self) -> None:
         service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
         self.assertIn('wanted ? "enable" : "disable"', service)

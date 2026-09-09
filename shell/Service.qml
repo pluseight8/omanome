@@ -182,6 +182,9 @@ Item {
   // keyed registry lets the shell expose a truthful capability without a
   // timer, screenshot file, or per-frame IPC poll.
   property var livePreviewReports: ({})
+  // A broken or rapidly recreated delegate must not grow this registry
+  // without bound. The UI only requests a handful of previews at once.
+  readonly property int maxLivePreviewReports: 8
   property var livePreviewState: ({ available: false, backend: "quickshell-screencopy", protocol: "hyprland-toplevel-export-v1", activeStreams: 0, reason: "waiting for compositor-owned ScreencopyView content" })
   property var effectCapabilities: EffectsModel.capabilityState({}, {})
   property var performanceState: PerformanceModel.snapshot({}, {})
@@ -566,13 +569,15 @@ Item {
 
   function disableEnhancements(reason) {
     root.releaseOmanomeInput(reason)
+    root.releaseLivePreviews(String(reason || "enhancements-disabled"))
     root.stopClipboardWatchers()
     if (deviceMonitorProcess.running) deviceMonitorProcess.running = false
     if (sessionMonitorProcess.running) sessionMonitorProcess.running = false
     if (powerMonitorProcess.running) powerMonitorProcess.running = false
     if (root.gestureState && root.gestureState.phase !== "idle") root.cancelGesture(String(reason || "enhancements-disabled"))
     if (root.snapAssistState && root.snapAssistState.active === true) root.cancelSnapAssist(String(reason || "enhancements-disabled"))
-    if (root.splitViewState && root.splitViewState.phase === "dragging") root.rollbackSplitView(String(reason || "enhancements-disabled"))
+    if (root.splitViewState && ["dragging", "applying"].indexOf(String(root.splitViewState.phase || "")) >= 0)
+      root.rollbackSplitView(String(reason || "enhancements-disabled"))
     root.annotationVisible = false
     root.requestWobblyBackend(false)
     root.applyTouchIntegration()
@@ -1355,8 +1360,16 @@ Item {
     var reports = {}
     for (var existing in root.livePreviewReports) reports[existing] = root.livePreviewReports[existing]
     var value = available === true
-    if (reports[id] === value) return
-    reports[id] = value
+    if (value) {
+      if (reports[id] === true) return
+      if (reports[id] === undefined && Object.keys(reports).length >= root.maxLivePreviewReports) return
+      reports[id] = true
+    } else {
+      // Released delegates must disappear, rather than leaving false keys
+      // behind for every open/close cycle.
+      if (reports[id] === undefined) return
+      delete reports[id]
+    }
     var active = 0
     var any = false
     for (var report in reports) {
@@ -1379,6 +1392,30 @@ Item {
     root.effectBackend = backend
     root.stateRevision++
     root.stateUpdated()
+  }
+
+  function releaseLivePreviews(reason) {
+    var hadReports = Object.keys(root.livePreviewReports || {}).length > 0
+    var hadStreams = Number(root.livePreviewState && root.livePreviewState.activeStreams || 0) > 0
+    if (!hadReports && !hadStreams) return false
+    root.livePreviewReports = ({})
+    root.livePreviewState = {
+      available: false,
+      backend: "quickshell-screencopy",
+      protocol: "hyprland-toplevel-export-v1",
+      activeStreams: 0,
+      reason: String(reason || "live-preview-released")
+    }
+    var backend = {}
+    for (var field in root.effectBackend) backend[field] = root.effectBackend[field]
+    backend.livePreviewAvailable = false
+    backend.livePreviewBackend = root.livePreviewState.backend
+    backend.livePreviewProtocol = root.livePreviewState.protocol
+    backend.livePreviewReason = root.livePreviewState.reason
+    root.effectBackend = backend
+    root.stateRevision++
+    root.stateUpdated()
+    return true
   }
 
   function activeClient() {
@@ -6088,6 +6125,7 @@ Item {
 
   function shutdown() {
     if (root.shuttingDown) return
+    root.releaseLivePreviews("shutdown")
     root.shuttingDown = true
     var timers = [
       performanceSnapshotTimeout, configWriteDebounce, processRegistryWriteDebounce,

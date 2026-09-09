@@ -40,7 +40,14 @@ Item {
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
-  function close() { root.opened = false; root.transientOverlay = false; root.contextMenu = false; if (root.service && root.service.workspaceSwitcherState) root.service.workspaceSwitcherState = Object.assign({}, root.service.workspaceSwitcherState, { phase: "idle", progress: 0, committed: false, reason: "overlay-closed" }) }
+  function close() {
+    if (root.service && typeof root.service.releaseLivePreviews === "function") root.service.releaseLivePreviews("panel-closed")
+    root.opened = false
+    root.transientOverlay = false
+    root.contextMenu = false
+    if (root.service && root.service.workspaceSwitcherState)
+      root.service.workspaceSwitcherState = Object.assign({}, root.service.workspaceSwitcherState, { phase: "idle", progress: 0, committed: false, reason: "overlay-closed" })
+  }
   function showWorkspaceOverlay() { root.activeView = "workspace-overlay"; root.transientOverlay = true; root.opened = true; Qt.callLater(function() { keyCatcher.forceActiveFocus() }) }
   function toggle() { root.opened ? root.close() : root.open("{}") }
 
