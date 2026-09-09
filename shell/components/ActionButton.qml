@@ -10,6 +10,10 @@ Item {
   property bool checked: false
   property bool usable: true
   property bool compact: false
+  property bool focusable: true
+  property bool pressed: false
+  property bool reducedMotion: false
+  property real motionDuration: 120
   property string accessibleName: ""
   property string accessibleDescription: ""
   property real minimumWidth: 96
@@ -23,6 +27,17 @@ Item {
   implicitWidth: Math.max(minimumWidth, content.implicitWidth + Style.space(24))
   implicitHeight: compact ? Style.space(38) : Math.max(minimumHeight, content.implicitHeight + Style.space(18))
   opacity: usable ? 1 : 0.42
+  activeFocusOnTab: root.focusable && root.usable
+
+  function activateFromKeyboard(event) {
+    if (!root.usable) return
+    root.clicked()
+    if (event) event.accepted = true
+  }
+
+  Keys.onReturnPressed: function(event) { root.activateFromKeyboard(event) }
+  Keys.onEnterPressed: function(event) { root.activateFromKeyboard(event) }
+  Keys.onSpacePressed: function(event) { root.activateFromKeyboard(event) }
 
   Accessible.name: root.accessibleName !== "" ? root.accessibleName : root.text
   Accessible.description: root.accessibleDescription !== "" ? root.accessibleDescription : root.subtitle
@@ -33,12 +48,24 @@ Item {
     id: surface
     anchors.fill: parent
     radius: Style.space(12)
-    color: root.checked ? Util.alpha(root.accent, 0.22) : (mouse.containsMouse ? Util.alpha(root.foreground, 0.10) : Util.alpha(root.foreground, 0.05))
-    border.width: root.checked ? 1 : (mouse.containsMouse ? 1 : 0)
+    color: root.checked ? Util.alpha(root.accent, 0.22) : (root.pressed ? Util.alpha(root.foreground, 0.15) : (mouse.containsMouse ? Util.alpha(root.foreground, 0.10) : Util.alpha(root.foreground, 0.05)))
+    border.width: root.checked || root.pressed ? 1 : (mouse.containsMouse ? 1 : 0)
     border.color: root.checked ? root.accent : Util.alpha(root.foreground, 0.28)
 
-    Behavior on color { ColorAnimation { duration: 120 } }
-    Behavior on border.color { ColorAnimation { duration: 120 } }
+    Behavior on color { ColorAnimation { duration: root.reducedMotion ? 0 : root.motionDuration } }
+    Behavior on border.color { ColorAnimation { duration: root.reducedMotion ? 0 : root.motionDuration } }
+
+    Rectangle {
+      id: focusRing
+      objectName: "focusRing"
+      anchors.fill: parent
+      anchors.margins: -Style.space(2)
+      radius: Style.space(14)
+      color: "transparent"
+      border.width: root.activeFocus ? Style.space(2) : 0
+      border.color: root.accent
+      visible: root.activeFocus
+    }
 
     Row {
       id: content
@@ -87,9 +114,11 @@ Item {
       hoverEnabled: true
       acceptedButtons: Qt.LeftButton | Qt.RightButton
       cursorShape: Qt.PointingHandCursor
+      onPressed: { root.pressed = true; root.forceActiveFocus() }
       onClicked: root.clicked()
       onPressAndHold: root.pressAndHold()
-      onReleased: root.released()
+      onReleased: { root.pressed = false; root.released() }
+      onCanceled: root.pressed = false
     }
   }
 }

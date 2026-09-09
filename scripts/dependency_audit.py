@@ -14,12 +14,13 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = (ROOT / "cli", ROOT / "shell", ROOT / "input", ROOT / "hypr")
 x11_tool_name = "xdo" + "tool"
+process_broadcast_names = ("pk" + "ill", "kill" + "all")
 FORBIDDEN = {
     "sudo": re.compile(r"(?:^|[;&|]\s*)sudo\s+|\[\s*['\"]sudo['\"]"),
     "pipeline-install": re.compile(r"curl[^\n|]*\|\s*(?:sh|bash)\b"),
     "x11-tool": re.compile(r"\b" + x11_tool_name + r"\b"),
     "bar-replacement": re.compile(r"gnome-shell\s+--replace"),
-    "broadcast-kill": re.compile(r"\b(?:pkill|killall)\b"),
+    "broadcast-kill": re.compile(r"\b(?:" + "|".join(process_broadcast_names) + r")\b"),
 }
 OPTIONAL_COMMANDS = (
     "nmcli", "bluetoothctl", "wpctl", "brightnessctl", "grim", "wf-recorder",
