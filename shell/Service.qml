@@ -556,13 +556,22 @@ Item {
   // divider, launch request, or keyboard-mode debounce behind to replay later.
   function resetTransientState(reason) {
     var why = String(reason || "transient-state-reset")
+    // Stop every one-shot that can replay stale hardware, input, or surface
+    // state after the boundary. Repeating observers are owned by their
+    // lifecycle bindings and are intentionally left alone.
+    var timers = [
+      deviceRefreshDebounce, calibrationTransactionTimer, keyboardTransitionTimer,
+      dockedModeTimer, postureTransition, orientationTransition, clipboardRestart,
+      rotationRestart, inputBackendRestart, oskPolicyTimer, systemRefresh,
+      powerRefreshDebounce, inputFlush, inputModeCommit, multitaskingLaunchTimeout,
+      wobblyConfigDebounce
+    ]
+    for (var timerIndex = 0; timerIndex < timers.length; timerIndex++)
+      if (timers[timerIndex]) timers[timerIndex].stop()
     if (root.adaptivePreviewState && root.adaptivePreviewState.active === true) root.cancelAdaptivePreview(why)
-    else adaptivePreviewTimer.stop()
+    adaptivePreviewTimer.stop()
     if (root.modeTransitionState && root.modeTransitionState.active === true) root.cancelModeTransition(why)
-    else modeTransitionTimer.stop()
-    postureTransition.stop()
-    orientationTransition.stop()
-    inputModeCommit.stop()
+    modeTransitionTimer.stop()
     root.inputCandidate = ""
     root.inputCandidateSince = 0
     if (root.gestureState && GestureCoordinatorModel.active(root.gestureState)) root.cancelGesture(why)
@@ -570,11 +579,23 @@ Item {
     if (root.splitViewState && ["dragging", "applying"].indexOf(String(root.splitViewState.phase || "")) >= 0)
       root.rollbackSplitView(why)
     if (root.multitaskingLaunch || root.multitaskingPairLaunch) {
-      multitaskingLaunchTimeout.stop()
       root.multitaskingLaunch = null
       root.multitaskingLaunchTarget = null
       root.multitaskingPairLaunch = null
     }
+    var calibrationPhase = String(root.calibrationTransactionState && root.calibrationTransactionState.phase || "")
+    if (["prepared", "awaiting-confirmation", "rollback-required"].indexOf(calibrationPhase) >= 0)
+      root.rollbackCalibrationTransaction(why)
+    var activeCalibration = String(root.activeCalibrationKind || "")
+    var touchPhase = String(root.touchCalibrationState && root.touchCalibrationState.phase || "")
+    var stylusPhase = String(root.stylusCalibrationState && root.stylusCalibrationState.phase || "")
+    if ((activeCalibration === "touchscreen" || activeCalibration === "touch") && ["collecting", "analyzed"].indexOf(touchPhase) >= 0)
+      root.cancelCalibration("touchscreen", why)
+    else if (activeCalibration === "stylus" && stylusPhase === "collecting")
+      root.cancelCalibration("stylus", why)
+    var mappingPhase = String(root.calibrationWizardState && root.calibrationWizardState.phase || "")
+    if (["select-input", "select-output", "identify-output", "confirm", "ambiguous"].indexOf(mappingPhase) >= 0)
+      root.calibrationWizardState = CalibrationWizardModel.cancel(root.calibrationWizardState, why)
     if (root.workspaceSwitcherState && root.workspaceSwitcherState.phase === "tracking")
       root.workspaceSwitcherState = WorkspaceSwitcherModel.end(root.workspaceSwitcherState, 0, 0, root.workspaceSwitcherOptions(), Date.now()).state
     else if (root.workspaceSwitcherState && root.workspaceSwitcherState.phase !== "idle")
@@ -3238,6 +3259,8 @@ Item {
     if (!transition.changed && transition.action === "ignore") return
     root.lifecycleState = transition.state
     if (transition.state.phase === "suspended") {
+      root.releaseLivePreviews("session-suspended")
+      root.resetTransientState("session-suspended")
       if (["prepared", "awaiting-confirmation", "rollback-required"].indexOf(String(root.calibrationTransactionState && root.calibrationTransactionState.phase || "")) >= 0)
         root.rollbackCalibrationTransaction("session-suspended")
       root.inputTextFocusActive = false

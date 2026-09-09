@@ -60,6 +60,31 @@ class LifecycleTests(unittest.TestCase):
         self.assertIn("root.enableEnhancements()", service)
         self.assertIn('String(root.splitViewState.phase || "")', service)
 
+    def test_transient_reset_stops_replay_timers_and_cancels_active_calibration(self) -> None:
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        start = service.index("function resetTransientState")
+        end = service.index("\n  function modeTransitionSummary", start)
+        body = service[start:end]
+        for marker in (
+            "deviceRefreshDebounce", "keyboardTransitionTimer", "dockedModeTimer",
+            "clipboardRestart", "inputBackendRestart", "oskPolicyTimer",
+            "calibrationTransactionTimer", "multitaskingLaunchTimeout",
+        ):
+            self.assertIn(marker, body)
+        self.assertIn("root.rollbackCalibrationTransaction(why)", body)
+        self.assertIn('root.cancelCalibration("touchscreen", why)', body)
+        self.assertIn('root.cancelCalibration("stylus", why)', body)
+        self.assertIn("CalibrationWizardModel.cancel", body)
+
+    def test_session_suspend_releases_previews_before_recovery(self) -> None:
+        service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
+        start = service.index("function updateSessionEvent")
+        end = service.index("\n  function updateMonitors", start)
+        body = service[start:end]
+        self.assertIn('root.releaseLivePreviews("session-suspended")', body)
+        self.assertIn('root.resetTransientState("session-suspended")', body)
+        self.assertIn('root.stopNativeInputBackend("suspended")', body)
+
 
 if __name__ == "__main__":
     unittest.main()
