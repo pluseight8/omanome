@@ -21,6 +21,8 @@ import "models/Rotation.js" as RotationModel
 import "models/Touch.js" as TouchModel
 import "models/InputDevices.js" as InputDevicesModel
 import "models/DeviceGraph.js" as DeviceGraphModel
+import "models/Privacy.js" as PrivacyModel
+import "models/PerformanceBudget.js" as PerformanceBudgetModel
 import "models/DeviceTopology.js" as DeviceTopologyModel
 import "models/DeviceStatus.js" as DeviceStatusModel
 import "models/DeviceProfiles.js" as DeviceProfilesModel
@@ -2771,8 +2773,29 @@ Item {
     return root.compactDeviceState
   }
 
+  function performanceBudgetObject() {
+    var graph = root.deviceGraph || {}
+    var topology = root.deviceTopologyState || {}
+    var touch = root.touchCalibrationState || {}
+    var stylus = root.stylusCalibrationState || {}
+    var input = root.inputDeviceState || {}
+    var preview = root.livePreviewState || {}
+    return PerformanceBudgetModel.snapshot({
+      graphNodes: Array.isArray(graph.nodes) ? graph.nodes.length : 0,
+      graphOutputs: Array.isArray(graph.outputs) ? graph.outputs.length : 0,
+      graphRelationships: Array.isArray(graph.relationships) ? graph.relationships.length : 0,
+      topologySources: Object.keys(topology.sources || {}).length,
+      topologyCapabilityChanges: Array.isArray(topology.capabilityChanges) ? topology.capabilityChanges.length : 0,
+      touchSamples: Array.isArray(touch.samples) ? touch.samples.length : 0,
+      stylusSamples: Array.isArray(stylus.samples) ? stylus.samples.length : 0,
+      inputDevices: Array.isArray(input.devices) ? input.devices.length : 0,
+      inputQueue: Array.isArray(root.inputQueue) ? root.inputQueue.length : 0,
+      livePreviewStreams: Number(preview.activeStreams || 0)
+    })
+  }
+
   function hardwareGraphObject() {
-    return {
+    var result = {
       schemaVersion: 1,
       source: "service",
       graph: DeviceGraphModel.publicSnapshot(root.deviceGraph),
@@ -2780,8 +2803,10 @@ Item {
       hardwarePolicies: HardwarePoliciesModel.summary(root.hardwarePolicyState),
       dockingContinuity: DockingContinuityModel.summary(root.dockingContinuityState),
       compactDevices: root.compactDeviceStatus(),
+      performanceBudget: root.performanceBudgetObject(),
       privacy: { bluetoothMacEmitted: false, serialsEmitted: false, ephemeralPathsEmitted: false, eventNodesEmitted: false, typedTextLogged: false }
     }
+    return PrivacyModel.boundary(result, { home: root.home })
   }
 
   function hardwareGraphJson() {
@@ -3021,7 +3046,7 @@ Item {
   }
 
   function statusObject() {
-    return {
+    var result = {
       version: root.manifest ? String(root.manifest.version || "1.2.0") : "1.2.0",
       quickshell: String(Quickshell.env("QUICKSHELL_VERSION") || "host-provided"),
       service: "ready",
@@ -3202,6 +3227,7 @@ Item {
         }
       },
       performance: root.performanceState,
+      performanceBudget: root.performanceBudgetObject(),
       preview: {
         available: root.livePreviewState.available === true,
         backend: root.livePreviewState.backend,
@@ -3210,6 +3236,7 @@ Item {
         reason: root.livePreviewState.reason
       }
     }
+    return PrivacyModel.boundary(result, { home: root.home })
   }
 
   function statusJson() {
@@ -3221,7 +3248,7 @@ Item {
   // never enter this object.
   function diagnosticsObject() {
     var companion = root.companionState || {}
-    return {
+    var result = {
       version: root.manifest ? String(root.manifest.version || "unknown") : "unknown",
       hyprland: root.effectBackend && root.effectBackend.runtime ? String(root.effectBackend.runtime.version || "unknown") : (root.hyprlandAvailable ? "available" : "unavailable"),
       hyprlandAbi: root.effectBackend && root.effectBackend.runtime ? String(root.effectBackend.runtime.abi || "unknown") : "unknown",
@@ -3287,6 +3314,7 @@ Item {
       responsive: root.responsiveState,
       error: String(root.lastError || "")
     }
+    return PrivacyModel.boundary(result, { home: root.home })
   }
 
   function diagnosticsText() { return JSON.stringify(root.diagnosticsObject(), null, 2) }

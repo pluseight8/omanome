@@ -35,6 +35,8 @@ def check(name: str, passed: bool, details: str) -> dict[str, str]:
 
 def source_checks() -> list[dict[str, str]]:
     graph = read(ROOT / "shell/models/DeviceGraph.js")
+    privacy = read(ROOT / "shell/models/Privacy.js")
+    budget = read(ROOT / "shell/models/PerformanceBudget.js")
     topology = read(ROOT / "shell/models/DeviceTopology.js")
     calibration = read(ROOT / "shell/models/Calibration.js")
     wizard = read(ROOT / "shell/models/CalibrationWizard.js")
@@ -52,6 +54,7 @@ def source_checks() -> list[dict[str, str]]:
             "function publicSnapshot", "function publicId", "sourceList",
             '"display"', '"touchscreen"', '"stylus"', '"tablet-pad"',
             '"keyboard"', '"dock"', '"battery"', '"audio"',
+            "MAX_NODES", "MAX_OUTPUTS", "MAX_RELATIONSHIPS", "BOUNDS",
         )),
         "Device Graph owns generic categories, opaque identity, snapshots, and runtime events",
     ))
@@ -93,11 +96,22 @@ def source_checks() -> list[dict[str, str]]:
         "hotplug events are bounded and coalesced before one graph reconciliation",
     ))
     checks.append(check(
+        "privacy-contract",
+        all(marker in privacy for marker in ("sensitiveKey", "MAX_DEPTH", "MAX_ITEMS", "MAX_KEYS", "function boundary", "rawPathsEmitted")),
+        "status and diagnostics cross one bounded redaction boundary",
+    ))
+    checks.append(check(
+        "performance-budget",
+        all(marker in budget for marker in ("graphNodes", "stylusSamples", "inputQueue", "backgroundPolling", "recomputation", "overBudget")),
+        "hardware-aware state exposes explicit collection limits and budget status",
+    ))
+    checks.append(check(
         "service-single-source",
         all(marker in service for marker in (
             "DeviceGraphModel.fromSnapshot", "DeviceGraphModel.applyEvent",
             "DeviceTopologyModel.noteEvent", "DeviceTopologyModel.reconcile",
             "deviceRefreshDebounce.restart()", "CalibrationWizardModel.beginMapping",
+            "PrivacyModel.boundary", "PerformanceBudgetModel.snapshot",
         )),
         "Service routes graph, topology, and mapping through the shared models",
     ))
@@ -123,6 +137,8 @@ def source_checks() -> list[dict[str, str]]:
         "service": service,
         "policies": policies,
         "docking": docking,
+        "privacy": privacy,
+        "budget": budget,
         "cli": cli,
     }
     forbidden = ("xinput", "xdot" + "ool", "lsusb")
@@ -145,6 +161,8 @@ const G=require('./shell/models/DeviceGraph.js');
 const T=require('./shell/models/DeviceTopology.js');
 const C=require('./shell/models/Calibration.js');
 const W=require('./shell/models/CalibrationWizard.js');
+const P=require('./shell/models/Privacy.js');
+const B=require('./shell/models/PerformanceBudget.js');
 const fixture={fixture_literal};
 const graph=G.fromSnapshot(fixture);
 const publicGraph=G.publicSnapshot(graph);
@@ -167,6 +185,8 @@ const input=publicGraph.nodes.find(row=>row.category==='touchscreen');
 const output=publicGraph.outputs[0];
 const mapped=W.confirm(W.identifyOutput(W.selectOutput(W.selectInput(wizard,input.id),output.id),output.id,'number'));
 const duplicate=W.selectOutputByName(W.beginMapping({{nodes:[],outputs:[{{id:'display:1111111111111111',name:'Same',connected:true}},{{id:'display:2222222222222222',name:'Same',connected:true}}]}}),'Same');
+const budget=B.snapshot({{graphNodes:graph.nodes.length,graphOutputs:graph.outputs.length,graphRelationships:graph.relationships.length,topologySources:Object.keys(topology.sources).length,topologyCapabilityChanges:topology.capabilityChanges.length,touchSamples:touch.samples.length,stylusSamples:stylus.samples.length,inputDevices:0,inputQueue:0,livePreviewStreams:0}});
+const diagnostics=P.boundary({{serial:'SERIAL-DEVICE-CHECK',address:'aa:bb:cc:dd:ee:ff',path:'/sys/devices/private/event42',typedText:'private'}});
 console.log(JSON.stringify({{
   categories:[...new Set(graph.nodes.map(row=>row.category))].sort(),
   graphAvailable:graph.health.available===true,
@@ -178,7 +198,9 @@ console.log(JSON.stringify({{
   stylusBounded:stylus.samples.length===256 && lastSample.accepted===false && lastSample.reason==='sample-limit',
   topology:{{eventCount:topology.eventCount,coalescedEvents:topology.coalescedEvents,reconciledPending:reconciled.pendingRefresh,reconciledNodes:reconciled.current.nodeCount}},
   mappingComplete:mapped.phase==='complete',
-  ambiguous:duplicate.phase==='ambiguous' && duplicate.error==='identical-display-names'
+  ambiguous:duplicate.phase==='ambiguous' && duplicate.error==='identical-display-names',
+  budgetBounded:budget.bounded===true && budget.overBudget.length===0,
+  diagnosticsClean:JSON.stringify(diagnostics).indexOf('SERIAL-DEVICE-CHECK')<0 && JSON.stringify(diagnostics).indexOf('event42')<0 && diagnostics.privacy.typedTextLogged===false
 }}));
 """
     result = subprocess.run([node, "-e", expression], cwd=ROOT, capture_output=True, text=True, check=False)
@@ -203,6 +225,8 @@ def runtime_checks(fixture: dict[str, Any]) -> tuple[list[dict[str, str]], dict[
         check("calibration-timeout-rollback", payload.get("transactionTimeout") is True, "unconfirmed applied mapping rolls back at deadline"),
         check("calibration-disconnect-rollback", payload.get("transactionDisconnect") is True, "device disconnect rolls back an active calibration transaction"),
         check("stylus-sample-bound", payload.get("stylusBounded") is True, "stylus samples stop at the bounded limit"),
+        check("performance-budget-runtime", payload.get("budgetBounded") is True, "runtime state stays within declared collection budgets"),
+        check("privacy-boundary-runtime", payload.get("diagnosticsClean") is True, "diagnostic boundary removes raw hardware values"),
         check("event-burst-coalescing", payload.get("topology", {}).get("eventCount") == 1000 and payload.get("topology", {}).get("coalescedEvents", 0) >= 999 and payload.get("topology", {}).get("reconciledPending") is False and payload.get("topology", {}).get("reconciledNodes", 0) > 0, "1000 events coalesce and reconcile into one settled graph"),
         check("mapping-wizard-safety", payload.get("mappingComplete") is True and payload.get("ambiguous") is True, "mapping completes only after identification and rejects identical-name ambiguity"),
     ]

@@ -13,6 +13,12 @@ var CATEGORIES = [
 ]
 var CONFIDENCES = ["confirmed", "probable", "unknown"]
 var RELATIONS = ["parent", "attached-to", "mapped-to", "reports-to", "paired-with", "none"]
+// Graph state is fed by backend snapshots and hotplug events. Keep hostile
+// or unexpectedly large adapters from turning a diagnostics model into an
+// unbounded collection.
+var MAX_NODES = 256
+var MAX_OUTPUTS = 32
+var MAX_RELATIONSHIPS = 512
 var CAPABILITY_KEYS = [
   "display", "touch", "touchscreen", "multitouch", "stylus", "tablet",
   "keyboard", "mouse", "touchpad", "gamepad", "sensor", "battery", "audio",
@@ -504,6 +510,7 @@ function explicitRelations(snapshot, records, outputs) {
   var result = []
   var seen = {}
   for (var i = 0; i < values.length; i++) {
+    if (result.length >= MAX_RELATIONSHIPS) break
     var relation = object(values[i])
     var from = findRecordByReference(records, relationReference(relation.from || relation.child || relation.device || relation.source))
     var to = findRecordByReference(records, relationReference(relation.to || relation.parent || relation.target || relation.destination))
@@ -518,6 +525,7 @@ function explicitRelations(snapshot, records, outputs) {
   // when the adapter has no top-level relationship list. Resolve only that
   // reference; never infer a relation from names, vendors, or proximity.
   for (var r = 0; r < records.length; r++) {
+    if (result.length >= MAX_RELATIONSHIPS) break
     var record = records[r]
     var parentReference = nodeParentReference(record.raw)
     if (!parentReference) continue
@@ -533,6 +541,7 @@ function explicitRelations(snapshot, records, outputs) {
   // confirmed relation. Automatic mapping remains unconnected until a later
   // policy layer resolves it.
   for (var m = 0; m < records.length; m++) {
+    if (result.length >= MAX_RELATIONSHIPS) break
     var mapped = normalizeMappedOutput(records[m].raw, outputs)
     if (mapped.status !== "mapped" || !mapped.output) continue
     var outputRecord = null
@@ -562,7 +571,7 @@ function fromSnapshot(snapshot, previous, options) {
   var rawOutputs = outputSources(source)
   var outputs = []
   var outputSeen = {}
-  for (var o = 0; o < rawOutputs.length; o++) {
+  for (var o = 0; o < rawOutputs.length && outputs.length < MAX_OUTPUTS; o++) {
     var output = normalizeOutput(rawOutputs[o], o)
     if (outputSeen[output.id]) continue
     outputSeen[output.id] = true
@@ -572,7 +581,7 @@ function fromSnapshot(snapshot, previous, options) {
   var records = []
   var nodes = []
   var seen = {}
-  for (var i = 0; i < rows.length; i++) {
+  for (var i = 0; i < rows.length && nodes.length < MAX_NODES; i++) {
     var row = rows[i]
     var node = normalizeNode(row.item, row.category, row.source, outputs, settings.policies || settings.userPolicies)
     if (!node || seen[node.id]) continue
@@ -584,7 +593,7 @@ function fromSnapshot(snapshot, previous, options) {
   }
   // A display is a graph node as well as an output topology record. It is
   // intentionally linked through the opaque display id, never its connector.
-  for (var d = 0; d < outputs.length; d++) {
+  for (var d = 0; d < outputs.length && nodes.length < MAX_NODES; d++) {
     var display = outputs[d]
     if (seen[display.id]) continue
     var displayNode = {
@@ -641,15 +650,15 @@ function applyEvent(previous, event, options) {
   } else if (index >= 0) {
     node.userPolicy = nodes[index].userPolicy || node.userPolicy
     nodes[index] = node
-  } else nodes.push(node)
+  } else if (nodes.length < MAX_NODES) nodes.push(node)
   var counts = { confirmed: 0, probable: 0, unknown: 0 }
   for (var n = 0; n < nodes.length; n++) counts[confidence(nodes[n].confidence, "unknown")]++
   return {
     schemaVersion: SCHEMA_VERSION,
     revision: Number(old.revision || 0) + 1,
     nodes: nodes,
-    relationships: array(old.relationships).slice(),
-    outputs: array(old.outputs).slice(),
+    relationships: array(old.relationships).slice(0, MAX_RELATIONSHIPS),
+    outputs: array(old.outputs).slice(0, MAX_OUTPUTS),
     health: { available: nodes.length > 0 || array(old.outputs).length > 0, backend: "udev", reason: "event" },
     confidence: counts
   }
@@ -779,9 +788,9 @@ function publicRelationship(value) {
 
 function publicSnapshot(graph) {
   var source = object(graph)
-  var nodes = array(source.nodes).map(publicNode).filter(function(row) { return row.id !== "" })
-  var outputs = array(source.outputs).map(function(row, index) { return publicOutput(row, index) }).filter(function(row) { return row.id !== "" })
-  var relationships = array(source.relationships).map(publicRelationship).filter(function(row) { return row.from !== "" && row.to !== "" && row.type !== "none" })
+  var nodes = array(source.nodes).slice(0, MAX_NODES).map(publicNode).filter(function(row) { return row.id !== "" })
+  var outputs = array(source.outputs).slice(0, MAX_OUTPUTS).map(function(row, index) { return publicOutput(row, index) }).filter(function(row) { return row.id !== "" })
+  var relationships = array(source.relationships).slice(0, MAX_RELATIONSHIPS).map(publicRelationship).filter(function(row) { return row.from !== "" && row.to !== "" && row.type !== "none" })
   var health = object(source.health)
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -799,6 +808,7 @@ var api = {
   SCHEMA_VERSION: SCHEMA_VERSION,
   CATEGORIES: CATEGORIES,
   CONFIDENCES: CONFIDENCES,
+  BOUNDS: { nodes: MAX_NODES, outputs: MAX_OUTPUTS, relationships: MAX_RELATIONSHIPS },
   stableId: stableId,
   categoryFrom: categoryFrom,
   capabilities: capabilities,

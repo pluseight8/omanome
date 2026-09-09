@@ -22,6 +22,9 @@ function token(value) {
   return lower(value).replace(/[\s_]+/g, "-")
 }
 
+var MAX_DEVICES = 256
+var MAX_MONITORS = 32
+
 function values(item) {
   var source = object(item)
   var result = []
@@ -105,6 +108,7 @@ function stableId(item, hint) {
   var serial = durablePart(source, ["serial", "serialNumber", "serial_number", "ID_SERIAL_SHORT"])
   var path = durablePart(source, ["devpath", "devPath", "path", "phys", "devicePath", "ID_PATH"])
   var uniq = durablePart(source, ["uniq", "uniqueId", "unique_id", "address", "syspath"])
+  var explicit = durablePart(source, ["stableId", "stable_id", "nodeId", "node_id", "deviceId", "device_id", "id", "identifier"])
   var name = durablePart(source, ["name", "device", "identifier", "ID_MODEL"])
   var caps = Object.keys(capabilities(source)).sort().join(",")
   var durable = []
@@ -113,6 +117,7 @@ function stableId(item, hint) {
   if (serial) durable.push("serial-h-" + opaquePart(serial))
   if (path) durable.push("path-h-" + opaquePart(path))
   if (uniq) durable.push("uniq-h-" + opaquePart(uniq))
+  if (explicit && !/event[0-9]+|[\\/]dev[\\/]input/i.test(explicit)) durable.push("explicit-h-" + opaquePart(explicit))
   if (durable.length === 0) durable = ["fallback-h-" + opaquePart((name || "unnamed") + "|" + (caps || role))]
   return "input:" + role + ":" + durable.join("/")
 }
@@ -199,7 +204,7 @@ function normalizeSnapshot(snapshot) {
     var item = normalize(rows[i].item, rows[i].role, rows[i].source)
     if (seen[item.id]) continue
     seen[item.id] = true
-    devices.push(item)
+    if (devices.length < MAX_DEVICES) devices.push(item)
   }
   var switchValue = source.tabletSwitch
   if (switchValue === undefined) switchValue = source.tablet_switch
@@ -210,7 +215,7 @@ function normalizeSnapshot(snapshot) {
   return {
     schemaVersion: 1,
     devices: devices,
-    monitors: array(source.monitors),
+    monitors: array(source.monitors).slice(0, MAX_MONITORS),
     tabletSwitch: switchValue,
     posture: posture,
     lidState: lid,
@@ -278,7 +283,7 @@ function mergeDevice(previous, next) {
 function applyEvent(previous, event) {
   var old = object(previous)
   var source = object(event)
-  var current = array(old.devices).slice()
+  var current = array(old.devices).slice(0, MAX_DEVICES)
   var item = eventDevice(source)
   var raw = eventSource(source)
   var action = token(source.action || source.event || "change")
@@ -289,12 +294,12 @@ function applyEvent(previous, event) {
   if (action === "remove" || action === "delete") {
     if (index >= 0) current.splice(index, 1)
   } else if (index >= 0) current[index] = mergeDevice(current[index], item)
-  else current.push(item)
+  else if (current.length < MAX_DEVICES) current.push(item)
   return {
     schemaVersion: 1,
     revision: Number(old.revision || 0) + 1,
     devices: current,
-    monitors: array(old.monitors),
+    monitors: array(old.monitors).slice(0, MAX_MONITORS),
     backend: "udev-hotplug",
     hotplug: { available: true, lastEvent: string(source.subsystem || "input"), lastAction: action, lastDevice: item.id },
     posture: object(old.posture)
@@ -387,6 +392,8 @@ function explain(signals, mode) {
 }
 
 var api = {
+  MAX_DEVICES: MAX_DEVICES,
+  MAX_MONITORS: MAX_MONITORS,
   stableId: stableId,
   normalize: normalize,
   normalizeSnapshot: normalizeSnapshot,

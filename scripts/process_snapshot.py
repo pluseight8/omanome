@@ -30,6 +30,7 @@ PROC_ENV_SHELL_PID = "OMANOME_SHELL_PID"
 PROC_ENV_ROLE = "OMANOME_ROLE"
 HZ = int(os.sysconf("SC_CLK_TCK"))
 PAGE_SIZE = int(os.sysconf("SC_PAGE_SIZE"))
+MAC_PATTERN = re.compile(r"(?i)\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b")
 
 
 def default_registry_path() -> pathlib.Path:
@@ -111,19 +112,29 @@ def _redact_command(command: Iterable[str]) -> list[str]:
     result: list[str] = []
     redact_next = False
     executable = pathlib.Path(values[0]).name if values else ""
-    for value in values:
+    for index, value in enumerate(values):
         if redact_next:
             result.append("<redacted>")
             redact_next = False
             continue
-        if value in {"password", "--password", "secret", "--secret", "token", "--token"}:
-            result.append(value)
-            redact_next = True
+        lowered = value.lower()
+        if value in {"password", "--password", "secret", "--secret", "token", "--token"} or lowered.startswith(("password=", "secret=", "token=")):
+            if "=" in value:
+                result.append(value.split("=", 1)[0] + "=<redacted>")
+            else:
+                result.append(value)
+            redact_next = "=" not in value
             continue
         if executable in {"wtype", "omanome-input"} and value not in {values[0], "-k", "-M", "-m", "--"}:
             result.append("<input>")
             continue
-        result.append(value)
+        if index == 0:
+            result.append(executable or "<process>")
+            continue
+        if value.startswith("/") or MAC_PATTERN.search(value) or re.search(r"(?:^|[\\/])(?:dev|sys|proc|run|home|tmp|var)[\\/]", value, re.IGNORECASE):
+            result.append("<path>")
+            continue
+        result.append(value[:96] if len(value) <= 96 else "<arg>")
     if redact_next:
         result.append("<redacted>")
     return result
@@ -248,14 +259,17 @@ def _process_record(pid: int, registry_item: dict[str, Any] | None, cpu_percent:
         cwd = os.readlink(f"/proc/{pid}/cwd")
     except (FileNotFoundError, PermissionError, OSError):
         cwd = ""
+    component = env.get(PROC_ENV_COMPONENT) or str((registry_item or {}).get("component", "unknown"))
+    if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", component):
+        component = "unknown"
     record = {
         "pid": pid,
         "ppid": stat["ppid"],
-        "component": env.get(PROC_ENV_COMPONENT) or str((registry_item or {}).get("component", "unknown")),
+        "component": component,
         "purpose": str((registry_item or {}).get("purpose", "")),
         "command": _redact_command(command),
-        "executable": executable,
-        "workingDirectory": cwd,
+        "executable": pathlib.Path(executable).name if executable else "",
+        "workingDirectory": "<redacted>" if cwd else "",
         "state": stat["state"],
         "threads": stat["threads"],
         "memoryBytes": _memory_bytes(pid),
@@ -370,7 +384,8 @@ def snapshot(registry_path: pathlib.Path | None = None, sample_seconds: float = 
         "ownership": {
             "method": "explicit environment marker or matching runtime registry",
             "foreignProcessesExcluded": True,
-            "registry": str(registry_path),
+            "registry": "<state>/omanome/processes.json",
+            "pathsRedacted": True,
         },
     }
 

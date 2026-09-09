@@ -83,6 +83,7 @@ def build_payload(config_path: pathlib.Path, state_dir: pathlib.Path, env: dict[
         "manifest": {key: manifest.get(key) for key in ("id", "version", "kinds", "entryPoints")} if isinstance(manifest, dict) else manifest,
         "config": config_metadata(config_path, env),
         "capabilities": run_json(["python3", str(ROOT / "scripts" / "hardware_test.py"), "--json"], env),
+        "performance": run_json(["python3", str(ROOT / "scripts" / "process_snapshot.py"), "--json", "--sample-ms", "0"], env),
         "effects": run_json([str(ROOT / "input" / "effects-info.sh")], env),
         "sensors": run_json([str(ROOT / "input" / "sensor-info.sh")], env),
         "companion": run_json([str(ROOT / "input" / "companion-info.sh")], env),
