@@ -25,6 +25,10 @@ from typing import Any
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULTS_PATH = ROOT / "config" / "defaults.json"
 CURRENT_SCHEMA_VERSION = 2
+CURRENT_RELEASE = "1.3.0"
+MIGRATION_SOURCE_RELEASE = "1.2.0"
+DEVICE_PROFILE_SCHEMA_VERSION = 2
+HARDWARE_SETUP_SCHEMA_VERSION = 1
 EX_USAGE = 2
 EX_CONFIG = 78
 EX_NOINPUT = 66
@@ -105,7 +109,7 @@ def migration_one_to_two(source: dict[str, Any], applied: list[str]) -> None:
     diagnostics.setdefault("supportBundleRetention", 3)
     diagnostics.setdefault("redactPaths", True)
     diagnostics.setdefault("includeSystemCommands", True)
-    source["schemaVersion"] = 2
+    source["schemaVersion"] = CURRENT_SCHEMA_VERSION
     applied.append("1->2")
 
 
@@ -199,6 +203,96 @@ def migration_adaptive_1_2(source: dict[str, Any], applied: list[str]) -> None:
         applied.append("adaptive-1.2-defaults")
 
 
+def migration_device_profiles_2_0(source: dict[str, Any], applied: list[str]) -> None:
+    template = load_defaults().get("deviceProfiles", {})
+    value = source.get("deviceProfiles")
+    changed = False
+    if not isinstance(value, dict):
+        source["deviceProfiles"] = copy.deepcopy(template)
+        changed = True
+    else:
+        if "schemaVersion" not in value or int(value.get("schemaVersion", 0)) < DEVICE_PROFILE_SCHEMA_VERSION:
+            value["schemaVersion"] = DEVICE_PROFILE_SCHEMA_VERSION
+            changed = True
+        if not isinstance(value.get("profiles"), dict):
+            value["profiles"] = {}
+            changed = True
+        if not isinstance(value.get("rules"), list):
+            value["rules"] = []
+            changed = True
+        if not isinstance(value.get("revision"), int) or value.get("revision", 0) < 0:
+            value["revision"] = 0
+            changed = True
+    if changed and "device-profiles-2.0-defaults" not in applied:
+        applied.append("device-profiles-2.0-defaults")
+
+
+def migration_hardware_setup_profiles_1_0(source: dict[str, Any], applied: list[str]) -> None:
+    template = load_defaults().get("hardwareSetupProfiles", {})
+    value = source.get("hardwareSetupProfiles")
+    changed = False
+    if not isinstance(value, dict):
+        source["hardwareSetupProfiles"] = copy.deepcopy(template)
+        changed = True
+    else:
+        if "schemaVersion" not in value:
+            value["schemaVersion"] = HARDWARE_SETUP_SCHEMA_VERSION
+            changed = True
+        if not isinstance(value.get("profiles"), dict):
+            value["profiles"] = {}
+            changed = True
+        if value.get("selected", "auto") not in {"auto", "tablet", "desk", "travel", "presentation", "drawing"}:
+            value["selected"] = "auto"
+            changed = True
+        display_policy = value.get("displayPolicy")
+        if not isinstance(display_policy, dict):
+            value["displayPolicy"] = copy.deepcopy(template.get("displayPolicy", {}))
+            changed = True
+        else:
+            if "schemaVersion" not in display_policy:
+                display_policy["schemaVersion"] = HARDWARE_SETUP_SCHEMA_VERSION
+                changed = True
+            if not isinstance(display_policy.get("roles"), dict):
+                display_policy["roles"] = {}
+                changed = True
+        if not isinstance(value.get("revision"), int) or value.get("revision", 0) < 0:
+            value["revision"] = 0
+            changed = True
+    if changed and "hardware-setup-profiles-1.0-defaults" not in applied:
+        applied.append("hardware-setup-profiles-1.0-defaults")
+
+
+def nested_future_schema(source: dict[str, Any]) -> tuple[str, int] | None:
+    device_profiles = source.get("deviceProfiles")
+    if isinstance(device_profiles, dict):
+        value = device_profiles.get("schemaVersion", 0)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or int(value) != value:
+            raise ConfigError("invalid-device-profile-schema", "deviceProfiles.schemaVersion must be an integer")
+        if int(value) > DEVICE_PROFILE_SCHEMA_VERSION:
+            return "future-device-profile-schema", int(value)
+
+    setup_profiles = source.get("hardwareSetupProfiles")
+    if isinstance(setup_profiles, dict):
+        value = setup_profiles.get("schemaVersion", 0)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or int(value) != value:
+            raise ConfigError("invalid-hardware-setup-schema", "hardwareSetupProfiles.schemaVersion must be an integer")
+        if int(value) > HARDWARE_SETUP_SCHEMA_VERSION:
+            return "future-hardware-setup-schema", int(value)
+        display_policy = setup_profiles.get("displayPolicy")
+        if isinstance(display_policy, dict):
+            value = display_policy.get("schemaVersion", 0)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or int(value) != value:
+                raise ConfigError("invalid-display-policy-schema", "displayPolicy.schemaVersion must be an integer")
+            if int(value) > HARDWARE_SETUP_SCHEMA_VERSION:
+                return "future-display-policy-schema", int(value)
+    return None
+
+
+def release_migration(applied: list[str]) -> None:
+    if ("device-profiles-2.0-defaults" in applied or "hardware-setup-profiles-1.0-defaults" in applied) and "device-intelligence-1.3-defaults" not in applied:
+        applied.append("device-intelligence-1.3-defaults")
+
+
 def migrate(value: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     if not isinstance(value, dict):
         raise ConfigError("invalid-root", "configuration root must be a JSON object")
@@ -211,6 +305,9 @@ def migrate(value: Any) -> tuple[dict[str, Any], dict[str, Any]]:
         raise ConfigError("invalid-schema-version", "schemaVersion must be a non-negative integer")
     if version > CURRENT_SCHEMA_VERSION:
         raise ConfigError("future-schema", f"schemaVersion {version} is newer than supported {CURRENT_SCHEMA_VERSION}")
+    future = nested_future_schema(source)
+    if future is not None:
+        raise ConfigError(future[0], f"nested schema {future[1]} is newer than supported")
     applied: list[str] = []
     if version < 1:
         migration_zero_to_one(source, applied)
@@ -218,11 +315,16 @@ def migrate(value: Any) -> tuple[dict[str, Any], dict[str, Any]]:
         migration_one_to_two(source, applied)
     migration_multitasking_1_1(source, applied)
     migration_adaptive_1_2(source, applied)
+    migration_device_profiles_2_0(source, applied)
+    migration_hardware_setup_profiles_1_0(source, applied)
+    release_migration(applied)
     normalized = deep_merge(load_defaults(), source)
     normalized["schemaVersion"] = CURRENT_SCHEMA_VERSION
     return normalized, {
         "from": version,
         "to": CURRENT_SCHEMA_VERSION,
+        "releaseFrom": "legacy" if version < 2 else MIGRATION_SOURCE_RELEASE,
+        "releaseTo": CURRENT_RELEASE,
         "applied": applied,
         "migrated": bool(applied),
     }
@@ -427,6 +529,8 @@ def command_recover(args: argparse.Namespace) -> int:
     report: dict[str, Any] = {
         "from": CURRENT_SCHEMA_VERSION,
         "to": CURRENT_SCHEMA_VERSION,
+        "releaseFrom": CURRENT_RELEASE,
+        "releaseTo": CURRENT_RELEASE,
         "applied": [],
         "migrated": False,
     }
@@ -479,7 +583,7 @@ def command_export(args: argparse.Namespace) -> int:
     if args.path:
         normalized, report, display = read_and_migrate(args.path)
     else:
-        normalized, report, display = load_defaults(), {"from": CURRENT_SCHEMA_VERSION, "to": CURRENT_SCHEMA_VERSION, "applied": [], "migrated": False}, "defaults"
+        normalized, report, display = load_defaults(), {"from": CURRENT_SCHEMA_VERSION, "to": CURRENT_SCHEMA_VERSION, "releaseFrom": CURRENT_RELEASE, "releaseTo": CURRENT_RELEASE, "applied": [], "migrated": False}, "defaults"
     if args.output:
         atomic_write(args.output, json_text(normalized))
         payload = {"ok": True, "path": args.output, "schemaVersion": normalized["schemaVersion"], "migration": report}

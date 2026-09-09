@@ -108,7 +108,7 @@ Item {
   property bool _loadingConfig: false
   property string configLoadStatus: "not-loaded"
   property string configLoadError: ""
-  property var configMigration: ({ applied: [], from: Config.CURRENT_SCHEMA_VERSION, to: Config.CURRENT_SCHEMA_VERSION })
+  property var configMigration: ({ applied: [], from: Config.CURRENT_SCHEMA_VERSION, to: Config.CURRENT_SCHEMA_VERSION, releaseFrom: Config.CURRENT_RELEASE, releaseTo: Config.CURRENT_RELEASE })
   property bool configRecoveryRunning: false
   property string configRecoveryOutput: ""
   property bool safeMode: false
@@ -1806,7 +1806,7 @@ Item {
       root.config = Config.defaults()
       root.configLoadStatus = String(loaded.reason || "invalid-config")
       root.configLoadError = String(loaded.error || loaded.reason || "configuration requires recovery")
-      root.configMigration = { applied: [], from: loaded.schemaVersion || null, to: Config.CURRENT_SCHEMA_VERSION }
+      root.configMigration = { applied: [], from: loaded.schemaVersion || null, to: Config.CURRENT_SCHEMA_VERSION, releaseFrom: loaded.releaseFrom || "unknown", releaseTo: loaded.releaseTo || Config.CURRENT_RELEASE, reason: loaded.reason || "configuration-invalid" }
       root.safeMode = true
       root.lastError = "Configuration requires recovery: " + root.configLoadError
       root.startConfigRecovery()
@@ -1814,7 +1814,7 @@ Item {
       root.config = loaded.config
       root.configLoadStatus = loaded.fresh === true ? "fresh" : (loaded.migrated === true ? "migrated" : "ok")
       root.configLoadError = ""
-      root.configMigration = { applied: loaded.applied || [], from: loaded.from, to: loaded.to }
+      root.configMigration = { applied: loaded.applied || [], from: loaded.from, to: loaded.to, releaseFrom: loaded.releaseFrom || "1.2.0", releaseTo: loaded.releaseTo || Config.CURRENT_RELEASE }
       root.safeMode = false
     }
     root.syncDeviceProfiles()

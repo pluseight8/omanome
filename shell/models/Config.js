@@ -1,4 +1,8 @@
 var CURRENT_SCHEMA_VERSION = 2
+var CURRENT_RELEASE = "1.3.0"
+var MIGRATION_SOURCE_RELEASE = "1.2.0"
+var DEVICE_PROFILE_SCHEMA_VERSION = 2
+var HARDWARE_SETUP_SCHEMA_VERSION = 1
 
 function defaults() {
   return {
@@ -231,7 +235,8 @@ function normalizeDeviceProfilesTwo(source, report) {
     source.deviceProfiles = clone(template)
     changed = true
   } else {
-    if (source.deviceProfiles.schemaVersion === undefined) { source.deviceProfiles.schemaVersion = 2; changed = true }
+    if (source.deviceProfiles.schemaVersion === undefined) { source.deviceProfiles.schemaVersion = DEVICE_PROFILE_SCHEMA_VERSION; changed = true }
+    else if (Number(source.deviceProfiles.schemaVersion) < DEVICE_PROFILE_SCHEMA_VERSION) { source.deviceProfiles.schemaVersion = DEVICE_PROFILE_SCHEMA_VERSION; changed = true }
     if (source.deviceProfiles.enabled === undefined) { source.deviceProfiles.enabled = true; changed = true }
     if (!isObject(source.deviceProfiles.profiles)) { source.deviceProfiles.profiles = {}; changed = true }
     if (!Array.isArray(source.deviceProfiles.rules)) { source.deviceProfiles.rules = []; changed = true }
@@ -262,6 +267,27 @@ function normalizeHardwareSetupProfilesOne(source, report) {
   if (changed && report && report.applied.indexOf("hardware-setup-profiles-1.0-defaults") < 0) report.applied.push("hardware-setup-profiles-1.0-defaults")
 }
 
+function nestedFutureSchema(source) {
+  var deviceProfiles = isObject(source.deviceProfiles) ? Number(source.deviceProfiles.schemaVersion) : 0
+  var setupProfiles = isObject(source.hardwareSetupProfiles) ? Number(source.hardwareSetupProfiles.schemaVersion) : 0
+  var displayPolicy = isObject(source.hardwareSetupProfiles) && isObject(source.hardwareSetupProfiles.displayPolicy)
+    ? Number(source.hardwareSetupProfiles.displayPolicy.schemaVersion) : 0
+  if (isFinite(deviceProfiles) && deviceProfiles > DEVICE_PROFILE_SCHEMA_VERSION)
+    return { reason: "future-device-profile-schema", schemaVersion: deviceProfiles }
+  if (isFinite(setupProfiles) && setupProfiles > HARDWARE_SETUP_SCHEMA_VERSION)
+    return { reason: "future-hardware-setup-schema", schemaVersion: setupProfiles }
+  if (isFinite(displayPolicy) && displayPolicy > HARDWARE_SETUP_SCHEMA_VERSION)
+    return { reason: "future-display-policy-schema", schemaVersion: displayPolicy }
+  return null
+}
+
+function releaseMigration(source, report) {
+  var changed = report.applied.indexOf("device-profiles-2.0-defaults") >= 0 ||
+    report.applied.indexOf("hardware-setup-profiles-1.0-defaults") >= 0
+  if (changed && report.applied.indexOf("device-intelligence-1.3-defaults") < 0)
+    report.applied.push("device-intelligence-1.3-defaults")
+}
+
 function migrateDetailed(raw) {
   if (!isObject(raw)) return { ok: false, reason: "invalid-root", config: null, applied: [] }
   var source = clone(raw)
@@ -270,7 +296,9 @@ function migrateDetailed(raw) {
     return { ok: false, reason: "invalid-schema-version", config: null, applied: [] }
   if (version > CURRENT_SCHEMA_VERSION)
     return { ok: false, reason: "future-schema", schemaVersion: version, config: null, applied: [] }
-  var report = { ok: true, from: version, to: CURRENT_SCHEMA_VERSION, applied: [] }
+  var future = nestedFutureSchema(source)
+  if (future) return { ok: false, reason: future.reason, schemaVersion: future.schemaVersion, config: null, applied: [] }
+  var report = { ok: true, from: version, to: CURRENT_SCHEMA_VERSION, releaseFrom: version < 2 ? "legacy" : MIGRATION_SOURCE_RELEASE, releaseTo: CURRENT_RELEASE, applied: [] }
   if (version < 1) migrationStepZeroToOne(source, report)
   if (source.schemaVersion < 2) migrationStepOneToTwo(source, report)
   if (!isObject(source.performance)) source.performance = {}
@@ -283,11 +311,12 @@ function migrateDetailed(raw) {
   normalizeAdaptiveOneTwo(source, report)
   normalizeDeviceProfilesTwo(source, report)
   normalizeHardwareSetupProfilesOne(source, report)
-  return { ok: true, config: merge(defaults(), source), from: version, to: CURRENT_SCHEMA_VERSION, applied: report.applied, migrated: report.applied.length > 0 }
+  releaseMigration(source, report)
+  return { ok: true, config: merge(defaults(), source), from: version, to: CURRENT_SCHEMA_VERSION, releaseFrom: report.releaseFrom, releaseTo: report.releaseTo, applied: report.applied, migrated: report.applied.length > 0 }
 }
 
 function loadDetailed(raw) {
-  if (String(raw || "").trim() === "") return { ok: true, config: defaults(), from: CURRENT_SCHEMA_VERSION, to: CURRENT_SCHEMA_VERSION, applied: [], migrated: false, fresh: true }
+  if (String(raw || "").trim() === "") return { ok: true, config: defaults(), from: CURRENT_SCHEMA_VERSION, to: CURRENT_SCHEMA_VERSION, releaseFrom: CURRENT_RELEASE, releaseTo: CURRENT_RELEASE, applied: [], migrated: false, fresh: true }
   try {
     var parsed = JSON.parse(String(raw || ""))
     return migrateDetailed(parsed)
@@ -333,5 +362,5 @@ function isValid(config) {
   return isObject(config) && Number(config.schemaVersion) === CURRENT_SCHEMA_VERSION
 }
 
-var api = { CURRENT_SCHEMA_VERSION: CURRENT_SCHEMA_VERSION, defaults: defaults, migrate: migrate, migrateDetailed: migrateDetailed, load: load, loadDetailed: loadDetailed, get: get, set: set, isValid: isValid }
+var api = { CURRENT_SCHEMA_VERSION: CURRENT_SCHEMA_VERSION, CURRENT_RELEASE: CURRENT_RELEASE, defaults: defaults, migrate: migrate, migrateDetailed: migrateDetailed, load: load, loadDetailed: loadDetailed, get: get, set: set, isValid: isValid }
 if (typeof module !== "undefined") module.exports = api
