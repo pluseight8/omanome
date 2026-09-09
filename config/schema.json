@@ -169,6 +169,25 @@
         "safeModeIgnoreCustom": { "type": "boolean" }
       }
     },
+    "power": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "batteryMonitor": { "type": "boolean" },
+        "preferredProfileMode": { "enum": ["ask", "manual"] },
+        "lowBatteryWarningPercent": { "type": "integer", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "quirks": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "enabled": { "type": "boolean" },
+        "allowCriticalMapping": { "type": "boolean" },
+        "entries": { "type": "array", "maxItems": 64 },
+        "revision": { "type": "integer", "minimum": 0 }
+      }
+    },
     "onboarding": { "type": "object" },
     "accessibility": { "type": "object" },
     "touch": { "type": "object" },

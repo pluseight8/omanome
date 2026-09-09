@@ -151,6 +151,13 @@ class InputProtocolContractTests(unittest.TestCase):
         self.assertNotIn("wtype", monitor)
         self.assertIn("device.event", monitor)
 
+    def test_power_monitor_is_signal_driven_and_does_not_poll_upower(self) -> None:
+        monitor = (ROOT / "input/power-monitor.sh").read_text(encoding="utf-8")
+        self.assertIn("gdbus", monitor)
+        self.assertIn("org.freedesktop.UPower", monitor)
+        self.assertIn("power.event", monitor)
+        self.assertNotIn("upower -e", monitor)
+
     def test_keyboard_classification_uses_capabilities_and_form_factor(self) -> None:
         node = shutil.which("node")
         if not node:

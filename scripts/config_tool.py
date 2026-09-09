@@ -31,6 +31,8 @@ CURRENT_RELEASE = "1.3.0"
 MIGRATION_SOURCE_RELEASE = "1.2.0"
 DEVICE_PROFILE_SCHEMA_VERSION = 2
 HARDWARE_SETUP_SCHEMA_VERSION = 1
+POWER_SCHEMA_VERSION = 1
+QUIRKS_SCHEMA_VERSION = 1
 GRAPH_ID_RE = re.compile(r"(?:device:[a-z0-9-]+:[0-9a-f]{16}|display:[0-9a-f]{16})")
 CALIBRATION_KINDS = {"touchscreen", "stylus"}
 SETUP_IDS = ("auto", "tablet", "desk", "portable", "travel", "presentation", "drawing", "custom")
@@ -326,6 +328,63 @@ def migration_calibration_1_3(source: dict[str, Any], applied: list[str]) -> Non
         applied.append("calibration-1.3-defaults")
 
 
+def migration_power_1_3(source: dict[str, Any], applied: list[str]) -> None:
+    template = load_defaults().get("power", {})
+    value = source.get("power")
+    changed = False
+    if not isinstance(value, dict):
+        source["power"] = copy.deepcopy(template)
+        changed = True
+    else:
+        if "schemaVersion" not in value:
+            value["schemaVersion"] = POWER_SCHEMA_VERSION
+            changed = True
+        if "batteryMonitor" not in value:
+            value["batteryMonitor"] = True
+            changed = True
+        if value.get("preferredProfileMode", "ask") not in {"ask", "manual"}:
+            value["preferredProfileMode"] = "ask"
+            changed = True
+        warning = value.get("lowBatteryWarningPercent", template.get("lowBatteryWarningPercent", 15))
+        if isinstance(warning, bool) or not isinstance(warning, (int, float)) or not math.isfinite(float(warning)):
+            value["lowBatteryWarningPercent"] = template.get("lowBatteryWarningPercent", 15)
+            changed = True
+        else:
+            bounded = max(0, min(100, int(warning)))
+            if bounded != warning:
+                value["lowBatteryWarningPercent"] = bounded
+                changed = True
+    if changed and "power-1.3-defaults" not in applied:
+        applied.append("power-1.3-defaults")
+
+
+def migration_quirks_1_3(source: dict[str, Any], applied: list[str]) -> None:
+    template = load_defaults().get("quirks", {})
+    value = source.get("quirks")
+    changed = False
+    if not isinstance(value, dict):
+        source["quirks"] = copy.deepcopy(template)
+        changed = True
+    else:
+        if "schemaVersion" not in value:
+            value["schemaVersion"] = QUIRKS_SCHEMA_VERSION
+            changed = True
+        if "enabled" not in value:
+            value["enabled"] = True
+            changed = True
+        if "allowCriticalMapping" not in value:
+            value["allowCriticalMapping"] = False
+            changed = True
+        if not isinstance(value.get("entries"), list):
+            value["entries"] = []
+            changed = True
+        if isinstance(value.get("revision"), bool) or not isinstance(value.get("revision", 0), int) or value.get("revision", 0) < 0:
+            value["revision"] = 0
+            changed = True
+    if changed and "quirks-1.3-defaults" not in applied:
+        applied.append("quirks-1.3-defaults")
+
+
 def nested_future_schema(source: dict[str, Any]) -> tuple[str, int] | None:
     device_profiles = source.get("deviceProfiles")
     if isinstance(device_profiles, dict):
@@ -357,11 +416,25 @@ def nested_future_schema(source: dict[str, Any]) -> tuple[str, int] | None:
                 raise ConfigError("invalid-calibration-schema", "deviceProfiles.calibrations.schemaVersion must be an integer")
             if int(value) > 1:
                 return "future-calibration-schema", int(value)
+    power = source.get("power")
+    if isinstance(power, dict):
+        value = power.get("schemaVersion", 0)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or int(value) != value:
+            raise ConfigError("invalid-power-schema", "power.schemaVersion must be an integer")
+        if int(value) > POWER_SCHEMA_VERSION:
+            return "future-power-schema", int(value)
+    quirks = source.get("quirks")
+    if isinstance(quirks, dict):
+        value = quirks.get("schemaVersion", 0)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or int(value) != value:
+            raise ConfigError("invalid-quirks-schema", "quirks.schemaVersion must be an integer")
+        if int(value) > QUIRKS_SCHEMA_VERSION:
+            return "future-quirks-schema", int(value)
     return None
 
 
 def release_migration(applied: list[str]) -> None:
-    if ("device-profiles-2.0-defaults" in applied or "hardware-setup-profiles-1.0-defaults" in applied) and "device-intelligence-1.3-defaults" not in applied:
+    if ("device-profiles-2.0-defaults" in applied or "hardware-setup-profiles-1.0-defaults" in applied or "power-1.3-defaults" in applied or "quirks-1.3-defaults" in applied) and "device-intelligence-1.3-defaults" not in applied:
         applied.append("device-intelligence-1.3-defaults")
 
 
@@ -390,6 +463,8 @@ def migrate(value: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     migration_device_profiles_2_0(source, applied)
     migration_hardware_setup_profiles_1_0(source, applied)
     migration_calibration_1_3(source, applied)
+    migration_power_1_3(source, applied)
+    migration_quirks_1_3(source, applied)
     release_migration(applied)
     normalized = deep_merge(load_defaults(), source)
     normalized["schemaVersion"] = CURRENT_SCHEMA_VERSION

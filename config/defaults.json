@@ -137,6 +137,19 @@
     "preserveLastKnownGood": true,
     "safeModeIgnoreCustom": true
   },
+  "power": {
+    "schemaVersion": 1,
+    "batteryMonitor": true,
+    "preferredProfileMode": "ask",
+    "lowBatteryWarningPercent": 15
+  },
+  "quirks": {
+    "schemaVersion": 1,
+    "enabled": true,
+    "allowCriticalMapping": false,
+    "entries": [],
+    "revision": 0
+  },
   "onboarding": {
     "completed": false,
     "skipped": false,

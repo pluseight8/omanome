@@ -21,6 +21,8 @@ import "models/Rotation.js" as RotationModel
 import "models/Touch.js" as TouchModel
 import "models/InputDevices.js" as InputDevicesModel
 import "models/DeviceGraph.js" as DeviceGraphModel
+import "models/BatterySources.js" as BatterySourcesModel
+import "models/DeviceQuirks.js" as DeviceQuirksModel
 import "models/Privacy.js" as PrivacyModel
 import "models/PerformanceBudget.js" as PerformanceBudgetModel
 import "models/DeviceTopology.js" as DeviceTopologyModel
@@ -146,6 +148,8 @@ Item {
   // Device Graph is a sanitized topology view shared by diagnostics and
   // future hardware profiles. It never replaces the existing input state.
   property var deviceGraph: DeviceGraphModel.emptyState()
+  property var batterySourceState: BatterySourcesModel.emptyState()
+  property var deviceQuirkState: DeviceQuirksModel.emptyState()
   // Topology aggregation is runtime-only. Hotplug events coalesce one bounded
   // snapshot refresh; only the refreshed graph is used for capability deltas.
   property var deviceTopologyState: DeviceTopologyModel.emptyState()
@@ -162,6 +166,8 @@ Item {
   property string activeCalibrationKind: ""
   property bool inputDeviceMonitorAvailable: false
   property string inputDeviceMonitorReason: "not-started"
+  property bool powerMonitorAvailable: false
+  property string powerMonitorReason: "not-started"
   property bool tabletSwitchAvailable: false
   property bool tabletSwitchActive: false
   property bool hyprlandAvailable: false
@@ -259,7 +265,7 @@ Item {
   property string captureScript: ""
   property var notificationService: null
   property var quickState: ({ wifi: false, bluetooth: false, airplane: false, volume: true, microphone: true, nightLight: false, dnd: false, rotationLock: false, recording: false, powerProfile: "balanced" })
-  property var systemState: ({ wifiAvailable: false, wifiEnabled: false, wifiConnected: false, airplane: false, wifiSsid: "", wifiSignal: -1, bluetoothAvailable: false, bluetoothPowered: false, volumeAvailable: false, volume: 0, volumeMuted: false, microphoneAvailable: false, microphoneVolume: 0, microphoneMuted: false, brightnessAvailable: false, brightness: 0, powerProfileAvailable: false, powerProfile: "balanced", batteryAvailable: false, batteryPercent: -1, batteryState: "unknown", nightLightAvailable: false, nightLightEnabled: false, dndAvailable: false, dnd: false, rotationAvailable: false, rotationSensorAvailable: false, rotationDbusAvailable: false, rotationAccelerometerAvailable: false, rotationSensorBackend: "manual", rotationLock: false, recordingAvailable: false, recording: false })
+  property var systemState: ({ wifiAvailable: false, wifiEnabled: false, wifiConnected: false, airplane: false, wifiSsid: "", wifiSignal: -1, bluetoothAvailable: false, bluetoothPowered: false, volumeAvailable: false, volume: 0, volumeMuted: false, microphoneAvailable: false, microphoneVolume: 0, microphoneMuted: false, brightnessAvailable: false, brightness: 0, powerProfileAvailable: false, powerProfile: "balanced", batteryAvailable: false, batteryPercent: -1, batteryState: "unknown", batterySources: [], nightLightAvailable: false, nightLightEnabled: false, dndAvailable: false, dnd: false, rotationAvailable: false, rotationSensorAvailable: false, rotationDbusAvailable: false, rotationAccelerometerAvailable: false, rotationSensorBackend: "manual", rotationLock: false, recordingAvailable: false, recording: false })
   property var wifiNetworks: []
   property var bluetoothDevices: []
   property var audioDevices: []
@@ -563,6 +569,7 @@ Item {
     root.stopClipboardWatchers()
     if (deviceMonitorProcess.running) deviceMonitorProcess.running = false
     if (sessionMonitorProcess.running) sessionMonitorProcess.running = false
+    if (powerMonitorProcess.running) powerMonitorProcess.running = false
     if (root.gestureState && root.gestureState.phase !== "idle") root.cancelGesture(String(reason || "enhancements-disabled"))
     if (root.snapAssistState && root.snapAssistState.active === true) root.cancelSnapAssist(String(reason || "enhancements-disabled"))
     if (root.splitViewState && root.splitViewState.phase === "dragging") root.rollbackSplitView(String(reason || "enhancements-disabled"))
@@ -578,6 +585,7 @@ Item {
     root.startInputBackendProbe()
     root.startDeviceMonitor()
     root.startSessionMonitor()
+    root.startPowerMonitor()
     root.startClipboardWatchers()
     root.refreshIntegrations()
     root.refreshRotationBackend()
@@ -704,6 +712,7 @@ Item {
     forceQuitKillProcess.command = ["bash", root.sourcePath("input/force-quit.sh")]
     deviceMonitorProcess.command = ["bash", root.sourcePath("input/device-monitor.sh")]
     sessionMonitorProcess.command = ["bash", root.sourcePath("input/session-monitor.sh")]
+    powerMonitorProcess.command = ["bash", root.sourcePath("input/power-monitor.sh")]
   }
 
   function inputBackendCandidates() {
@@ -1830,6 +1839,7 @@ Item {
     root.prepareWindowGroupRestore()
     root.startDeviceMonitor()
     root.startSessionMonitor()
+    root.startPowerMonitor()
     if (root.cfg("clipboard.privateMode", false) || root.cfg("privacy.clipboardPrivate", false))
       root.stopClipboardWatchers()
     else
@@ -1861,6 +1871,7 @@ Item {
       root.config = Config.set(root.config, "hardwareSetupProfiles", root.hardwareSetupStore)
       root.updateHardwarePolicy()
     }
+    if (configPath === "quirks" || configPath.indexOf("quirks.") === 0) root.updateDeviceGraph()
     root.saveConfig()
     root.configUpdated(configPath)
     if (configPath === "controlCenter.masterEnabled") {
@@ -1901,6 +1912,10 @@ Item {
         } else root.startInputBackendProbe()
       }
       if (configPath.indexOf("input.deviceMappings") === 0 || configPath === "input.defaultOutput") root.updateInputMapping()
+    }
+    if (configPath === "power" || configPath.indexOf("power.") === 0) {
+      if (root.cfg("power.batteryMonitor", true) !== true && powerMonitorProcess.running) powerMonitorProcess.running = false
+      else if (root.cfg("power.batteryMonitor", true) === true) root.startPowerMonitor()
     }
     if (configPath === "multitasking.snapAssist.enabled" && value === false && root.snapAssistState.active === true)
       root.cancelSnapAssist("snap-assist-disabled")
@@ -2082,8 +2097,17 @@ Item {
       root.lastError = "Quick Settings backend returned invalid state"
       return
     }
+    root.batterySourceState = BatterySourcesModel.fromSnapshot(parsed, root.batterySourceState)
     var next = {}
     for (var key in parsed) next[key] = parsed[key]
+    next.batterySources = root.batterySourceState.sources
+    var primaryBattery = BatterySourcesModel.primary(root.batterySourceState)
+    if (primaryBattery) {
+      next.batteryAvailable = true
+      next.batteryPercent = Number(primaryBattery.percent)
+      next.batteryState = String(primaryBattery.state || "unknown")
+      if (primaryBattery.onAc !== undefined) next.onAc = primaryBattery.onAc === true
+    }
     next.rotationLock = root.cfg("rotation.lock", false) === true
     next.recording = recorderProcess.running || parsed.recording === true
     next.nightLightEnabled = nightLightProcess.running || parsed.nightLightEnabled === true
@@ -2092,8 +2116,8 @@ Item {
     if (next.dndAvailable && notification && notification.doNotDisturb !== undefined)
       next.dnd = Boolean(notification.doNotDisturb)
     root.systemState = next
+    root.updateDeviceGraph()
     root.quickState = QuickSettingsModel.stateFromSystem(next)
-    root.updateHardwarePolicy()
     root.updateDockingContinuity("system-state-update")
     root.refreshRotationBackend()
     root.performanceState = PerformanceModel.snapshot(root.cfg("performance", {}), root.performanceContext())
@@ -2496,9 +2520,16 @@ Item {
 
   function updateDeviceGraph() {
     var source = root.devices && typeof root.devices === "object" && !Array.isArray(root.devices) ? root.devices : {}
-    var snapshot = Object.assign({}, source, { monitors: Array.isArray(root.monitors) ? root.monitors : [] })
+    var snapshot = Object.assign({}, source, {
+      monitors: Array.isArray(root.monitors) ? root.monitors : [],
+      batteries: root.batterySourceState && Array.isArray(root.batterySourceState.sources) ? root.batterySourceState.sources : []
+    })
     var previousGraph = root.deviceGraph
     root.deviceGraph = DeviceGraphModel.fromSnapshot(snapshot, root.deviceGraph)
+    root.deviceQuirkState = DeviceQuirksModel.evaluate(root.cfg("quirks", {}), root.deviceGraph, {
+      kernelFamily: root.systemState.kernelFamily,
+      driverFamily: root.systemState.driverFamily
+    })
     root.deviceTopologyState = DeviceTopologyModel.reconcile(root.deviceTopologyState, previousGraph, root.deviceGraph, Date.now(), "snapshot-reconciled")
     root.deviceConnectionNotice = DeviceStatusModel.connectionNotice(previousGraph, root.deviceGraph, root.deviceTopologyState, Date.now(), root.deviceConnectionNotice, { durationMs: root.cfg("controlCenter.osd.durationMs", 2600) })
     root.updateHardwarePolicy()
@@ -2961,6 +2992,8 @@ Item {
       source: "service",
       graph: DeviceGraphModel.publicSnapshot(root.deviceGraph),
       topology: DeviceTopologyModel.summary(root.deviceTopologyState),
+      battery: BatterySourcesModel.summary(root.batterySourceState),
+      quirks: DeviceQuirksModel.summary(root.deviceQuirkState),
       hardwarePolicies: HardwarePoliciesModel.summary(root.hardwarePolicyState),
       dockingContinuity: DockingContinuityModel.summary(root.dockingContinuityState),
       compactDevices: root.compactDeviceStatus(),
@@ -3057,7 +3090,11 @@ Item {
 
   function updateDeviceEvent(raw) {
     var parsed = parseJson(raw, null)
-    if (!parsed || ["device.event", "display.event", "topology.event", "hardware.event", "capability.change"].indexOf(String(parsed.type || "")) < 0) return
+    if (!parsed || ["device.event", "display.event", "topology.event", "hardware.event", "capability.change", "power.event", "battery.event"].indexOf(String(parsed.type || "")) < 0) return
+    if (["power.event", "battery.event"].indexOf(String(parsed.type || "")) >= 0) {
+      root.updatePowerEvent(parsed)
+      return
+    }
     if (String(parsed.type || "") === "device.event") root.inputDeviceState = InputDevicesModel.applyEvent(root.inputDeviceState, parsed)
     root.deviceGraph = DeviceGraphModel.applyEvent(root.deviceGraph, parsed)
     root.handleCalibrationDeviceEvent()
@@ -3079,6 +3116,22 @@ Item {
     root.stateUpdated()
   }
 
+  function updatePowerEvent(raw) {
+    var parsed = typeof raw === "string" ? root.parseJson(raw, null) : raw
+    if (!parsed || ["power.event", "battery.event"].indexOf(String(parsed.type || "")) < 0) return
+    root.batterySourceState = BatterySourcesModel.applyEvent(root.batterySourceState, parsed)
+    root.deviceTopologyState = DeviceTopologyModel.noteEvent(root.deviceTopologyState, parsed, Date.now(), {
+      debounceMs: 180,
+      capabilityDebounceMs: 180,
+      disconnectDebounceMs: 180
+    })
+    root.powerMonitorAvailable = true
+    root.powerMonitorReason = "upower-event-stream"
+    powerRefreshDebounce.restart()
+    root.stateRevision++
+    root.stateUpdated()
+  }
+
   function startDeviceMonitor() {
     if (root.shuttingDown || !root.configReady || root.safeMode || !root.masterEnabled || root.suspended || root.cfg("input.deviceHotplug", true) !== true || deviceMonitorProcess.running) return false
     if (!root.sourcePath("input/device-monitor.sh")) return false
@@ -3092,6 +3145,14 @@ Item {
     if (!root.sourcePath("input/session-monitor.sh")) return false
     sessionMonitorProcess.command = ["bash", root.sourcePath("input/session-monitor.sh")]
     sessionMonitorProcess.running = true
+    return true
+  }
+
+  function startPowerMonitor() {
+    if (root.shuttingDown || !root.configReady || root.safeMode || !root.masterEnabled || root.suspended || root.cfg("power.batteryMonitor", true) !== true || powerMonitorProcess.running) return false
+    if (!root.sourcePath("input/power-monitor.sh")) return false
+    powerMonitorProcess.command = ["bash", root.sourcePath("input/power-monitor.sh")]
+    powerMonitorProcess.running = true
     return true
   }
 
@@ -3111,6 +3172,7 @@ Item {
       root.stopNativeInputBackend("suspended")
       root.cancelFallbackInput()
       if (rotationProcess.running) rotationProcess.running = false
+      if (powerMonitorProcess.running) powerMonitorProcess.running = false
       root.abortRotation("Rotation was cancelled for suspend")
       root.sessionMonitorReason = "suspended"
     } else if (transition.state.phase === "active") {
@@ -3118,6 +3180,7 @@ Item {
       root.inputRestartState = { consecutiveFailures: 0, startedAt: 0, blocked: false }
       root.startInputBackendProbe()
       root.startDeviceMonitor()
+      root.startPowerMonitor()
       root.refreshDevices()
       root.refreshRotationBackend()
     }
@@ -3254,6 +3317,10 @@ Item {
       deviceGraph: DeviceGraphModel.summary(root.deviceGraph),
       hardwareGraph: DeviceGraphModel.publicSnapshot(root.deviceGraph),
       deviceTopology: DeviceTopologyModel.summary(root.deviceTopologyState),
+      battery: BatterySourcesModel.summary(root.batterySourceState),
+      batterySources: BatterySourcesModel.summary(root.batterySourceState),
+      powerMonitor: { available: root.powerMonitorAvailable, reason: root.powerMonitorReason },
+      quirks: DeviceQuirksModel.summary(root.deviceQuirkState),
       compactDevices: root.compactDeviceStatus(),
       deviceConnectionNotice: root.deviceConnectionNotice,
       deviceProfiles: DeviceProfilesModel.summary(root.deviceProfileStore),
@@ -3436,6 +3503,10 @@ Item {
       tabletMode: { mode: root.effectiveMode, reason: root.tabletModeState.reason, switchAvailable: root.tabletSwitchAvailable, switchActive: root.tabletSwitchActive, profile: root.tabletProfile },
       onboarding: { completed: root.cfg("onboarding.completed", false) === true, skipped: root.cfg("onboarding.skipped", false) === true, version: Number(root.cfg("onboarding.version", 1)) },
       devices: { monitors: root.monitors.length, stylus: root.stylusDevices.length, keyboards: root.keyboardDeviceSummaries() },
+      battery: BatterySourcesModel.summary(root.batterySourceState),
+      batterySources: BatterySourcesModel.summary(root.batterySourceState),
+      powerMonitor: { available: root.powerMonitorAvailable, reason: root.powerMonitorReason },
+      quirks: DeviceQuirksModel.summary(root.deviceQuirkState),
       rotation: { available: root.systemState.rotationAvailable === true, sensor: root.systemState.rotationSensorAvailable === true, backend: String(root.systemState.rotationSensorBackend || "manual") },
       multitasking: {
         enabled: root.cfg("multitasking.enabled", true) !== false,
@@ -5408,6 +5479,23 @@ Item {
     }
   }
 
+  Process {
+    id: powerMonitorProcess
+    environment: root.ownedEnvironment("power-hotplug")
+    stdout: SplitParser { onRead: function(line) { root.updatePowerEvent(line) } }
+    stderr: SplitParser { onRead: function(line) { root.powerMonitorReason = "upower-monitor-diagnostic" } }
+    onStarted: {
+      root.processStarted("power-hotplug", powerMonitorProcess, "event-driven UPower battery signals", true, "none")
+      root.powerMonitorAvailable = true
+      root.powerMonitorReason = "connected"
+    }
+    onExited: function(exitCode) {
+      root.processStopped("power-hotplug", powerMonitorProcess, exitCode)
+      root.powerMonitorAvailable = false
+      root.powerMonitorReason = exitCode === 127 ? "upower-monitor-unavailable" : "upower-monitor-exited"
+    }
+  }
+
   Timer {
     id: deviceRefreshDebounce
     interval: 240
@@ -5913,6 +6001,15 @@ Item {
   }
 
   Timer {
+    id: powerRefreshDebounce
+    // UPower may emit several property signals for one state change. Keep one
+    // bounded snapshot in flight and let the existing process guard coalesce.
+    interval: 250
+    repeat: false
+    onTriggered: root.refreshSystemState()
+  }
+
+  Timer {
     id: systemFallbackRefresh
     interval: 120000
     repeat: true
@@ -5996,7 +6093,7 @@ Item {
       clipboardWriteDebounce, deviceRefreshDebounce, postureTransition,
       keyboardTransitionTimer, modeTransitionTimer, dockedModeTimer, adaptivePreviewTimer, orientationTransition, wobblyConfigDebounce, clipboardRestart, rotationRestart,
       inputBackendRestart, oskPolicyTimer, clipboardMaintenance, integrationRefresh,
-      systemRefresh, systemFallbackRefresh, inputFlush, inputModeCommit, effectRefresh,
+      systemRefresh, powerRefreshDebounce, systemFallbackRefresh, inputFlush, inputModeCommit, effectRefresh,
       initialConfigSave, deviceRefresh, multitaskingLaunchTimeout, calibrationTransactionTimer
     ]
     for (var timerIndex = 0; timerIndex < timers.length; timerIndex++)
@@ -6015,7 +6112,7 @@ Item {
       shortcutBindsProcess,
       screenshotProcess, performanceSnapshotProcess, directoryProcess,
       configRecoveryProcess, devicesProcess, deviceMonitorProcess,
-      sessionMonitorProcess, monitorsProcess, clientsProcess, systemStateProcess,
+      sessionMonitorProcess, powerMonitorProcess, monitorsProcess, clientsProcess, systemStateProcess,
       effectsInfoProcess, wobblyControlProcess, wobblyConfigProcess,
       forceQuitTermProcess, forceQuitKillProcess, wifiScanProcess,
       bluetoothScanProcess, audioScanProcess, rotationApplyProcess,
@@ -6086,6 +6183,7 @@ Item {
     wtypeCheck.running = true
     root.startInputBackendProbe()
     root.startDeviceMonitor()
+    root.startPowerMonitor()
   }
 
   Component.onDestruction: root.shutdown()

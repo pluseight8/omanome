@@ -43,6 +43,9 @@ def source_checks() -> list[dict[str, str]]:
     service = read(ROOT / "shell/Service.qml")
     policies = read(ROOT / "shell/models/HardwarePolicies.js")
     profiles = read(ROOT / "shell/models/DeviceProfiles.js")
+    battery = read(ROOT / "shell/models/BatterySources.js")
+    quirks = read(ROOT / "shell/models/DeviceQuirks.js")
+    power_monitor = read(ROOT / "input/power-monitor.sh")
     docking = read(ROOT / "shell/models/DockingContinuity.js")
     cli = read(ROOT / "cli/omanome")
     manifest = json.loads(read(ROOT / "manifest.json"))
@@ -117,6 +120,30 @@ def source_checks() -> list[dict[str, str]]:
         "Hardware Setup Profiles retain explicit adaptive, mapping, behavior, and topology-match policy",
     ))
     checks.append(check(
+        "battery-sources-contract",
+        all(marker in battery for marker in (
+            "MAX_SOURCES", "fromSnapshot", "primary", "aggregate", "applyEvent",
+            "no-battery-sources", "rawPathsEmitted", "serialsEmitted", "addressesEmitted",
+        )),
+        "multiple real power sources are bounded, aggregated conservatively, and privacy-safe",
+    ))
+    checks.append(check(
+        "quirks-contract",
+        all(marker in quirks for marker in (
+            "normalizeDatabase", "normalizeEntry", "matches", "knownIssue", "workaround",
+            "documentation", "testedVersion", "criticalMapping", "visible",
+            "automaticMappingApplied", "critical-mapping-requires-confirmation",
+        )),
+        "quirks are structural, data-driven, diagnostics-visible, and never silently applied",
+    ))
+    checks.append(check(
+        "power-signal-boundary",
+        all(marker in power_monitor for marker in (
+            "gdbus monitor", "org.freedesktop.UPower", "PropertiesChanged", "power.event",
+        )) and "upower -e" not in power_monitor.lower(),
+        "UPower changes arrive through one signal stream without command polling",
+    ))
+    checks.append(check(
         "service-single-source",
         all(marker in service for marker in (
             "DeviceGraphModel.fromSnapshot", "DeviceGraphModel.applyEvent",
@@ -124,7 +151,8 @@ def source_checks() -> list[dict[str, str]]:
             "deviceRefreshDebounce.restart()", "CalibrationWizardModel.beginMapping",
             "PrivacyModel.boundary", "PerformanceBudgetModel.snapshot", "beginCalibrationTransaction",
             "confirmCalibrationTransaction", "rollbackCalibrationTransaction", "CalibrationModel.prepareTransaction",
-            "calibrationTransactionTimer",
+            "calibrationTransactionTimer", "BatterySourcesModel.fromSnapshot", "DeviceQuirksModel.evaluate",
+            "updatePowerEvent", "startPowerMonitor", "powerRefreshDebounce",
         )),
         "Service routes graph, topology, and mapping through the shared models",
     ))
@@ -159,6 +187,9 @@ def source_checks() -> list[dict[str, str]]:
         "service": service,
         "policies": policies,
         "profiles": profiles,
+        "battery": battery,
+        "quirks": quirks,
+        "power-monitor": power_monitor,
         "docking": docking,
         "privacy": privacy,
         "budget": budget,
@@ -186,6 +217,9 @@ const C=require('./shell/models/Calibration.js');
 const W=require('./shell/models/CalibrationWizard.js');
 const P=require('./shell/models/Privacy.js');
 const B=require('./shell/models/PerformanceBudget.js');
+const Battery=require('./shell/models/BatterySources.js');
+const H=require('./shell/models/HardwarePolicies.js');
+const Q=require('./shell/models/DeviceQuirks.js');
 const fixture={fixture_literal};
 const graph=G.fromSnapshot(fixture);
 const publicGraph=G.publicSnapshot(graph);
@@ -210,6 +244,10 @@ const mapped=W.confirm(W.identifyOutput(W.selectOutput(W.selectInput(wizard,inpu
 const duplicate=W.selectOutputByName(W.beginMapping({{nodes:[],outputs:[{{id:'display:1111111111111111',name:'Same',connected:true}},{{id:'display:2222222222222222',name:'Same',connected:true}}]}}),'Same');
 const budget=B.snapshot({{graphNodes:graph.nodes.length,graphOutputs:graph.outputs.length,graphRelationships:graph.relationships.length,topologySources:Object.keys(topology.sources).length,topologyCapabilityChanges:topology.capabilityChanges.length,touchSamples:touch.samples.length,stylusSamples:stylus.samples.length,inputDevices:0,inputQueue:0,livePreviewStreams:0}});
 const diagnostics=P.boundary({{serial:'SERIAL-DEVICE-CHECK',address:'aa:bb:cc:dd:ee:ff',path:'/sys/devices/private/event42',typedText:'private'}});
+const battery=Battery.fromSnapshot({{batterySources:[{{nativePath:'/org/freedesktop/UPower/devices/battery_BAT0',role:'system',percent:75,state:'discharging',serial:'PRIVATE-BATTERY'}},{{nativePath:'/org/freedesktop/UPower/devices/battery_CMB0',role:'peripheral',percent:60,state:'discharging'}}]}});
+const batteryGraph=G.fromSnapshot({{batteries:battery.sources}});
+const power=H.normalizePowerState({{powerProfileAvailable:true,powerProfile:'balanced',batterySources:battery.sources}});
+const quirks=Q.evaluate({{entries:[{{id:'battery-note',match:{{category:'battery',capabilitiesAll:['battery']}},knownIssue:'diagnostic note',workaround:'confirm before mapping',testedVersion:'1.3',criticalMapping:true}}]}},batteryGraph,{{}});
 console.log(JSON.stringify({{
   categories:[...new Set(graph.nodes.map(row=>row.category))].sort(),
   graphAvailable:graph.health.available===true,
@@ -222,6 +260,10 @@ console.log(JSON.stringify({{
   topology:{{eventCount:topology.eventCount,coalescedEvents:topology.coalescedEvents,reconciledPending:reconciled.pendingRefresh,reconciledNodes:reconciled.current.nodeCount}},
   mappingComplete:mapped.phase==='complete',
   ambiguous:duplicate.phase==='ambiguous' && duplicate.error==='identical-display-names',
+  batterySources:battery.sources.length===2 && Battery.primary(battery).percent===75 && Battery.fromSnapshot({{batterySources:[]}}).sources.length===0,
+  batteryPrivate:JSON.stringify(Battery.summary(battery)).indexOf('PRIVATE-BATTERY')<0 && JSON.stringify(Battery.summary(battery)).indexOf('/org/freedesktop/UPower')<0,
+  powerSources:power.batterySources.length===2 && power.batteryPercent===75,
+  quirksVisible:quirks.matchedCount===2 && quirks.criticalMappingBlocked===2 && quirks.automaticMappingApplied===false,
   budgetBounded:budget.bounded===true && budget.overBudget.length===0,
   diagnosticsClean:JSON.stringify(diagnostics).indexOf('SERIAL-DEVICE-CHECK')<0 && JSON.stringify(diagnostics).indexOf('event42')<0 && diagnostics.privacy.typedTextLogged===false
 }}));
@@ -252,6 +294,9 @@ def runtime_checks(fixture: dict[str, Any]) -> tuple[list[dict[str, str]], dict[
         check("privacy-boundary-runtime", payload.get("diagnosticsClean") is True, "diagnostic boundary removes raw hardware values"),
         check("event-burst-coalescing", payload.get("topology", {}).get("eventCount") == 1000 and payload.get("topology", {}).get("coalescedEvents", 0) >= 999 and payload.get("topology", {}).get("reconciledPending") is False and payload.get("topology", {}).get("reconciledNodes", 0) > 0, "1000 events coalesce and reconcile into one settled graph"),
         check("mapping-wizard-safety", payload.get("mappingComplete") is True and payload.get("ambiguous") is True, "mapping completes only after identification and rejects identical-name ambiguity"),
+        check("battery-source-runtime", payload.get("batterySources") is True and payload.get("powerSources") is True, "multiple observed power sources remain separate and feed the primary decision"),
+        check("battery-privacy-runtime", payload.get("batteryPrivate") is True, "battery summaries do not expose UPower paths or private identifiers"),
+        check("quirks-runtime", payload.get("quirksVisible") is True, "matched quirks remain visible and critical mapping is blocked pending confirmation"),
     ]
     return checks, payload
 

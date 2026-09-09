@@ -445,17 +445,44 @@ function resolveOskTarget(graph, input, policy, context) {
 
 function normalizePowerState(raw) {
   var source = object(raw)
-  var state = allowed(source.batteryState || source.battery_state, BATTERY_STATES, "unknown")
+  var rawSources = source.batterySources || source.battery_sources || source.batteries
+  var batterySources = []
+  var seenSources = {}
+  var rows = array(rawSources)
+  for (var i = 0; i < rows.length && batterySources.length < 16; i++) {
+    var row = object(rows[i])
+    var id = safeId(row.id)
+    if (!id || seenSources[id]) continue
+    var rowPercent = number(row.percent !== undefined ? row.percent : row.percentage, -1)
+    if (rowPercent < 0 || rowPercent > 100) rowPercent = -1
+    var normalized = {
+      id: id,
+      label: safeLabel(row.label, "Battery " + String(batterySources.length + 1)),
+      role: allowed(row.role, ["system", "peripheral", "ups", "unknown"], "unknown"),
+      percent: rowPercent,
+      state: allowed(row.state || row.batteryState, BATTERY_STATES, "unknown"),
+      connected: row.connected !== false,
+      confidence: allowed(row.confidence, ["confirmed", "probable", "unknown"], "unknown")
+    }
+    seenSources[id] = true
+    batterySources.push(normalized)
+  }
+  var primary = null
+  for (var p = 0; p < batterySources.length; p++) if (batterySources[p].role === "system") { primary = batterySources[p]; break }
+  if (!primary) for (var c = 0; c < batterySources.length; c++) if (batterySources[c].connected) { primary = batterySources[c]; break }
+  if (!primary && batterySources.length > 0) primary = batterySources[0]
+  var state = allowed(primary ? primary.state : source.batteryState || source.battery_state, BATTERY_STATES, "unknown")
   var profile = allowed(source.powerProfile || source.power_profile, POWER_PROFILES, "unknown")
-  var percent = number(source.batteryPercent !== undefined ? source.batteryPercent : source.battery_percentage, -1)
+  var percent = primary ? number(primary.percent, -1) : number(source.batteryPercent !== undefined ? source.batteryPercent : source.battery_percentage, -1)
   if (percent < 0 || percent > 100) percent = -1
   return {
     available: source.powerProfileAvailable === true || source.power_profile_available === true,
-    batteryAvailable: source.batteryAvailable === true || source.battery_available === true || percent >= 0,
+    batteryAvailable: batterySources.length > 0 || source.batteryAvailable === true || source.battery_available === true || percent >= 0,
     batteryPercent: percent,
     batteryState: state,
+    batterySources: batterySources,
     powerProfile: profile,
-    onAc: source.onAc === true || source.on_ac === true || state === "charging" || state === "fully-charged",
+    onAc: source.onAc === true || source.on_ac === true || primary && primary.onAc === true || state === "charging" || state === "fully-charged",
     thermalPressure: allowed(source.thermalPressure || source.thermal_pressure, ["nominal", "fair", "serious", "critical", "unknown"], "unknown")
   }
 }
@@ -482,9 +509,12 @@ function powerDecision(raw, setup, settings) {
     batteryAvailable: power.batteryAvailable,
     batteryPercent: power.batteryPercent,
     batteryState: power.batteryState,
+    batterySources: power.batterySources,
+    batterySourceCount: power.batterySources.length,
     onAc: power.onAc,
     thermalPressure: power.thermalPressure,
     applyAllowed: power.available && desired !== "" && desired !== power.powerProfile,
+    consentRequired: power.available && desired !== "" && desired !== power.powerProfile,
     reason: power.available ? reason : "power-profile-backend-unavailable"
   }
 }
@@ -538,7 +568,7 @@ function emptyState() {
     profile: setupDefaults("auto"),
     displays: { rows: [], primaryDisplayId: "", primaryDeclared: false, unknownCount: 0 },
     osk: { requested: "focused-display", status: "unavailable", outputId: "", reason: "no-device-graph", source: "none" },
-    power: { available: false, requested: "follow-system", desired: "", current: "unknown", batteryAvailable: false, batteryPercent: -1, batteryState: "unknown", onAc: false, thermalPressure: "unknown", applyAllowed: false, reason: "no-power-state" },
+    power: { available: false, requested: "follow-system", desired: "", current: "unknown", batteryAvailable: false, batteryPercent: -1, batteryState: "unknown", batterySources: [], batterySourceCount: 0, onAc: false, thermalPressure: "unknown", applyAllowed: false, consentRequired: false, reason: "no-power-state" },
     revision: 0,
     reason: "no-device-graph"
   }
@@ -601,7 +631,7 @@ function summary(resolved) {
     primaryDisplayId: safeId(displays.primaryDisplayId),
     unknownDisplayRoles: Number(displays.unknownCount || 0),
     osk: { requested: allowed(osk.requested, OSK_TARGETS, "focused-display"), status: string(osk.status || "unavailable"), outputId: safeId(osk.outputId), reason: string(osk.reason || "") },
-    power: { available: power.available === true, requested: allowed(power.requested, POWER_POLICIES, "follow-system"), desired: allowed(power.desired, POWER_PROFILES, ""), current: allowed(power.current, POWER_PROFILES, "unknown"), batteryState: allowed(power.batteryState, BATTERY_STATES, "unknown"), batteryPercent: number(power.batteryPercent, -1), applyAllowed: power.applyAllowed === true, reason: string(power.reason || "") },
+    power: { available: power.available === true, requested: allowed(power.requested, POWER_POLICIES, "follow-system"), desired: allowed(power.desired, POWER_PROFILES, ""), current: allowed(power.current, POWER_PROFILES, "unknown"), batteryState: allowed(power.batteryState, BATTERY_STATES, "unknown"), batteryPercent: number(power.batteryPercent, -1), batterySourceCount: Math.max(0, Math.min(16, Math.floor(number(power.batterySourceCount, array(power.batterySources).length)))), batterySources: array(power.batterySources).slice(0, 16), applyAllowed: power.applyAllowed === true, consentRequired: power.consentRequired === true, reason: string(power.reason || "") },
     preferredAdaptiveProfile: allowed(source.profile && source.profile.preferredAdaptiveProfile, ADAPTIVE_PROFILES, "auto"),
     revision: Number(source.revision || 0),
     reason: string(source.reason || "")

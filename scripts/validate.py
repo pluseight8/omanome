@@ -70,7 +70,7 @@ def validate_config() -> None:
     if schema.get("properties", {}).get("schemaVersion", {}).get("const") != 2:
         fail("config/schema.json must require schemaVersion 2")
     expected_sections = {
-        "general", "appearance", "controlCenter", "adaptive", "tabletMode", "input", "deviceProfiles", "hardwareSetupProfiles", "calibration", "touch", "stylus", "windowControls",
+        "general", "appearance", "controlCenter", "adaptive", "tabletMode", "input", "deviceProfiles", "hardwareSetupProfiles", "calibration", "power", "quirks", "touch", "stylus", "windowControls",
         "quickSettings", "dock", "overview", "launcher", "keyboard", "clipboard",
         "notifications", "altTab", "blur", "effects", "rotation", "privacy",
         "animations", "performance", "applicationRules", "wobbly", "cube", "forceQuit",

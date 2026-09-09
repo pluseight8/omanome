@@ -74,12 +74,52 @@ fi
 battery_available=false
 battery_percent=-1
 battery_state="unknown"
+battery_sources_json='[]'
 if command -v upower >/dev/null 2>&1; then
-  battery_device="$(upower -e 2>/dev/null | awk '/battery/ { print; exit }' || true)"
-  if [[ -n "$battery_device" ]]; then
+  battery_devices=()
+  while IFS= read -r battery_device; do
+    [[ -n "$battery_device" ]] && battery_devices+=("$battery_device")
+  done < <(upower -e 2>/dev/null | awk '/\/devices\/(battery_|ups_)/ { print; count++; if (count >= 16) exit }' || true)
+  extract_upower_field() {
+    local field_name="$1"
+    awk -F: -v field_name="$field_name" '$1 ~ "^[[:space:]]*" field_name "[[:space:]]*$" { sub(/^[[:space:]]*/, "", $2); sub(/[[:space:]]*$/, "", $2); print $2; exit }' <<<"$upower_info"
+  }
+  for battery_device in "${battery_devices[@]}"; do
+    upower_info="$(upower -i "$battery_device" 2>/dev/null || true)"
+    [[ -n "$upower_info" ]] || continue
+    model_value="$(extract_upower_field model || true)"
+    type_value="$(extract_upower_field type || true)"
+    state_value="$(extract_upower_field state || true)"
+    percentage_value="$(extract_upower_field percentage || true)"
+    energy_value="$(extract_upower_field energy || true)"
+    energy_full_value="$(extract_upower_field 'energy-full' || true)"
+    power_value="$(extract_upower_field 'energy-rate' || true)"
+    power_supply_value="$(extract_upower_field 'power supply' || true)"
+    online_value="$(extract_upower_field online || true)"
+    [[ -n "$type_value" ]] || type_value="$(basename "$battery_device" | sed 's/_.*$//' || true)"
+    [[ -n "$state_value" ]] || state_value="unknown"
+    percent_value="$(awk -v value="$percentage_value" 'BEGIN { gsub(/%/, "", value); if (value ~ /^[0-9]+(\.[0-9]+)?$/) print value; else print -1 }')"
+    energy_value="$(awk -v value="$energy_value" 'BEGIN { if (value ~ /^[0-9]+(\.[0-9]+)?/) { match(value, /^[0-9]+(\.[0-9]+)?/); print substr(value, RSTART, RLENGTH) } else print 0 }')"
+    energy_full_value="$(awk -v value="$energy_full_value" 'BEGIN { if (value ~ /^[0-9]+(\.[0-9]+)?/) { match(value, /^[0-9]+(\.[0-9]+)?/); print substr(value, RSTART, RLENGTH) } else print 0 }')"
+    power_value="$(awk -v value="$power_value" 'BEGIN { if (value ~ /^-?[0-9]+(\.[0-9]+)?/) { match(value, /^-?[0-9]+(\.[0-9]+)?/); print substr(value, RSTART, RLENGTH) } else print 0 }')"
+    row_json="$(jq -cn \
+      --arg nativePath "$battery_device" \
+      --arg model "$model_value" \
+      --arg type "$type_value" \
+      --arg state "$state_value" \
+      --arg powerSupply "$power_supply_value" \
+      --arg online "$online_value" \
+      --argjson percent "$percent_value" \
+      --argjson energy "$energy_value" \
+      --argjson energyFull "$energy_full_value" \
+      --argjson power "$power_value" \
+      '{nativePath:$nativePath,model:$model,type:$type,state:$state,percent:$percent,energy:$energy,energyFull:$energyFull,power:$power,powerSupply:($powerSupply|ascii_downcase == "yes"),online:($online|ascii_downcase == "yes"),present:true,source:"upower"}')"
+    battery_sources_json="$(jq -cn --argjson rows "$battery_sources_json" --argjson row "$row_json" '$rows + [$row]')"
+  done
+  if [[ "$(jq -r 'length' <<<"$battery_sources_json")" -gt 0 ]]; then
     battery_available=true
-    battery_percent="$(upower -i "$battery_device" 2>/dev/null | awk '/percentage:/ { gsub(/%/, "", $2); print $2; exit }' || true)"
-    battery_state="$(upower -i "$battery_device" 2>/dev/null | awk '/state:/ { print $2; exit }' || printf 'unknown')"
+    battery_percent="$(jq -r '.[0].percent // -1' <<<"$battery_sources_json")"
+    battery_state="$(jq -r '.[0].state // "unknown"' <<<"$battery_sources_json")"
   fi
 fi
 
@@ -90,7 +130,7 @@ fi
 [[ "$volume" =~ ^-?[0-9]+$ ]] || volume=0
 [[ "$microphone_volume" =~ ^-?[0-9]+$ ]] || microphone_volume=0
 [[ "$brightness" =~ ^-?[0-9]+$ ]] || brightness=0
-[[ "$battery_percent" =~ ^-?[0-9]+$ ]] || battery_percent=-1
+[[ "$battery_percent" =~ ^-?[0-9]+(\.[0-9]+)?$ ]] || battery_percent=-1
 
 night_light_available=false
 night_light_enabled=false
@@ -157,6 +197,7 @@ jq -cn \
   --argjson batteryAvailable "$(bool_value "$battery_available")" \
   --argjson batteryPercent "$battery_percent" \
   --arg batteryState "$battery_state" \
+  --argjson batterySources "$battery_sources_json" \
   --argjson nightLightAvailable "$(bool_value "$night_light_available")" \
   --argjson nightLightEnabled "$(bool_value "$night_light_enabled")" \
   --argjson recordingAvailable "$(bool_value "$recording_available")" \
@@ -167,4 +208,4 @@ jq -cn \
   --arg rotationSensorBackend "$rotation_sensor_backend" \
   --argjson touchTransform "$touch_transform" \
   --argjson tabletTransform "$tablet_transform" \
-  '{wifiAvailable:$wifiAvailable,wifiEnabled:$wifiEnabled,wifiConnected:$wifiConnected,airplane:$airplane,wifiSsid:$wifiSsid,wifiSignal:$wifiSignal,bluetoothAvailable:$bluetoothAvailable,bluetoothPowered:$bluetoothPowered,volumeAvailable:$volumeAvailable,volume:$volume,volumeMuted:$volumeMuted,microphoneAvailable:$microphoneAvailable,microphoneVolume:$microphoneVolume,microphoneMuted:$microphoneMuted,brightnessAvailable:$brightnessAvailable,brightness:$brightness,powerProfileAvailable:$powerProfileAvailable,powerProfile:$powerProfile,batteryAvailable:$batteryAvailable,batteryPercent:$batteryPercent,batteryState:$batteryState,nightLightAvailable:$nightLightAvailable,nightLightEnabled:$nightLightEnabled,dndAvailable:false,rotationAvailable:$rotationAvailable,rotationSensorAvailable:$rotationSensorAvailable,rotationDbusAvailable:$rotationDbusAvailable,rotationAccelerometerAvailable:$rotationAccelerometerAvailable,rotationSensorBackend:$rotationSensorBackend,touchTransform:$touchTransform,tabletTransform:$tabletTransform,rotationLock:false,recordingAvailable:$recordingAvailable,recording:false}'
+  '{wifiAvailable:$wifiAvailable,wifiEnabled:$wifiEnabled,wifiConnected:$wifiConnected,airplane:$airplane,wifiSsid:$wifiSsid,wifiSignal:$wifiSignal,bluetoothAvailable:$bluetoothAvailable,bluetoothPowered:$bluetoothPowered,volumeAvailable:$volumeAvailable,volume:$volume,volumeMuted:$volumeMuted,microphoneAvailable:$microphoneAvailable,microphoneVolume:$microphoneVolume,microphoneMuted:$microphoneMuted,brightnessAvailable:$brightnessAvailable,brightness:$brightness,powerProfileAvailable:$powerProfileAvailable,powerProfile:$powerProfile,batteryAvailable:$batteryAvailable,batteryPercent:$batteryPercent,batteryState:$batteryState,batterySources:$batterySources,nightLightAvailable:$nightLightAvailable,nightLightEnabled:$nightLightEnabled,dndAvailable:false,rotationAvailable:$rotationAvailable,rotationSensorAvailable:$rotationSensorAvailable,rotationDbusAvailable:$rotationDbusAvailable,rotationAccelerometerAvailable:$rotationAccelerometerAvailable,rotationSensorBackend:$rotationSensorBackend,touchTransform:$touchTransform,tabletTransform:$tabletTransform,rotationLock:false,recordingAvailable:$recordingAvailable,recording:false}'

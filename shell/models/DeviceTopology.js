@@ -92,8 +92,9 @@ function safeType(event) {
   var source = object(event)
   var type = token(source.type || source.eventType || source.event_type || "")
   if (type === "device" || type === "hardware" || type === "topology") type += ".event"
+  if (type === "power" || type === "battery") type += ".event"
   if (type === "capability" || type === "capabilities") type = "capability.change"
-  if (["device.event", "topology.event", "hardware.event", "display.event", "capability.change", "session.event"].indexOf(type) >= 0) return type
+  if (["device.event", "topology.event", "hardware.event", "display.event", "power.event", "battery.event", "capability.change", "session.event"].indexOf(type) >= 0) return type
   if (source.device || source.subsystem === "input" || source.subsystem === "drm") return source.subsystem === "drm" ? "display.event" : "device.event"
   return ""
 }
@@ -224,7 +225,7 @@ function noteEvent(previous, event, now, options) {
   old.coalescedEvents = Math.min(1000000, Number(old.coalescedEvents || 0) + (wasPending ? 1 : 0))
   old.pendingRefresh = true
   old.refreshDueAt = Math.max(Number(old.refreshDueAt || 0), due)
-  old.pendingReason = observed.display ? "display-topology-event" : observed.action === "remove" || observed.action === "disconnect" || observed.action === "detach" ? "device-disconnected" : observed.type === "capability.change" ? "capability-change" : "device-topology-event"
+  old.pendingReason = observed.display ? "display-topology-event" : observed.source === "upower" || observed.type === "power.event" || observed.type === "battery.event" ? "power-state-event" : observed.action === "remove" || observed.action === "disconnect" || observed.action === "detach" ? "device-disconnected" : observed.type === "capability.change" ? "capability-change" : "device-topology-event"
   old.stale = true
   old.phase = old.paused ? "paused" : observed.action === "remove" || observed.action === "disconnect" || observed.action === "detach" ? "disconnecting" : observed.action === "add" || observed.action === "connect" || observed.action === "attach" ? "connecting" : "changing"
   old.lastEvent = observed

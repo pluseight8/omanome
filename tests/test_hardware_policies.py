@@ -137,6 +137,22 @@ class HardwarePolicyTests(unittest.TestCase):
         self.assertEqual(result["minimumDevices"], 0)
         self.assertEqual(result["minimumOutputs"], 0)
 
+    def test_power_policy_keeps_multiple_real_sources_without_fabrication(self) -> None:
+        result = self.run_node(
+            "const H=require('./shell/models/HardwarePolicies.js'); "
+            "const multi=H.normalizePowerState({powerProfileAvailable:true,powerProfile:'balanced',batterySources:["
+            "{id:'device:battery:0123456789abcdef',label:'System battery',role:'system',percent:75,state:'discharging'},"
+            "{id:'device:battery:fedcba9876543210',label:'Attached battery',role:'peripheral',percent:60,state:'discharging'}]}); "
+            "const empty=H.normalizePowerState({powerProfileAvailable:true,powerProfile:'balanced',batterySources:[]}); "
+            "console.log(JSON.stringify({multi,empty,decision:H.powerDecision({powerProfileAvailable:true,powerProfile:'power-saver',batterySources:multi.batterySources},{powerPolicy:'performance'},{disablePerformanceOnBattery:true,criticalBatteryPercent:15})}));"
+        )
+        self.assertEqual(len(result["multi"]["batterySources"]), 2)
+        self.assertEqual(result["multi"]["batteryPercent"], 75)
+        self.assertEqual(result["multi"]["batterySources"][1]["role"], "peripheral")
+        self.assertFalse(result["empty"]["batteryAvailable"])
+        self.assertEqual(result["decision"]["batterySourceCount"], 2)
+        self.assertTrue(result["decision"]["consentRequired"])
+
 
 if __name__ == "__main__":
     unittest.main()

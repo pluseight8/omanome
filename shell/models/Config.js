@@ -3,6 +3,8 @@ var CURRENT_RELEASE = "1.3.0"
 var MIGRATION_SOURCE_RELEASE = "1.2.0"
 var DEVICE_PROFILE_SCHEMA_VERSION = 2
 var HARDWARE_SETUP_SCHEMA_VERSION = 1
+var POWER_SCHEMA_VERSION = 1
+var QUIRKS_SCHEMA_VERSION = 1
 
 function defaults() {
   return {
@@ -16,6 +18,8 @@ function defaults() {
     deviceProfiles: { schemaVersion: 2, enabled: true, profiles: {}, rules: [], calibrations: { schemaVersion: 1, entries: {}, revision: 0 }, revision: 0 },
     hardwareSetupProfiles: { schemaVersion: 1, selected: "auto", profiles: {}, displayPolicy: { schemaVersion: 1, primaryDisplay: "", oskTarget: "focused-display", roles: {} }, matchPolicy: { schemaVersion: 1, mode: "ask", autoApply: false, promptOnce: true }, matches: [], revision: 0 },
     calibration: { confirmationTimeoutMs: 8000, autoRollback: true, preserveLastKnownGood: true, safeModeIgnoreCustom: true },
+    power: { schemaVersion: 1, batteryMonitor: true, preferredProfileMode: "ask", lowBatteryWarningPercent: 15 },
+    quirks: { schemaVersion: 1, enabled: true, allowCriticalMapping: false, entries: [], revision: 0 },
     onboarding: { completed: false, skipped: false, version: 1, privacyAcknowledged: false },
     accessibility: { touchTargetSize: "default", textScale: 1.0, highContrast: false, reducedMotion: false, reduceTransparency: false, screenReaderHints: true },
     touch: { enabled: true, edgeWidth: 36, threshold: 96, velocity: 0.35, inertia: true, invert: false, threeFingerAction: "workspace", fourFingerAction: "overview", conflictPolicy: "disable-fullscreen", disableOnFullscreen: true, fullscreenAllowList: [], fullscreenDenyList: [], adaptiveTargetMode: "automatic" },
@@ -302,6 +306,42 @@ function normalizeCalibrationConfig(source, report) {
   if (changed && report && report.applied.indexOf("calibration-1.3-defaults") < 0) report.applied.push("calibration-1.3-defaults")
 }
 
+function normalizePowerConfig(source, report) {
+  var template = defaults().power
+  var changed = false
+  if (!isObject(source.power)) {
+    source.power = clone(template)
+    changed = true
+  } else {
+    if (source.power.schemaVersion === undefined) { source.power.schemaVersion = POWER_SCHEMA_VERSION; changed = true }
+    if (source.power.batteryMonitor === undefined) { source.power.batteryMonitor = true; changed = true }
+    if (["ask", "manual"].indexOf(String(source.power.preferredProfileMode || "ask")) < 0) { source.power.preferredProfileMode = "ask"; changed = true }
+    var warning = Number(source.power.lowBatteryWarningPercent)
+    if (!isFinite(warning)) { source.power.lowBatteryWarningPercent = template.lowBatteryWarningPercent; changed = true }
+    else {
+      var bounded = Math.max(0, Math.min(100, Math.floor(warning)))
+      if (bounded !== warning) { source.power.lowBatteryWarningPercent = bounded; changed = true }
+    }
+  }
+  if (changed && report && report.applied.indexOf("power-1.3-defaults") < 0) report.applied.push("power-1.3-defaults")
+}
+
+function normalizeQuirksConfig(source, report) {
+  var template = defaults().quirks
+  var changed = false
+  if (!isObject(source.quirks)) {
+    source.quirks = clone(template)
+    changed = true
+  } else {
+    if (source.quirks.schemaVersion === undefined) { source.quirks.schemaVersion = QUIRKS_SCHEMA_VERSION; changed = true }
+    if (source.quirks.enabled === undefined) { source.quirks.enabled = true; changed = true }
+    if (source.quirks.allowCriticalMapping === undefined) { source.quirks.allowCriticalMapping = false; changed = true }
+    if (!Array.isArray(source.quirks.entries)) { source.quirks.entries = []; changed = true }
+    if (source.quirks.revision === undefined) { source.quirks.revision = 0; changed = true }
+  }
+  if (changed && report && report.applied.indexOf("quirks-1.3-defaults") < 0) report.applied.push("quirks-1.3-defaults")
+}
+
 function nestedFutureSchema(source) {
   var deviceProfiles = isObject(source.deviceProfiles) ? Number(source.deviceProfiles.schemaVersion) : 0
   var setupProfiles = isObject(source.hardwareSetupProfiles) ? Number(source.hardwareSetupProfiles.schemaVersion) : 0
@@ -309,6 +349,8 @@ function nestedFutureSchema(source) {
     ? Number(source.hardwareSetupProfiles.displayPolicy.schemaVersion) : 0
   var calibrationStore = isObject(source.deviceProfiles) && isObject(source.deviceProfiles.calibrations)
     ? Number(source.deviceProfiles.calibrations.schemaVersion) : 0
+  var power = isObject(source.power) ? Number(source.power.schemaVersion) : 0
+  var quirks = isObject(source.quirks) ? Number(source.quirks.schemaVersion) : 0
   if (isFinite(deviceProfiles) && deviceProfiles > DEVICE_PROFILE_SCHEMA_VERSION)
     return { reason: "future-device-profile-schema", schemaVersion: deviceProfiles }
   if (isFinite(setupProfiles) && setupProfiles > HARDWARE_SETUP_SCHEMA_VERSION)
@@ -317,12 +359,18 @@ function nestedFutureSchema(source) {
     return { reason: "future-display-policy-schema", schemaVersion: displayPolicy }
   if (isFinite(calibrationStore) && calibrationStore > 1)
     return { reason: "future-calibration-schema", schemaVersion: calibrationStore }
+  if (isFinite(power) && power > POWER_SCHEMA_VERSION)
+    return { reason: "future-power-schema", schemaVersion: power }
+  if (isFinite(quirks) && quirks > QUIRKS_SCHEMA_VERSION)
+    return { reason: "future-quirks-schema", schemaVersion: quirks }
   return null
 }
 
 function releaseMigration(source, report) {
   var changed = report.applied.indexOf("device-profiles-2.0-defaults") >= 0 ||
-    report.applied.indexOf("hardware-setup-profiles-1.0-defaults") >= 0
+    report.applied.indexOf("hardware-setup-profiles-1.0-defaults") >= 0 ||
+    report.applied.indexOf("power-1.3-defaults") >= 0 ||
+    report.applied.indexOf("quirks-1.3-defaults") >= 0
   if (changed && report.applied.indexOf("device-intelligence-1.3-defaults") < 0)
     report.applied.push("device-intelligence-1.3-defaults")
 }
@@ -351,6 +399,8 @@ function migrateDetailed(raw) {
   normalizeDeviceProfilesTwo(source, report)
   normalizeHardwareSetupProfilesOne(source, report)
   normalizeCalibrationConfig(source, report)
+  normalizePowerConfig(source, report)
+  normalizeQuirksConfig(source, report)
   releaseMigration(source, report)
   return { ok: true, config: merge(defaults(), source), from: version, to: CURRENT_SCHEMA_VERSION, releaseFrom: report.releaseFrom, releaseTo: report.releaseTo, applied: report.applied, migrated: report.applied.length > 0 }
 }
