@@ -678,6 +678,123 @@ function summary(graph) {
   }
 }
 
+function publicId(value) {
+  var id = string(value).trim()
+  return /^(?:device:[a-z0-9-]+:[0-9a-f]{16}|display:[0-9a-f]{16})$/.test(id) ? id : ""
+}
+
+function publicLabel(value, fallback) {
+  var result = safeLabel(value, fallback)
+  if (!result || /[\\/\n\r]/.test(result)) return fallback
+  return result
+}
+
+function publicTransport(value) {
+  var name = token(value || "unknown")
+  var allowed = ["unknown", "usb", "usb-c", "bluetooth", "pogo-pin", "i2c", "spi", "virtual", "wayland", "kernel", "compositor", "wireless"]
+  return allowed.indexOf(name) >= 0 ? name : "other"
+}
+
+function publicFormFactorRole(value) {
+  var name = token(value || "unknown")
+  var allowed = ["unknown", "built-in", "external", "detachable", "dock", "drawing", "portable", "convertible"]
+  return allowed.indexOf(name) >= 0 ? name : "other"
+}
+
+function publicCapabilities(value) {
+  var source = object(value)
+  var result = {}
+  for (var i = 0; i < CAPABILITY_KEYS.length; i++) if (source[CAPABILITY_KEYS[i]] === true) result[CAPABILITY_KEYS[i]] = true
+  return result
+}
+
+function publicNode(value) {
+  var source = object(value)
+  var category = token(source.category)
+  if (CATEGORIES.indexOf(category) < 0) category = "unknown"
+  var relation = token(source.relation || "none")
+  if (RELATIONS.indexOf(relation) < 0) relation = "none"
+  var mapping = token(source.mappingStatus || "automatic")
+  if (["mapped", "automatic", "unavailable"].indexOf(mapping) < 0) mapping = "automatic"
+  return {
+    id: publicId(source.id),
+    label: publicLabel(source.label, category),
+    category: category,
+    transport: publicTransport(source.transport),
+    capabilities: publicCapabilities(source.capabilities),
+    seat: /^seat[0-9a-z-]{0,32}$/.test(token(source.seat || "default")) ? token(source.seat || "default") : "default",
+    connected: source.connected === true,
+    parent: publicId(source.parent),
+    relation: relation,
+    mappedOutput: publicId(source.mappedOutput),
+    mappingStatus: mapping,
+    formFactorRole: publicFormFactorRole(source.formFactorRole),
+    capabilitySource: sourceList(source, "backend", category).slice(0, 8),
+    confidence: confidence(source.confidence, "unknown")
+  }
+}
+
+function publicGeometry(value) {
+  var source = object(value)
+  return {
+    x: clamp(source.x, -1000000, 1000000, 0),
+    y: clamp(source.y, -1000000, 1000000, 0),
+    width: clamp(source.width, 0, 1000000, 0),
+    height: clamp(source.height, 0, 1000000, 0)
+  }
+}
+
+function publicOutput(value, index) {
+  var source = object(value)
+  var role = token(source.role || "unknown")
+  if (["internal", "external", "primary", "presentation", "unknown"].indexOf(role) < 0) role = "unknown"
+  var orientation = token(source.orientation || "auto")
+  if (["auto", "normal", "90", "180", "270", "left", "right", "inverted", "unknown"].indexOf(orientation) < 0) orientation = "unknown"
+  return {
+    id: publicId(source.id),
+    name: publicLabel(source.name, "Display " + String(index + 1)),
+    category: "display",
+    geometry: publicGeometry(source.geometry),
+    scale: clamp(source.scale, 0.25, 8, 1),
+    orientation: orientation,
+    role: role,
+    connected: source.connected === true,
+    capabilitySource: sourceList(source, "compositor", "display").slice(0, 8),
+    confidence: confidence(source.confidence, "unknown")
+  }
+}
+
+function publicRelationship(value) {
+  var source = object(value)
+  var type = token(source.type || "none")
+  if (RELATIONS.indexOf(type) < 0) type = "none"
+  return {
+    from: publicId(source.from),
+    to: publicId(source.to),
+    type: type,
+    confidence: confidence(source.confidence, "unknown"),
+    source: sourceList(source, "backend", "unknown")[0]
+  }
+}
+
+function publicSnapshot(graph) {
+  var source = object(graph)
+  var nodes = array(source.nodes).map(publicNode).filter(function(row) { return row.id !== "" })
+  var outputs = array(source.outputs).map(function(row, index) { return publicOutput(row, index) }).filter(function(row) { return row.id !== "" })
+  var relationships = array(source.relationships).map(publicRelationship).filter(function(row) { return row.from !== "" && row.to !== "" && row.type !== "none" })
+  var health = object(source.health)
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    revision: Number(source.revision || 0),
+    nodes: nodes,
+    relationships: relationships,
+    outputs: outputs,
+    health: { available: health.available === true, backend: token(health.backend || "unavailable") || "unavailable", reason: token(health.reason || "") || "unknown" },
+    confidence: Object.assign({ confirmed: 0, probable: 0, unknown: 0 }, object(source.confidence)),
+    summary: summary(source)
+  }
+}
+
 var api = {
   SCHEMA_VERSION: SCHEMA_VERSION,
   CATEGORIES: CATEGORIES,
@@ -691,6 +808,7 @@ var api = {
   normalize: fromSnapshot,
   applyEvent: applyEvent,
   emptyState: emptyState,
-  summary: summary
+  summary: summary,
+  publicSnapshot: publicSnapshot
 }
 if (typeof module !== "undefined") module.exports = api

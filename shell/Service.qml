@@ -2771,6 +2771,23 @@ Item {
     return root.compactDeviceState
   }
 
+  function hardwareGraphObject() {
+    return {
+      schemaVersion: 1,
+      source: "service",
+      graph: DeviceGraphModel.publicSnapshot(root.deviceGraph),
+      topology: DeviceTopologyModel.summary(root.deviceTopologyState),
+      hardwarePolicies: HardwarePoliciesModel.summary(root.hardwarePolicyState),
+      dockingContinuity: DockingContinuityModel.summary(root.dockingContinuityState),
+      compactDevices: root.compactDeviceStatus(),
+      privacy: { bluetoothMacEmitted: false, serialsEmitted: false, ephemeralPathsEmitted: false, eventNodesEmitted: false, typedTextLogged: false }
+    }
+  }
+
+  function hardwareGraphJson() {
+    return JSON.stringify(root.hardwareGraphObject())
+  }
+
   function updateDockingContinuity(reason) {
     var keyboard = root.keyboardModeSignals()
     var displayState = root.hardwarePolicyState && root.hardwarePolicyState.displays ? root.hardwarePolicyState.displays : { rows: [] }
@@ -3045,6 +3062,7 @@ Item {
         mapping: root.inputDeviceState.devices.map(function(item) { return { id: item.id, role: item.role, output: item.output || "automatic" } })
       },
       deviceGraph: DeviceGraphModel.summary(root.deviceGraph),
+      hardwareGraph: DeviceGraphModel.publicSnapshot(root.deviceGraph),
       deviceTopology: DeviceTopologyModel.summary(root.deviceTopologyState),
       compactDevices: root.compactDeviceStatus(),
       deviceConnectionNotice: root.deviceConnectionNotice,
@@ -5814,6 +5832,7 @@ Item {
 
     function ping(): string { return "ok" }
     function status(): string { return root.statusJson() }
+    function hardwareGraph(): string { return root.hardwareGraphJson() }
     function enable(): string { return root.setMasterEnabled(true) ? "ok" : "unavailable" }
     function disable(): string { return root.setMasterEnabled(false) ? "ok" : "unavailable" }
     function suspend(): string { return root.setSuspended(true) ? "ok" : "unavailable" }

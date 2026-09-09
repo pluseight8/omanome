@@ -104,6 +104,21 @@ class DeviceGraphTests(unittest.TestCase):
         self.assertEqual(result["summary"]["outputCount"], 1)
         self.assertEqual(result["summary"]["categories"]["keyboard"], 1)
 
+    def test_public_snapshot_whitelists_graph_fields_and_keeps_opaque_links(self) -> None:
+        result = self.run_node(
+            "const G=require('./shell/models/DeviceGraph.js'); "
+            "const graph=G.fromSnapshot({monitors:[{name:'Panel',builtin:true}],devices:["
+            "{type:'touchscreen',serial:'SERIAL-SECRET',address:'aa:bb:cc:dd:ee:ff',path:'/sys/input/event9',capabilities:{touchscreen:true}}]}); "
+            "const publicGraph=G.publicSnapshot(graph); console.log(JSON.stringify({publicGraph,text:JSON.stringify(publicGraph)}));"
+        )
+        public_graph = result["publicGraph"]
+        self.assertTrue(public_graph["nodes"])
+        self.assertTrue(all(row["id"].startswith(("device:", "display:")) for row in public_graph["nodes"]))
+        self.assertNotIn("SERIAL-SECRET", result["text"])
+        self.assertNotIn("aa:bb:cc:dd:ee:ff", result["text"])
+        self.assertNotIn("event9", result["text"])
+        self.assertNotIn("path", result["text"])
+
     def test_service_exposes_graph_summary_without_replacing_existing_input_state(self) -> None:
         service = (ROOT / "shell/Service.qml").read_text(encoding="utf-8")
         self.assertIn('"models/DeviceGraph.js" as DeviceGraphModel', service)
@@ -111,6 +126,7 @@ class DeviceGraphTests(unittest.TestCase):
         self.assertIn("DeviceGraphModel.fromSnapshot", service)
         self.assertIn("DeviceGraphModel.applyEvent", service)
         self.assertIn("deviceGraph: DeviceGraphModel.summary(root.deviceGraph)", service)
+        self.assertIn("hardwareGraph: DeviceGraphModel.publicSnapshot(root.deviceGraph)", service)
 
 
 if __name__ == "__main__":

@@ -100,6 +100,8 @@ Commands:
   watchdog [--watch]     Notify about sustained owner-only resource pressure
   performance reset      Reset local performance counters/state
   devices [--json]       Print classified, privacy-safe device inventory
+  hardware graph [--json]
+                         Print the sanitized universal device graph
 EOF
 }
 
@@ -1802,6 +1804,44 @@ sanitize_hypr_devices() {
     }'
 }
 
+sanitize_hardware_graph() {
+  jq -c '
+    def opaque_id:
+      if type == "string" and test("^(device:[a-z0-9-]+:[0-9a-f]{16}|display:[0-9a-f]{16})$") then . else "" end;
+    def safe_label($fallback):
+      if type == "string" and length > 0 and length <= 96 and (test("[\\/\\n\\r]") | not) then . else $fallback end;
+    def safe_token($fallback):
+      if type == "string" then (ascii_downcase | gsub("[^a-z0-9-]"; "") | if . == "" then $fallback else . end) else $fallback end;
+    def safe_confidence: if . == "confirmed" or . == "probable" or . == "unknown" then . else "unknown" end;
+    def safe_category: . as $value | if (["display","touchscreen","stylus","tablet-pad","keyboard","mouse","touchpad","gamepad","sensor","dock","battery","audio"] | index($value)) != null then $value else "unknown" end;
+    def safe_role: . as $value | if (["unknown","internal","external","primary","presentation"] | index($value)) != null then $value else "unknown" end;
+    def safe_relation: . as $value | if (["parent","attached-to","mapped-to","reports-to","paired-with","none"] | index($value)) != null then $value else "none" end;
+    def safe_mapping: . as $value | if (["mapped","automatic","unavailable"] | index($value)) != null then $value else "automatic" end;
+    def node:
+      {id:(.id | opaque_id),label:(.label as $label | .category as $category | $label | safe_label($category // "unknown")),category:(.category // "unknown" | safe_category),transport:(.transport // "unknown" | safe_token("unknown")),capabilities:((.capabilities // {}) | with_entries(.key as $key | select(.value == true and (["display","touch","touchscreen","multitouch","stylus","tablet","keyboard","mouse","touchpad","gamepad","sensor","battery","audio","pressure","tilt","tilt-x","tilt-y","rotation","distance","proximity","eraser","buttons","absolute","relative","haptic","lid","power"] | index($key)) != null))),seat:(.seat // "default" | safe_token("default")),connected:(.connected == true),parent:(.parent | opaque_id),relation:(.relation // "none" | safe_relation),mappedOutput:(.mappedOutput | opaque_id),mappingStatus:(.mappingStatus // "automatic" | safe_mapping),formFactorRole:(.formFactorRole // "unknown" | safe_token("unknown")),capabilitySource:((.capabilitySource // []) | if type == "array" then map(select(type == "string") | safe_token("backend"))[:8] else [] end),confidence:(.confidence // "unknown" | safe_confidence)};
+    . as $root
+    | ($root.graph // {}) as $graph
+    | {
+        schemaVersion:1,
+        source:(($root.source // "service") | safe_token("service")),
+        graph:{
+          schemaVersion:($graph.schemaVersion // 1),
+          revision:($graph.revision // 0),
+          nodes:([ $graph.nodes[]? | node | select(.id != "") ]),
+          relationships:([ $graph.relationships[]? | {from:(.from | opaque_id),to:(.to | opaque_id),type:(.type // "none" | safe_relation),confidence:(.confidence // "unknown" | safe_confidence),source:(.source // "backend" | safe_token("backend"))} | select(.from != "" and .to != "" and .type != "none") ]),
+          outputs:([ $graph.outputs[]? | {id:(.id | opaque_id),name:(.name | safe_label("Display")),category:"display",geometry:{x:(.geometry.x // 0),y:(.geometry.y // 0),width:(.geometry.width // 0),height:(.geometry.height // 0)},scale:(.scale // 1),orientation:(.orientation // "unknown" | safe_token("unknown")),role:(.role // "unknown" | safe_role),connected:(.connected == true),capabilitySource:((.capabilitySource // []) | if type == "array" then map(select(type == "string") | safe_token("backend"))[:8] else [] end),confidence:(.confidence // "unknown" | safe_confidence)} | select(.id != "") ]),
+          health:{available:($graph.health.available == true),backend:(($graph.health.backend // "unavailable") | safe_token("unavailable")),reason:(($graph.health.reason // "unknown") | safe_token("unknown"))},
+          confidence:($graph.confidence // {confirmed:0,probable:0,unknown:0}),
+          summary:($graph.summary // {})
+        },
+        topology:($root.topology // {}),
+        hardwarePolicies:($root.hardwarePolicies // {}),
+        dockingContinuity:($root.dockingContinuity // {}),
+        compactDevices:($root.compactDevices // {}),
+        privacy:{bluetoothMacEmitted:false,serialsEmitted:false,ephemeralPathsEmitted:false,eventNodesEmitted:false,typedTextLogged:false}
+      }'
+}
+
 devices_cmd() {
   local json=0
   for argument in "$@"; do [[ "$argument" == "--json" ]] && json=1; done
@@ -1848,6 +1888,28 @@ devices_cmd() {
      dockedMode:{active:false,externalMonitor:null,externalMonitorCount:null},
      privacy:{bluetoothMacEmitted:false,serialsEmitted:false,ephemeralPathsEmitted:false,typedTextLogged:false}}')"
   if [[ "$json" -eq 1 ]]; then printf '%s\n' "$payload"; else jq -r '"Physical keyboards: \(.physicalKeyboards | length)\n" + (.physicalKeyboards[]? | "- \(.classification), \(.transport), " + (if .connected then "connected" else "disconnected" end)) + "\nTouchscreen: " + (if .touchscreen.present then "present" else "absent" end) + "\nStylus: " + (if .stylus.present then "present" else "absent" end)' <<<"$payload"; fi
+}
+
+hardware_graph_cmd() {
+  local json=0 argument result sanitized payload
+  for argument in "$@"; do
+    case "$argument" in
+      --json) json=1 ;;
+      --*) die "unsupported hardware graph option: $argument" ;;
+      *) die "hardware graph accepts only --json" ;;
+    esac
+  done
+
+  if has omarchy-shell && result="$(omarchy-shell "$plugin_id" hardwareGraph 2>/dev/null)" && sanitized="$(printf '%s\n' "$result" | sanitize_hardware_graph 2>/dev/null)" && [[ -n "$sanitized" ]]; then
+    payload="$sanitized"
+  else
+    payload="$(jq -n --arg version "$(manifest_value version)" '{schemaVersion:1,version:$version,source:"unavailable",graph:{schemaVersion:1,revision:0,nodes:[],relationships:[],outputs:[],health:{available:false,backend:"unavailable",reason:"Omanome service is not running"},confidence:{confirmed:0,probable:0,unknown:0},summary:{nodeCount:0,connectedCount:0,outputCount:0,relationshipCount:0,categories:{},confidence:{confirmed:0,probable:0,unknown:0},available:false}},topology:{phase:"idle",pendingRefresh:false,stale:false,groupedEvents:true,eventCount:0,coalescedEvents:0,reason:"service-unavailable"},hardwarePolicies:{},dockingContinuity:{},compactDevices:{},privacy:{bluetoothMacEmitted:false,serialsEmitted:false,ephemeralPathsEmitted:false,eventNodesEmitted:false,typedTextLogged:false}}')"
+  fi
+  if [[ "$json" -eq 1 ]]; then
+    printf '%s\n' "$payload"
+  else
+    jq -r '"Source: \(.source)\nNodes: \(.graph.nodes | length) (connected " + (([.graph.nodes[] | select(.connected == true)] | length) | tostring) + ")\nOutputs: \(.graph.outputs | length)\nRelationships: \(.graph.relationships | length)\nTopology: \(.topology.phase // "unknown")"' <<<"$payload"
+  fi
 }
 
 input_info_cmd() {
@@ -2094,6 +2156,14 @@ case "$command_name" in
   recover) recover_cmd "$@" ;;
   uninstall) uninstall_cmd "$@" ;;
   devices) devices_cmd "$@" ;;
+  hardware)
+    hardware_command="${1:-graph}"
+    shift || true
+    case "$hardware_command" in
+      graph) hardware_graph_cmd "$@" ;;
+      *) usage >&2; die "unknown hardware command: $hardware_command" ;;
+    esac
+    ;;
   mode-info) mode_info_cmd "$@" ;;
   master) master_cmd "$@" ;;
   suspend) suspend_cmd "$@" ;;
