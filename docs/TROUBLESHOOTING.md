@@ -76,6 +76,62 @@ iio-sensor-proxy D-Bus path second; manual rotation works without either. If a
 transform is rejected, Omanome rolls the batch back rather than leaving a
 partially mapped device.
 
+## Device Graph or setup is not detected
+
+Inspect the privacy-safe inventory and setup reason:
+
+    omanome devices --json
+    omanome hardware graph --json
+    omanome hardware-setup status --json
+
+A setup is matched only from complete topology evidence; a keyboard without
+its required display is a partial match. The graph reports relationships as
+Confirmed, Probable, or Unknown. Display names alone never force a mapping.
+Use hardware-setup apply only after reviewing the selected policy. It changes
+Omanome preferences and does not rewrite arbitrary compositor monitor config.
+
+## Touch is on the wrong display
+
+Run the mapping/calibration view from Settings > Devices and identify the input
+and output explicitly. A systematic wrong-display result is diagnosed as a
+mapping problem before any correction is proposed. Identical displays or
+touchscreens fail closed and require a user choice. Apply keeps the previous
+mapping as the last-known-good snapshot; use:
+
+    omanome device info <id> --json
+    omanome device rollback <id> --json
+
+If the device disappeared during calibration, the transaction is cancelled and
+the previous mapping is restored. The screen may be rotated or scaled, but
+calibration remains in device-native coordinates and uses monitor-local logical
+geometry.
+
+## Stylus or pen calibration is unavailable
+
+Run omanome devices --json and omanome device test <id> --json. Pressure, tilt,
+proximity, eraser, and button controls appear only when the backend reports
+those capabilities. The default pressure behavior is linear and native data
+is not replaced with synthetic mouse events. During the button test actions
+are not executed; assign actions only after the test is confirmed.
+
+## Calibration was reverted or broke reconnect
+
+Use omanome recover --json and inspect the device health result. Safe mode
+ignores custom calibration and device automation, while device rollback restores
+the last-known-good Omanome metadata without removing the system device or its
+Bluetooth pairing. Reset removes only Omanome-owned profile and calibration
+metadata. It never deletes a kernel device or unrelated compositor settings.
+
+## Dock, external monitor, or OSK target is wrong
+
+A monitor/keyboard/mouse hotplug burst is settled into one topology update.
+Check omanome hardware-setup status --json and the Docked/OSK policy before
+changing settings. Partial or ambiguous setups remain unselected. On undock,
+Omanome returns surfaces to a valid output and delegates window placement to
+the existing multi-monitor recovery policy; it does not move every window or
+launch applications. The OSK target can be the primary touch display, the
+focused-app display, Ask, or Disabled according to the user policy.
+
 ## CPU or memory looks high
 
 Inspect only Omanome-owned processes:

@@ -1,6 +1,6 @@
-# Compatibility snapshot (1.2.0)
+# Compatibility snapshot (1.3.0)
 
-The repository was validated in the provided desktop environment on 2026-09-06 with:
+The repository was validated in the provided desktop environment on 2026-09-09 with:
 
 | Component | Observed version | Validation |
 | --- | --- | --- |
@@ -11,7 +11,7 @@ The repository was validated in the provided desktop environment on 2026-09-06 w
 
 The machine exposed the expected `touch`, `tablets`, and `switches` keys in `hyprctl devices -j`; no physical touchscreen or stylus was attached during the static validation run, so pressure, tilt, eraser, rotation, and palm-rejection behavior are not marked as hardware-tested.
 
-The 1.2 release retains the 1.1 layer-rule blur, native foreign-toplevel
+The 1.3 release retains the 1.1 layer-rule blur, native foreign-toplevel
 Coverflow, fail-closed companion boundaries, owner-only lifecycle policy, and
 tablet multitasking. It adds the adaptive Control Center, master/suspend
 boundaries, Auto/Desktop/Tablet/Hybrid profiles, capability-based keyboard
@@ -32,3 +32,20 @@ The release environment did not include a physical touchscreen or stylus, so
 pressure, tilt, eraser, palm rejection, sensor rotation, suspend/resume,
 multi-monitor, and loaded-companion behavior remain untested rather than
 certified.
+
+## 1.3 device intelligence
+
+The 1.3 release adds a generic Device Graph, Device Profiles 2.0, guided touch
+and stylus calibration, display/input mapping, Hardware Setup Profiles, dock
+continuity, event-driven UPower source summaries, and a diagnostics-only quirks
+layer. Public graph, status, and support boundaries use opaque IDs and omit
+serials, MAC addresses, raw syspaths, UPower object paths, event nodes, typed
+text, and window titles. Calibration keeps one persistent last-known-good
+mapping and fails closed on timeout, disconnect, invalid output, or ambiguous
+identification.
+
+Portable CI and fixtures prove these contracts but do not certify physical
+touchscreens, styluses, displays, docks, batteries, sensors, or keyboard
+relationships. Hardware evidence remains explicitly classified as Protocol
+Supported, Fixture Tested, Runtime Probed, User Tested, or Certified; the
+current checkout has no User Tested or Certified report.

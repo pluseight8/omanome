@@ -46,6 +46,29 @@ transitions and release native input before optional surfaces are disabled.
 Resume rehydrates runtime state from the existing config without changing the
 user's settings.
 
+## Device intelligence model
+
+The 1.3 Device Graph is the shared inventory for displays, touchscreens,
+styluses, tablet pads, keyboards, docks, batteries, and audio devices. It
+keeps explicit parent, attachment, mapping, and reporting relationships with
+`confirmed`, `probable`, or `unknown` confidence. Public status uses opaque
+device/output identifiers and bounded capability fields; raw syspaths, event
+nodes, serials, MAC addresses, and UPower object paths stay inside the input
+boundary.
+
+Device Profiles 2.0, Hardware Setup Profiles, and Adaptive overlays are separate
+state layers. A guided calibration writes only validated mappings and retains
+one persistent last-known-good value. Timeout, disconnect, invalid output, or
+ambiguous display identification rolls back the active transaction. Dock
+continuity stores only bounded layout intent and requires an explicit choice
+when a safe output cannot be inferred.
+
+Power state is sourced from real UPower signals, with at most 16 separate
+battery/UPS sources and a conservative primary-source decision. Data-driven
+quirks are diagnostics-only: structural matches remain visible, while critical
+mapping notes are blocked until a separate user confirmation. Safe mode ignores
+custom calibration, device automation, setup overlays, and quirk actions.
+
 ## Public APIs used
 
 - `DesktopEntries.applications` for launcher/dock entries;

@@ -2,7 +2,7 @@
 
 Omanome — открытый набор улучшений рабочего стола для актуального Omarchy Quattro на Hyprland. Он добавляет GNOME-подобный интерфейс для touchscreen и стилуса, но остаётся обычным Omarchy Shell Plugin: стандартная верхняя панель не заменяется, второй Quickshell не запускается, GNOME Shell и Mutter не нужны.
 
-Это запускаемая релизная фаза версии 1.2.0. Ядро использует публичные API Omarchy/Quickshell/Hyprland, а дополнительные compositor-возможности подключаются только через явные version-aware companion boundaries. Нативный Wayland input helper держит одно bounded-соединение с seat/keyboard/tablet, использует xkbcommon EN/RU и честно сообщает недоступные протоколы. Если настоящего backend нет, функция остаётся явно недоступной, а не подменяется декоративной имитацией.
+Это запускаемая релизная фаза версии 1.3.0. Ядро использует публичные API Omarchy/Quickshell/Hyprland, а дополнительные compositor-возможности подключаются только через явные version-aware companion boundaries. Нативный Wayland input helper держит одно bounded-соединение с seat/keyboard/tablet, использует xkbcommon EN/RU и честно сообщает недоступные протоколы. Если настоящего backend нет, функция остаётся явно недоступной, а не подменяется декоративной имитацией.
 
 ## Экраны и возможности
 
@@ -42,6 +42,21 @@ Omanome — открытый набор улучшений рабочего ст
 - Adaptive-профили Auto/Desktop/Tablet/Hybrid, presentation/gaming overrides,
   per-component policies, capability-based правила клавиатур и Docked mode
   для связки внешнего монитора и клавиатуры.
+- Универсальный Device Graph: privacy-safe узлы, экраны, связи, mapping и
+  confidence \`Confirmed\`/\`Probable\`/\`Unknown\`; этот граф является общим
+  источником для adaptive policy, диагностики и Device Center.
+- Device Profiles 2.0 для display, touchscreen, stylus и keyboard отдельно от
+  Adaptive Profiles. Opaque identity переживает replug и не использует
+  постоянный \`/dev/input/eventN\`.
+- Hardware Calibration Center с guided five-point touch calibration,
+  capability-gated проверками pressure/tilt/eraser/buttons, mapping preview,
+  Apply/Cancel transaction и last-known-good rollback.
+- Hardware Setup Profiles Tablet, Desk, Portable, Drawing и Custom с
+  coalescing dock-событий, безопасным partial-match и continuity поверхностей
+  без неожиданных перемещений окон или запуска приложений.
+- Event-driven UPower battery sources: несколько реальных источников остаются
+  отдельными, отсутствующие не выдумываются, а power-сигналы не создают
+  polling-loop или фиктивную keyboard battery.
 - English/Русский, профили, versioned config, import/export/reset и приватная история clipboard для текста/PNG.
 - Настоящий compositor-backed blur Omanome layer surfaces через Hyprland layer rules, с per-surface settings, adaptive quality и app-rule exclusions; стандартная панель Omarchy по умолчанию не изменяется.
 - Native foreign-toplevel Coverflow Alt-Tab с grouping/scope, общими animations и capability-gated live preview; в текущем окружении preview недоступен, потому что Quickshell не предоставляет texture provider.
@@ -132,6 +147,13 @@ omanome stylus-info
 omanome touch-info
 omanome sensor-info
 omanome devices
+omanome device info <id>
+omanome device test <id>
+omanome device reset <id> --yes
+omanome device rollback <id>
+omanome hardware graph [--json]
+omanome hardware-setup list|status
+omanome hardware-setup apply <name>
 omanome effects
 omanome benchmark
 omanome processes [--json]
@@ -183,6 +205,28 @@ Docked mode включается по capability внешнего монитор
 последнее устойчивое Auto-состояние. При отсутствии capability действие
 помечается Unavailable; portable fixtures остаются Untested и не являются
 сертификацией железа.
+
+## Аппаратные устройства и калибровка
+
+Device Center показывает связанный Device Graph, relevant displays и input
+devices, mapping, calibration, hardware setups, battery sources и diagnostics.
+Device Profile относится к одному устройству, а Adaptive Profile остаётся
+политикой Desktop/Tablet/Hybrid. Связи имеют честные статусы
+\`Confirmed\`/\`Probable\`/\`Unknown\`; явный выбор пользователя всегда сильнее
+inference.
+
+Калибровка guided и обратима. Touch использует пять реальных targets и сначала
+проверяет ошибочный display mapping; pen pressure, tilt, proximity, eraser и
+buttons показываются только при наличии capability. Перед Apply сохраняется
+last-known-good mapping, затем запрашивается подтверждение; timeout или
+disconnect выполняет rollback. \`omanome recover\` и safe mode игнорируют
+опасную custom device automation.
+
+\`omanome hardware graph --json\` и \`omanome devices --json\` — безопасные
+границы экспорта: raw serial, MAC, syspath, event node, typed text и window
+title не выводятся. Fixture и portable CI проверяют контракты, но не являются
+сертификацией физического touchscreen, stylus, monitor, keyboard, sensor или
+dock.
 
 ## Производительность, ownership и high-CPU triage
 

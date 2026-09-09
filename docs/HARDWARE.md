@@ -1,4 +1,4 @@
-# Omanome hardware certification
+# Omanome 1.3 hardware validation and certification
 
 Omanome separates capability discovery from hardware certification. A static
 fixture can prove that the parser understands a capability; it cannot prove
@@ -20,6 +20,21 @@ Every probe entry has both available (what the backend exposed) and result
 
 status: available is retained for compatibility with older reports. It is not
 a certification result.
+
+## 1.3 evidence levels
+
+The release UI and reports distinguish these evidence levels:
+
+| Evidence | Meaning |
+| --- | --- |
+| Protocol Supported | The relevant public protocol or capability boundary is implemented and exposed by the host. |
+| Fixture Tested | A deterministic fixture exercised the model; it is not physical hardware evidence. |
+| Runtime Probed | The live session exposed a capability or event; no human acceptance is implied. |
+| User Tested | An operator completed the guided scenario on real hardware with explicit confirmation. |
+| Certified | The project-defined critical matrix passed on real hardware and the sanitized report was reviewed. |
+
+One click, a fixture, or a runtime probe cannot promote a result to Certified.
+The current checkout contains no User Tested or Certified device report.
 
 ## Portable fixture checks
 
@@ -53,6 +68,22 @@ transition reversal, Docked mode, master-input release, and event-stream
 contracts. The eight adaptive scenarios are rendered as `Untested` fixture
 rows until an operator runs them against real keyboard, display, and posture
 hardware. No fixture result can set `realHardwareValidated` to true.
+
+## 1.3 device intelligence matrix
+
+The portable 1.3.0 gate covers the universal Device Graph, opaque identity,
+Confirmed/Probable/Unknown relationships, calibration transaction rollback,
+mapping ambiguity, topology burst coalescing, multi-source battery privacy,
+diagnostics-only quirks, safe recovery, and the standard-bar invariant. These
+are protocol and safety contracts, not physical certification.
+
+| Area | Portable evidence | Current hardware status |
+| --- | --- | --- |
+| Device Graph and display/input relationships | Graph, topology, mapping, and privacy tests | Runtime Probed only; physical relationships Untested |
+| Touch and stylus calibration | Five-point, wrong-display, capability, timeout, disconnect, and rollback tests | Physical touchscreen/stylus Untested |
+| Dock and Hardware Setup Profiles | Complete/partial matching, event coalescing, continuity, and recovery tests | Physical dock/multi-monitor Untested |
+| Battery sources | Signal boundary, multiple-source aggregation, no-fake-source, and redaction tests | UPower availability is host-dependent |
+| Quirks and certification UX | Structural match, visible critical mapping block, evidence vocabulary, and no-auto-upload rules | No hardware-specific certification claim |
 
 ## Real hardware session
 

@@ -2,7 +2,7 @@
 
 Omanome is an open-source, GNOME-inspired touch and stylus enhancement suite for the current Omarchy Quattro shell on Hyprland. It is intentionally an Omarchy plugin, not a replacement desktop session: the standard Omarchy bar remains in charge of the top edge, the existing Quickshell process hosts the plugin, and all plugin state is namespaced under `io.omanome.shell`.
 
-This repository is the runnable 1.2.0 release. It uses public Omarchy/Quickshell/Hyprland interfaces for the core and explicit, version-aware optional compositor integrations for advanced effects. The native Wayland input helper owns one bounded seat/keyboard/tablet connection, supports xkbcommon EN/RU layouts, and reports unavailable compositor protocols honestly. Features without a real backend remain visibly unavailable rather than becoming fake overlays.
+This repository is the runnable 1.3.0 release. It uses public Omarchy/Quickshell/Hyprland interfaces for the core and explicit, version-aware optional compositor integrations for advanced effects. The native Wayland input helper owns one bounded seat/keyboard/tablet connection, supports xkbcommon EN/RU layouts, and reports unavailable compositor protocols honestly. Features without a real backend remain visibly unavailable rather than becoming fake overlays.
 
 ## What is Omanome
 
@@ -52,6 +52,22 @@ namespaced `io.omanome.shell` / `omanome` paths.
 - Adaptive Auto/Desktop/Tablet/Hybrid profiles with presentation and gaming
   overrides, per-component policies, capability-based keyboard rules, and a
   Docked mode for external monitor plus keyboard setups.
+- A universal Device Graph that records only capability-based, privacy-safe
+  nodes, outputs, relationships, mappings, and Confirmed/Probable/Unknown
+  confidence; the same graph feeds adaptive policy, diagnostics, and the
+  Device Center.
+- Device Profiles 2.0 for displays, touchscreens, styluses, and keyboards,
+  kept separate from Adaptive Profiles and persisted with opaque identities that
+  do not depend on \`/dev/input/eventN\`.
+- A Hardware Calibration Center with guided five-point touch calibration,
+  capability-gated stylus pressure/tilt/eraser/button checks, monitor/input
+  mapping, preview/apply/cancel transactions, and last-known-good rollback.
+- Hardware Setup Profiles for Tablet, Desk, Portable, Drawing, and Custom
+  topologies, with bounded dock event coalescing, partial-match safety, surface
+  continuity, and no surprise window moves or app launches.
+- Event-driven UPower battery-source inventory and diagnostics. Multiple real
+  sources remain separate, absent sources remain absent, and power signals never
+  create a polling loop or a fabricated keyboard battery.
 - English/Russian UI strings, profiles, versioned configuration, import/export/reset, and privacy-aware clipboard history for text and PNG images.
 - Compositor-backed blur for Omanome layer surfaces through Hyprland layer rules, with per-surface settings, adaptive quality, battery/fullscreen policies, and application-rule exclusions. The standard Omarchy bar remains untouched by default.
 - Native foreign-toplevel Coverflow Alt-Tab with grouping, workspace scope, shared animations, and a capability-gated live-preview path; this environment reports previews unavailable because no real compositor texture provider is exposed.
@@ -64,8 +80,9 @@ namespaced `io.omanome.shell` / `omanome` paths.
 - Integration with Omarchy's native notification service for DND, popups, history, and dismissal.
 - Diagnostics and lifecycle commands: status, doctor, logs, enable/disable,
   master/suspend/resume, mode-info, feature list/control, safe mode, devices,
-  stylus-info, touch-info, sensor-info, capabilities, hardware-test, redacted
-  support bundles, GitHub install/update checks, transactional
+  device info/test/reset/rollback, hardware graph, hardware setup list/status/
+  apply, stylus-info, touch-info, sensor-info, capabilities, hardware-test,
+  redacted support bundles, GitHub install/update checks, transactional
   rollback/recovery, and ownership-safe uninstall.
 
 ## Requirements
@@ -161,6 +178,13 @@ omanome stylus-info
 omanome touch-info
 omanome sensor-info
 omanome devices
+omanome device info <id>
+omanome device test <id>
+omanome device reset <id> --yes
+omanome device rollback <id>
+omanome hardware graph [--json]
+omanome hardware-setup list|status
+omanome hardware-setup apply <name>
 omanome effects
 omanome benchmark
 omanome processes [--json]
@@ -256,6 +280,28 @@ It can apply a desktop profile while preserving internal touch, and undocking
 restores the last stable Auto state when configured. If a monitor, keyboard, or
 compositor capability is absent, the affected action reports Unavailable;
 portable fixtures remain Untested and are never hardware certification.
+
+## Hardware and devices
+
+The Device Center exposes the universal graph, relevant displays and input
+devices, mappings, calibration state, hardware setups, battery sources, and
+diagnostics. Device Profiles are per-device settings; Adaptive Profiles remain
+the Desktop/Tablet/Hybrid policy layer. Relations and display mappings are
+shown as Confirmed, Probable, or Unknown, and an explicit user mapping always
+wins over inference.
+
+Calibration is guided and reversible. Touch uses five real targets and first
+checks for a wrong-display mapping; stylus pressure, tilt, proximity, eraser,
+and buttons appear only when the backend reports those capabilities. Apply
+keeps the prior mapping as a last-known-good snapshot, waits for confirmation,
+and restores it on timeout or disconnect. \`omanome recover\` and safe mode
+ignore custom device automation when the stored mapping is not healthy.
+
+\`omanome hardware graph --json\` and \`omanome devices --json\` are safe export
+boundaries: raw serials, MAC addresses, syspaths, event nodes, typed text, and
+window titles are not emitted. Hardware fixtures and portable CI prove
+contracts only. They do not certify a physical touchscreen, stylus, monitor,
+keyboard, sensor, or dock.
 
 ## Stylus and tablet behavior
 

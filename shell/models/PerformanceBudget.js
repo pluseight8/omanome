@@ -9,6 +9,7 @@ var LIMITS = {
   graphNodes: 256,
   graphOutputs: 32,
   graphRelationships: 512,
+  batterySources: 16,
   topologySources: 16,
   topologyCapabilityChanges: 32,
   touchSamples: 5,

@@ -23,6 +23,10 @@ processes, requires sustained CPU/memory pressure, and reports without sending
 signals or terminating anything. `performance check` is a source-level safety
 gate for loops, polling, Lua execution, process ownership, and config writes.
 
+The runtime performance budget also bounds the universal Device Graph's live
+battery-source inventory at 16 real UPower sources. Missing power backends stay
+unknown or unavailable; a battery row is never synthesized to fill the budget.
+
 The JSON reports keep these quantities separate:
 
 - `ownerCpuPercent`: measured CPU for processes proven to be Omanome-owned;

@@ -1828,6 +1828,45 @@ sanitize_hardware_graph() {
     def safe_token($fallback):
       if type == "string" then (ascii_downcase | gsub("[^a-z0-9-]"; "") | if . == "" then $fallback else . end) else $fallback end;
     def safe_confidence: if . == "confirmed" or . == "probable" or . == "unknown" then . else "unknown" end;
+    def safe_graph_id:
+      if type == "string" and test("^(device:[a-z0-9-]+:[0-9a-f]{16}|display:[0-9a-f]{16})$") then . else "" end;
+    def safe_battery_id:
+      if type == "string" and test("^device:battery:[0-9a-f]{16}$") then . else "" end;
+    def safe_text($fallback):
+      if type == "string" and length > 0 and length <= 96 and (test("[\\/\\n\\r]") | not) and (test("/dev/|/sys/|/org/freedesktop/UPower/|event[0-9]+|([0-9a-f]{2}:){5}[0-9a-f]{2}"; "i") | not) then . else $fallback end;
+    def safe_count($fallback):
+      if type == "number" and . >= 0 and . <= 1000000 then floor else $fallback end;
+    def safe_percent:
+      if type == "number" and . >= -1 and . <= 100 then . else -1 end;
+    def safe_battery_state:
+      if . == "charging" or . == "discharging" or . == "fully-charged" or . == "pending-charge" or . == "unknown" then . else "unknown" end;
+    def safe_battery_role:
+      if . == "system" or . == "peripheral" or . == "ups" or . == "unknown" then . else "unknown" end;
+    def safe_battery_kind:
+      if . == "battery" or . == "ups" or . == "power-source" or . == "power-supply" then . else "battery" end;
+    def battery_source:
+      {id:(.id | safe_battery_id),label:(.label | safe_text("Battery")),role:(.role | safe_battery_role),kind:(.kind | safe_battery_kind),source:"upower",percent:(.percent | safe_percent),state:(.state | safe_battery_state),connected:(.connected == true),confidence:(.confidence | safe_confidence),powerSupply:(.powerSupply == true),onAc:(.onAc == true)}
+      | select(.id != "");
+    def battery_projection($root):
+      (($root.battery // $root.batterySources // {}) | if type == "object" then . else {} end) as $battery
+      | (($battery.sources // []) | if type == "array" then .[:16] else [] end) as $raw
+      | ([$raw[]? | battery_source] | .[:16]) as $sources
+      | ($sources | map(select(.role == "system")) | .[0]) as $system
+      | ($sources | map(select(.connected == true)) | .[0]) as $connected
+      | ($system // $connected // $sources[0] // null) as $primary
+      | {schemaVersion:1,available:(($sources | length) > 0),backend:(if ($sources | length) > 0 then "upower" else "unavailable" end),sourceCount:($sources | length),sources:$sources,aggregate:{available:($primary != null),id:(if $primary == null then "" else $primary.id end),role:(if $primary == null then "unknown" else $primary.role end),percent:(if $primary == null then -1 else $primary.percent end),state:(if $primary == null then "unknown" else $primary.state end),sourceCount:($sources | length),mixedState:(($sources | map(.state) | unique | length) > 1)},revision:($battery.revision | safe_count(0)),eventCount:($battery.eventCount | safe_count(0)),coalescedEvents:($battery.coalescedEvents | safe_count(0)),pendingRefresh:($battery.pendingRefresh == true),lastEvent:{type:(($battery.lastEvent.type // "") | safe_token("")),source:(if $battery.lastEvent.type then "upower" else "" end),action:(($battery.lastEvent.action // "") | safe_token("")),at:($battery.lastEvent.at | safe_count(0))},reason:(($battery.reason // (if ($sources | length) > 0 then "upower-snapshot" else "no-battery-sources" end)) | safe_token("no-battery-sources")),privacy:{rawPathsEmitted:false,serialsEmitted:false,addressesEmitted:false}};
+    def safe_quirk_id:
+      if type == "string" and test("^[a-z0-9][a-z0-9._-]{0,63}$") then . else "" end;
+    def safe_quirk_category:
+      if . == "display" or . == "touchscreen" or . == "stylus" or . == "tablet-pad" or . == "keyboard" or . == "mouse" or . == "touchpad" or . == "gamepad" or . == "sensor" or . == "dock" or . == "battery" or . == "audio" then . else "unknown" end;
+    def quirk_row:
+      {id:(.id | safe_quirk_id),deviceId:(.deviceId | safe_graph_id),category:(.category | safe_quirk_category),knownIssue:(.knownIssue | safe_text("")),workaround:(.workaround | safe_text("")),documentation:(.documentation | safe_text("")),testedVersion:(.testedVersion | safe_text("")),criticalMapping:(.criticalMapping == true),visible:true,applied:false,reason:(if .criticalMapping == true then "critical-mapping-requires-confirmation" else "matched-diagnostics-only" end)}
+      | select(.id != "");
+    def quirks_projection($root):
+      (($root.quirks // {}) | if type == "object" then . else {} end) as $quirks
+      | (($quirks.applied // []) | if type == "array" then .[:128] else [] end) as $raw
+      | ([$raw[]? | quirk_row] | .[:128]) as $rows
+      | {schemaVersion:1,enabled:($quirks.enabled != false),available:($quirks.available == true),source:(if $quirks.source == "config" then "config" else "none" end),matchedCount:($quirks.matchedCount | safe_count(0)),entries:($quirks.entries | safe_count(0)),applied:$rows,automaticMappingApplied:false,criticalMappingBlocked:($quirks.criticalMappingBlocked | safe_count(0)),revision:($quirks.revision | safe_count(0)),reason:(($quirks.reason // "no-quirks-configured") | safe_token("no-quirks-configured"))};
     def safe_category: . as $value | if (["display","touchscreen","stylus","tablet-pad","keyboard","mouse","touchpad","gamepad","sensor","dock","battery","audio"] | index($value)) != null then $value else "unknown" end;
     def safe_role: . as $value | if (["unknown","internal","external","primary","presentation"] | index($value)) != null then $value else "unknown" end;
     def safe_relation: . as $value | if (["parent","attached-to","mapped-to","reports-to","paired-with","none"] | index($value)) != null then $value else "none" end;
@@ -1850,6 +1889,9 @@ sanitize_hardware_graph() {
           summary:($graph.summary // {})
         },
         topology:($root.topology // {}),
+        battery:battery_projection($root),
+        powerMonitor:{available:(($root.powerMonitor.available // false) == true),reason:(($root.powerMonitor.reason // "service-unavailable") | safe_token("service-unavailable"))},
+        quirks:quirks_projection($root),
         hardwarePolicies:($root.hardwarePolicies // {}),
         dockingContinuity:($root.dockingContinuity // {}),
         compactDevices:($root.compactDevices // {}),
@@ -1918,7 +1960,7 @@ hardware_graph_cmd() {
   if has omarchy-shell && result="$(omarchy-shell "$plugin_id" hardwareGraph 2>/dev/null)" && sanitized="$(printf '%s\n' "$result" | sanitize_hardware_graph 2>/dev/null)" && [[ -n "$sanitized" ]]; then
     payload="$sanitized"
   else
-    payload="$(jq -n --arg version "$(manifest_value version)" '{schemaVersion:1,version:$version,source:"unavailable",graph:{schemaVersion:1,revision:0,nodes:[],relationships:[],outputs:[],health:{available:false,backend:"unavailable",reason:"Omanome service is not running"},confidence:{confirmed:0,probable:0,unknown:0},summary:{nodeCount:0,connectedCount:0,outputCount:0,relationshipCount:0,categories:{},confidence:{confirmed:0,probable:0,unknown:0},available:false}},topology:{phase:"idle",pendingRefresh:false,stale:false,groupedEvents:true,eventCount:0,coalescedEvents:0,reason:"service-unavailable"},hardwarePolicies:{},dockingContinuity:{},compactDevices:{},privacy:{bluetoothMacEmitted:false,serialsEmitted:false,ephemeralPathsEmitted:false,eventNodesEmitted:false,typedTextLogged:false}}')"
+    payload="$(jq -n --arg version "$(manifest_value version)" '{schemaVersion:1,version:$version,source:"unavailable",graph:{schemaVersion:1,revision:0,nodes:[],relationships:[],outputs:[],health:{available:false,backend:"unavailable",reason:"Omanome service is not running"},confidence:{confirmed:0,probable:0,unknown:0},summary:{nodeCount:0,connectedCount:0,outputCount:0,relationshipCount:0,categories:{},confidence:{confirmed:0,probable:0,unknown:0},available:false}},topology:{phase:"idle",pendingRefresh:false,stale:false,groupedEvents:true,eventCount:0,coalescedEvents:0,reason:"service-unavailable"},battery:{schemaVersion:1,available:false,backend:"unavailable",sourceCount:0,sources:[],aggregate:{available:false,id:"",role:"unknown",percent:-1,state:"unknown",sourceCount:0,mixedState:false},revision:0,eventCount:0,coalescedEvents:0,pendingRefresh:false,lastEvent:{type:"",source:"",action:"",at:0},reason:"service-unavailable",privacy:{rawPathsEmitted:false,serialsEmitted:false,addressesEmitted:false}},powerMonitor:{available:false,reason:"service-unavailable"},quirks:{schemaVersion:1,enabled:true,available:false,source:"none",matchedCount:0,entries:0,applied:[],automaticMappingApplied:false,criticalMappingBlocked:0,revision:0,reason:"service-unavailable"},hardwarePolicies:{},dockingContinuity:{},compactDevices:{},privacy:{bluetoothMacEmitted:false,serialsEmitted:false,ephemeralPathsEmitted:false,eventNodesEmitted:false,typedTextLogged:false}}')"
   fi
   if [[ "$json" -eq 1 ]]; then
     printf '%s\n' "$payload"

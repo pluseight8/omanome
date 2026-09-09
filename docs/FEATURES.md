@@ -1,4 +1,4 @@
-# Omanome 1.2 feature truth matrix
+# Omanome 1.3 feature truth matrix
 
 This document separates implemented contracts from capabilities that require a
 particular compositor, backend, or physical device. The status vocabulary is:
@@ -14,6 +14,11 @@ particular compositor, backend, or physical device. The status vocabulary is:
 
 | Feature | Implementation/backend | Runtime or fixture evidence | Hardware/certification status | Fallback and limitation |
 | --- | --- | --- | --- | --- |
+| Universal Device Graph and topology | Bounded capability-based graph for displays, touchscreens, styluses, tablet pads, keyboards, docks, batteries, and explicit relationships with Confirmed/Probable/Unknown confidence | \`make device-check\`, graph model tests, topology aggregation tests, \`omanome hardware graph --json\` | Stable portable contract; physical relationships remain untested | Opaque identities and explicit evidence are retained; no raw serial, MAC, syspath, or event node is exported |
+| Device Profiles 2.0 | Separate per-device display, touch, stylus, and keyboard profiles with opaque reboot/replug identity, mapping, calibration, behavior, and user override precedence | Device profile, migration, reset, forget, and CLI tests | Stable metadata contract; host input application remains untested | Device Profiles never replace Adaptive Profiles or arbitrary compositor monitor configuration |
+| Hardware Calibration Center | Guided five-point touch workflow, wrong-display diagnosis, stylus capability tests, mapping wizard, preview/apply/cancel, confirmation timeout, and persistent last-known-good rollback | Calibration, mapping, disconnect, timeout, privacy, and UI contract tests | Stable portable safety contract; physical touch/pen acceptance remains untested | Missing pressure/tilt/eraser/buttons are unavailable; unsafe mapping fails closed and can be restored |
+| Hardware Setup Profiles and docking continuity | Tablet/Desk/Portable/Drawing/Custom setup policies, complete-topology matching, event burst coalescing, valid-output surface recovery, and no surprise window moves | Setup model, docking, topology, multitasking recovery, and adaptive tests | Stable portable continuity contract; dock hardware is untested | Partial matches stay partial; Omanome policy does not pretend hardware was unplugged or rewrite window layout |
+| Battery sources and device quirks | Signal-driven UPower multi-source summaries plus diagnostics-only structural quirks with critical mapping confirmation gates | Battery source, quirks, privacy, and input protocol tests | Stable portable boundary; source availability is host-dependent | No fake keyboard battery, no UPower polling, no automatic critical mapping, and no cloud/telemetry database |
 | Adaptive Control Center and master boundary | One service-owned popup/widget with master enable/disable, suspend/resume, compact toggles, ordered modules, OSD, and safe input release | `make adaptive-check`, CLI JSON contracts, QML/source checks | Stable portable contract; bar/widget and GUI acceptance remain host-dependent | Standard Omarchy bar stays active; disable and suspend are reversible and do not rewrite user settings |
 | Adaptive profiles and feature registry | Auto/Desktop/Tablet/Hybrid plus Presentation/Gaming/Custom overlays, per-component policy, capability/safety/user/profile precedence, and temporary preview | Adaptive model, settings, feature-state, and migration tests | Stable portable policy contract; physical posture and accessibility acceptance remain untested | Runtime transitions and previews are not persisted; unavailable features report reasons |
 | Keyboard attach/detach and identity | Capability-based built-in/USB/detachable/Bluetooth classification, opaque stable IDs, debounce/hysteresis, device rules, and reversible transition choreography | Keyboard/device/transition model tests, adaptive fixture, 100-event hotplug regression | Untested on physical keyboard combinations | No full Bluetooth address, serial, raw path, typed text, or title is emitted in status/diagnostics |
@@ -49,3 +54,13 @@ not claim certification for pressure, palm rejection, tilt, eraser buttons,
 screen rotation, suspend/resume, multi-monitor behavior, text focus, or a loaded
 optional companion. Those checks are listed in [`HARDWARE.md`](HARDWARE.md) and
 must be performed on the target device.
+
+## 1.3 evidence boundary
+
+The validation environment has no attached physical touchscreen, stylus,
+external monitor, dock, or loaded optional companion. The 1.3.0 report therefore
+keeps protocol support and portable contracts separate from Fixture Tested,
+Runtime Probed, User Tested, and Certified evidence. Pressure, palm rejection,
+tilt, eraser buttons, screen rotation, suspend/resume, multi-monitor behavior,
+text focus, battery-source availability, and loaded-companion behavior require
+the corresponding target hardware session.

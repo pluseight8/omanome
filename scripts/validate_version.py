@@ -55,12 +55,25 @@ def main() -> int:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     readme_ru = (ROOT / "README.ru.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    compatibility_doc = (ROOT / "docs/COMPATIBILITY.md").read_text(encoding="utf-8")
+    features_doc = (ROOT / "docs/FEATURES.md").read_text(encoding="utf-8")
+    hardware_doc = (ROOT / "docs/HARDWARE.md").read_text(encoding="utf-8")
+    release_doc = (ROOT / "docs/RELEASE.md").read_text(encoding="utf-8")
+    release_family = ".".join(version.split(".")[:2])
     if f"runnable {version} release" not in readme:
         errors.append("README.md does not identify the current runnable release")
     if f"версии {version}" not in readme_ru:
         errors.append("README.ru.md does not identify the current phase")
     if f"## {version}" not in changelog:
         errors.append("CHANGELOG.md has no current release heading")
+    if f"# Compatibility snapshot ({version})" not in compatibility_doc:
+        errors.append("docs/COMPATIBILITY.md does not identify the current snapshot")
+    if f"# Omanome {release_family} feature truth matrix" not in features_doc:
+        errors.append("docs/FEATURES.md does not identify the current feature matrix")
+    if f"# Omanome {release_family} hardware validation and certification" not in hardware_doc:
+        errors.append("docs/HARDWARE.md does not identify the current hardware matrix")
+    if f"v{version}" not in release_doc or f"omanome-{version}.tar.gz" not in release_doc:
+        errors.append("docs/RELEASE.md does not identify the current tag and archive")
     report = {
         "schemaVersion": 1,
         "version": version,

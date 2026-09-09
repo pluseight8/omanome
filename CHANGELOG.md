@@ -1,5 +1,75 @@
 # Changelog
 
+## 1.3.0
+
+### Device Intelligence
+
+- Adds a generic, bounded Device Graph for displays, touchscreens, styluses,
+  tablet pads, keyboards, docks, batteries, and other UX-relevant devices.
+  Relationships carry explicit Confirmed/Probable/Unknown confidence and
+  never depend on an ephemeral \`/dev/input/eventN\` path.
+- Connects graph snapshots, topology aggregation, adaptive policy, Device
+  Profiles 2.0, Device Center status, and diagnostics without introducing a
+  second hardware-detection architecture.
+- Keeps raw serials, MAC addresses, syspaths, UPower object paths, event nodes,
+  typed text, and window titles outside public graph and support output.
+
+### Calibration and Mapping
+
+- Adds a guided Hardware Calibration Center with five-point touchscreen
+  calibration, wrong-display diagnosis, preview/apply/cancel transactions, and
+  keyboard/mouse-accessible recovery.
+- Adds capability-gated stylus checks for pressure, tilt, proximity, eraser,
+  and buttons; nonexistent capabilities remain unavailable and native linear
+  behavior stays the default.
+- Saves one persistent last-known-good calibration before every change.
+  Confirmation timeout, mapping failure, device disconnect, and safe recovery
+  restore the previous working state.
+- Adds display/input mapping for touchscreens and styluses, with explicit user
+  mappings taking precedence over inferred relationships and ambiguity failing
+  closed.
+
+### Hardware Setups and Docking
+
+- Adds generic Tablet, Desk, Portable, Drawing, and Custom Hardware Setup
+  Profiles, kept separate from Adaptive Profiles and matched from complete,
+  bounded topology evidence.
+- Coalesces monitor, keyboard, mouse, audio, dock, and capability hotplug
+  bursts into one topology recomputation and preserves existing window-layout
+  recovery behavior.
+- Keeps Control Center, Overview, Launcher, Notifications, Settings, and OSK
+  on valid outputs during dock/undock; no automatic window moves or surprise
+  application launches are added.
+- Adds event-driven multi-source UPower battery inventory. Real sources remain
+  separate, absent sources are not fabricated, and power profiles never change
+  the system power manager without explicit user consent.
+
+### Diagnostics, Safety, and Performance
+
+- Adds \`omanome devices\`, \`omanome device info/test/reset/rollback\`,
+  \`omanome hardware graph\`, and the \`hardware-setup\` list/status/apply
+  namespace while preserving the existing installer \`omanome setup\`.
+- Makes \`omanome recover\` and safe mode aware of invalid custom device
+  metadata; safe mode ignores custom calibration and device automation.
+- Adds portable graph, calibration rollback, setup matching, battery privacy,
+  quirks, event-burst, and no-process-storm checks to the device safety gate.
+- Adds a diagnostics-only, data-driven quirks layer. Critical mapping quirks
+  are visible and blocked pending confirmation; no quirk silently changes
+  input mapping.
+- Keeps topology computation event-driven, collection bounds explicit, closed
+  calibration surfaces disposable, the standard Omarchy bar untouched, and
+  portable CI separate from physical hardware certification.
+
+### Known Limitations
+
+- This is a source release with portable CI and fixture evidence. The current
+  validation environment has no physical touchscreen, stylus, external
+  monitor, dock, or loaded optional compositor companion, so those scenarios
+  remain Untested rather than Certified.
+- Pressure, tilt, eraser, palm rejection, sensor rotation, fractional-scale
+  GUI acceptance, multi-monitor focus behavior, and OSK target interaction
+  still require the corresponding real Wayland hardware session.
+
 ## 1.2.0
 
 ### Highlights

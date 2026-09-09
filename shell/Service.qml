@@ -2976,6 +2976,7 @@ Item {
       graphNodes: Array.isArray(graph.nodes) ? graph.nodes.length : 0,
       graphOutputs: Array.isArray(graph.outputs) ? graph.outputs.length : 0,
       graphRelationships: Array.isArray(graph.relationships) ? graph.relationships.length : 0,
+      batterySources: root.batterySourceState && Array.isArray(root.batterySourceState.sources) ? root.batterySourceState.sources.length : 0,
       topologySources: Object.keys(topology.sources || {}).length,
       topologyCapabilityChanges: Array.isArray(topology.capabilityChanges) ? topology.capabilityChanges.length : 0,
       touchSamples: Array.isArray(touch.samples) ? touch.samples.length : 0,
@@ -3275,7 +3276,7 @@ Item {
 
   function statusObject() {
     var result = {
-      version: root.manifest ? String(root.manifest.version || "1.2.0") : "1.2.0",
+      version: root.manifest ? String(root.manifest.version || "1.3.0") : "1.3.0",
       quickshell: String(Quickshell.env("QUICKSHELL_VERSION") || "host-provided"),
       service: "ready",
       safeMode: root.safeMode,

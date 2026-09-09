@@ -61,6 +61,41 @@ class HardwareGraphCliTests(unittest.TestCase):
                     }],
                     "health": {"available": True, "backend": "compositor", "reason": "ready"},
                 },
+                "battery": {
+                    "available": True,
+                    "backend": "upower",
+                    "sourceCount": 1,
+                    "sources": [{
+                        "id": "device:battery:1111111111111111",
+                        "label": "System battery",
+                        "role": "system",
+                        "kind": "battery",
+                        "percent": 80,
+                        "state": "discharging",
+                        "connected": True,
+                        "confidence": "confirmed",
+                    }],
+                    "aggregate": {"available": True, "id": "device:battery:1111111111111111", "role": "system", "percent": 80, "state": "discharging", "sourceCount": 1, "mixedState": False},
+                    "reason": "upower-snapshot",
+                },
+                "powerMonitor": {"available": True, "reason": "upower-event-stream"},
+                "quirks": {
+                    "available": True,
+                    "source": "config",
+                    "matchedCount": 1,
+                    "entries": 1,
+                    "applied": [{
+                        "id": "tablet-note",
+                        "deviceId": "device:keyboard:0123456789abcdef",
+                        "category": "keyboard",
+                        "knownIssue": "Requires confirmation",
+                        "workaround": "Use manual mapping",
+                        "testedVersion": "1.3",
+                        "criticalMapping": True,
+                    }],
+                    "criticalMappingBlocked": 1,
+                    "reason": "quirks-matched",
+                },
             }, separators=(",", ":"))
             (fake_bin / "omarchy-shell").write_text(
                 f"#!/bin/sh\nprintf '%s\\n' '{service_payload}'\n",
@@ -87,6 +122,11 @@ class HardwareGraphCliTests(unittest.TestCase):
         self.assertNotIn("event9", result.stdout)
         self.assertEqual(payload["graph"]["nodes"][0]["capabilities"], {"keyboard": True})
         self.assertNotIn('"typedText":', result.stdout)
+        self.assertEqual(payload["battery"]["sourceCount"], 1)
+        self.assertEqual(payload["battery"]["sources"][0]["id"], "device:battery:1111111111111111")
+        self.assertTrue(payload["powerMonitor"]["available"])
+        self.assertEqual(payload["quirks"]["criticalMappingBlocked"], 1)
+        self.assertFalse(payload["quirks"]["automaticMappingApplied"])
 
     def test_graph_command_has_unavailable_fallback_without_a_second_probe(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -104,6 +144,9 @@ class HardwareGraphCliTests(unittest.TestCase):
         self.assertEqual(payload["source"], "unavailable")
         self.assertFalse(payload["graph"]["health"]["available"])
         self.assertTrue(payload["privacy"]["eventNodesEmitted"] is False)
+        self.assertEqual(payload["battery"]["sourceCount"], 0)
+        self.assertFalse(payload["powerMonitor"]["available"])
+        self.assertEqual(payload["quirks"]["source"], "none")
 
     def test_cli_and_ipc_contract_are_declared(self) -> None:
         cli = CLI.read_text(encoding="utf-8")
