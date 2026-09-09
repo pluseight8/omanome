@@ -23,6 +23,8 @@ import "models/InputDevices.js" as InputDevicesModel
 import "models/DeviceGraph.js" as DeviceGraphModel
 import "models/DeviceTopology.js" as DeviceTopologyModel
 import "models/DeviceProfiles.js" as DeviceProfilesModel
+import "models/Calibration.js" as CalibrationModel
+import "models/CalibrationWizard.js" as CalibrationWizardModel
 import "models/HardwarePolicies.js" as HardwarePoliciesModel
 import "models/DockingContinuity.js" as DockingContinuityModel
 import "models/KeyboardDevices.js" as KeyboardDevicesModel
@@ -148,6 +150,11 @@ Item {
   property var hardwareSetupStore: HardwarePoliciesModel.emptyStore()
   property var hardwarePolicyState: HardwarePoliciesModel.emptyState()
   property var dockingContinuityState: DockingContinuityModel.emptyState()
+  property var calibrationWizardState: CalibrationWizardModel.emptyState()
+  property var touchCalibrationState: CalibrationModel.emptyTouchState()
+  property var stylusCalibrationState: CalibrationModel.emptyStylusState()
+  property var calibrationTransactionState: CalibrationModel.emptyTransaction()
+  property string activeCalibrationKind: ""
   property bool inputDeviceMonitorAvailable: false
   property string inputDeviceMonitorReason: "not-started"
   property bool tabletSwitchAvailable: false
@@ -1924,6 +1931,11 @@ Item {
     root.hardwareSetupStore = HardwarePoliciesModel.emptyStore()
     root.hardwarePolicyState = HardwarePoliciesModel.emptyState()
     root.dockingContinuityState = DockingContinuityModel.emptyState()
+    root.calibrationWizardState = CalibrationWizardModel.emptyState()
+    root.touchCalibrationState = CalibrationModel.emptyTouchState()
+    root.stylusCalibrationState = CalibrationModel.emptyStylusState()
+    root.calibrationTransactionState = CalibrationModel.emptyTransaction()
+    root.activeCalibrationKind = ""
     root.masterEnabled = true
     root.suspended = false
     root.adaptiveProfile = "auto"
@@ -2487,6 +2499,232 @@ Item {
     return DeviceProfilesModel.list(root.deviceGraph, root.deviceProfileStore)
   }
 
+  function graphNodeById(id) {
+    var wanted = String(id || "")
+    var nodes = root.deviceGraph && Array.isArray(root.deviceGraph.nodes) ? root.deviceGraph.nodes : []
+    for (var i = 0; i < nodes.length; i++) if (nodes[i] && String(nodes[i].id || "") === wanted) return nodes[i]
+    return null
+  }
+
+  function graphOutputById(id) {
+    var wanted = String(id || "")
+    var outputs = root.deviceGraph && Array.isArray(root.deviceGraph.outputs) ? root.deviceGraph.outputs : []
+    for (var i = 0; i < outputs.length; i++) if (outputs[i] && String(outputs[i].id || "") === wanted) return outputs[i]
+    return null
+  }
+
+  function deviceSettingsRows() {
+    var rows = root.deviceProfileRows()
+    var result = []
+    for (var i = 0; i < rows.length; i++) {
+      var row = Object.assign({}, rows[i])
+      var profile = row.profile && typeof row.profile === "object" ? row.profile : {}
+      var mapped = ""
+      if (row.category === "touchscreen" && profile.touch) mapped = String(profile.touch.mappingOutput || "")
+      else if (row.category === "stylus" && profile.stylus) mapped = String(profile.stylus.mappingOutput || "")
+      if (mapped && mapped !== "auto") {
+        row.mappedOutput = mapped
+        row.mappingStatus = "mapped"
+        row.mappingSource = row.source === "default" ? "device-profile" : row.source
+      } else {
+        row.mappingSource = row.mappedOutput ? "graph" : "automatic"
+      }
+      result.push(row)
+    }
+    return result
+  }
+
+  function deviceCalibrationRows() {
+    var profiles = root.deviceProfileStore && root.deviceProfileStore.profiles ? root.deviceProfileStore.profiles : {}
+    var rows = CalibrationWizardModel.calibrationRows(root.deviceGraph, profiles)
+    var settings = root.deviceSettingsRows()
+    for (var i = 0; i < rows.length; i++) {
+      for (var j = 0; j < settings.length; j++) {
+        if (rows[i].id !== settings[j].id) continue
+        rows[i].mappedOutput = settings[j].mappedOutput || ""
+        rows[i].mappingSource = settings[j].mappingSource || "automatic"
+        break
+      }
+    }
+    return rows
+  }
+
+  function hardwareSetupChoices() {
+    var result = []
+    var ids = HardwarePoliciesModel.SETUP_IDS
+    for (var i = 0; i < ids.length; i++) result.push(HardwarePoliciesModel.setupDefaults(ids[i]))
+    return result
+  }
+
+  function setHardwareSetupProfile(id) {
+    var result = HardwarePoliciesModel.setSelected(root.hardwareSetupStore, id)
+    if (!result.ok) {
+      root.lastError = String(result.reason || "invalid-setup-profile")
+      return false
+    }
+    root.setConfig("hardwareSetupProfiles", result.store)
+    return root.hardwareSetupStore.selected === result.store.selected
+  }
+
+  function setHardwareDisplayRole(id, role) {
+    var policy = root.hardwareSetupStore && root.hardwareSetupStore.displayPolicy ? root.hardwareSetupStore.displayPolicy : {}
+    var result = HardwarePoliciesModel.setDisplayRole(policy, id, role)
+    if (!result.ok) {
+      root.lastError = String(result.reason || "invalid-display-role")
+      return false
+    }
+    var store = Object.assign({}, root.hardwareSetupStore, { displayPolicy: result.policy, revision: Number(root.hardwareSetupStore.revision || 0) + 1 })
+    root.setConfig("hardwareSetupProfiles", store)
+    return true
+  }
+
+  function setHardwarePrimaryDisplay(id) {
+    var policy = root.hardwareSetupStore && root.hardwareSetupStore.displayPolicy ? root.hardwareSetupStore.displayPolicy : {}
+    var result = HardwarePoliciesModel.setDisplayRole(policy, id, "primary")
+    if (!result.ok) {
+      root.lastError = String(result.reason || "invalid-primary-display")
+      return false
+    }
+    result.policy.primaryDisplay = String(id || "")
+    var store = Object.assign({}, root.hardwareSetupStore, { displayPolicy: result.policy, revision: Number(root.hardwareSetupStore.revision || 0) + 1 })
+    root.setConfig("hardwareSetupProfiles", store)
+    return true
+  }
+
+  function setHardwareOskTarget(target) {
+    var policy = HardwarePoliciesModel.normalizeDisplayPolicy(root.hardwareSetupStore.displayPolicy || {})
+    policy.oskTarget = String(target || policy.oskTarget)
+    var store = Object.assign({}, root.hardwareSetupStore, { displayPolicy: policy, revision: Number(root.hardwareSetupStore.revision || 0) + 1 })
+    root.setConfig("hardwareSetupProfiles", store)
+    return root.hardwareSetupStore.displayPolicy.oskTarget === policy.oskTarget
+  }
+
+  function updateCalibrationState(state) {
+    root.calibrationWizardState = state
+    root.stateRevision++
+    root.stateUpdated()
+    return state
+  }
+
+  function beginDeviceMapping() {
+    return root.updateCalibrationState(CalibrationWizardModel.beginMapping(root.deviceGraph))
+  }
+
+  function selectDeviceMappingInput(id) {
+    return root.updateCalibrationState(CalibrationWizardModel.selectInput(root.calibrationWizardState, id))
+  }
+
+  function selectDeviceMappingOutput(id) {
+    return root.updateCalibrationState(CalibrationWizardModel.selectOutput(root.calibrationWizardState, id))
+  }
+
+  function identifyDeviceMapping(id, method) {
+    return root.updateCalibrationState(CalibrationWizardModel.identifyOutput(root.calibrationWizardState, id, method || "number"))
+  }
+
+  function confirmDeviceMapping() {
+    return root.updateCalibrationState(CalibrationWizardModel.confirm(root.calibrationWizardState))
+  }
+
+  function cancelDeviceMapping(reason) {
+    return root.updateCalibrationState(CalibrationWizardModel.cancel(root.calibrationWizardState, reason || "mapping-cancelled"))
+  }
+
+  function applyDeviceMapping() {
+    var state = root.calibrationWizardState || {}
+    var candidate = state.candidate || {}
+    var node = root.graphNodeById(candidate.deviceId)
+    var outputId = DeviceProfilesModel.safeId(candidate.outputId)
+    if (state.phase !== "complete" || !node || !outputId || ["touchscreen", "stylus"].indexOf(String(node.category || "")) < 0) {
+      root.lastError = "mapping-profile-unavailable"
+      root.calibrationWizardState = Object.assign({}, state, { error: root.lastError })
+      root.stateRevision++
+      root.stateUpdated()
+      return false
+    }
+    var profile = DeviceProfilesModel.effective(node, root.deviceProfileStore).profile
+    profile.id = node.id
+    profile.category = node.category
+    if (node.category === "touchscreen") profile.touch.mappingOutput = outputId
+    else profile.stylus.mappingOutput = outputId
+    var saved = DeviceProfilesModel.setProfile(root.deviceProfileStore, profile)
+    if (!saved.ok) {
+      root.lastError = String(saved.reason || "mapping-profile-save-failed")
+      return false
+    }
+    root.setConfig("deviceProfiles", saved.store)
+    root.lastError = ""
+    return true
+  }
+
+  function updateDeviceProfileStore(result, fallbackReason) {
+    if (!result || result.ok !== true) {
+      root.lastError = String(result && result.reason || fallbackReason || "device-profile-update-failed")
+      return false
+    }
+    root.setConfig("deviceProfiles", result.store)
+    root.lastError = ""
+    return true
+  }
+
+  function renameDeviceProfile(id, name) {
+    return root.updateDeviceProfileStore(DeviceProfilesModel.rename(root.deviceProfileStore, id, name), "invalid-device-name")
+  }
+
+  function resetDeviceProfile(id) {
+    return root.updateDeviceProfileStore(DeviceProfilesModel.reset(root.deviceProfileStore, id), "device-profile-not-found")
+  }
+
+  function forgetDeviceProfile(id) {
+    return root.updateDeviceProfileStore(DeviceProfilesModel.forget(root.deviceProfileStore, id), "device-profile-not-found")
+  }
+
+  function beginTouchCalibration(id, outputId) {
+    var node = root.graphNodeById(id)
+    var output = root.graphOutputById(outputId)
+    root.touchCalibrationState = CalibrationModel.beginTouch(id, outputId, node ? node.capabilities : {}, { outputGeometry: output ? output.geometry : {} })
+    root.activeCalibrationKind = "touchscreen"
+    root.stateRevision++
+    root.stateUpdated()
+    return root.touchCalibrationState
+  }
+
+  function beginStylusCalibration(id) {
+    var node = root.graphNodeById(id)
+    root.stylusCalibrationState = CalibrationModel.beginStylus(id, node ? node.capabilities : {})
+    root.activeCalibrationKind = "stylus"
+    root.stateRevision++
+    root.stateUpdated()
+    return root.stylusCalibrationState
+  }
+
+  function recordTouchCalibrationSample(sample) {
+    var result = CalibrationModel.recordTouchSample(root.touchCalibrationState, sample)
+    root.touchCalibrationState = result.state
+    root.stateRevision++
+    root.stateUpdated()
+    return result
+  }
+
+  function recordStylusCalibrationSample(sample) {
+    var result = CalibrationModel.recordStylusSample(root.stylusCalibrationState, sample)
+    root.stylusCalibrationState = result.state
+    root.stateRevision++
+    root.stateUpdated()
+    return result
+  }
+
+  function cancelCalibration(kind, reason) {
+    var name = String(kind || root.activeCalibrationKind || "")
+    if (name === "touch" || name === "touchscreen") root.touchCalibrationState = CalibrationModel.cancelCalibration(root.touchCalibrationState, reason || "calibration-cancelled")
+    else if (name === "stylus") root.stylusCalibrationState = CalibrationModel.cancelStylusCalibration(root.stylusCalibrationState, reason || "calibration-cancelled")
+    else return false
+    root.activeCalibrationKind = ""
+    root.stateRevision++
+    root.stateUpdated()
+    return true
+  }
+
   function syncDeviceProfiles() {
     root.deviceProfileStore = DeviceProfilesModel.normalizeStore(root.cfg("deviceProfiles", {}))
   }
@@ -2781,6 +3019,12 @@ Item {
       deviceProfiles: DeviceProfilesModel.summary(root.deviceProfileStore),
       hardwarePolicies: HardwarePoliciesModel.summary(root.hardwarePolicyState),
       dockingContinuity: DockingContinuityModel.summary(root.dockingContinuityState),
+      calibration: {
+        mapping: { phase: String(root.calibrationWizardState.phase || "idle"), error: String(root.calibrationWizardState.error || "") },
+        touch: { phase: String(root.touchCalibrationState.phase || "idle"), deviceId: String(root.touchCalibrationState.deviceId || ""), outputId: String(root.touchCalibrationState.outputId || ""), sampleCount: Array.isArray(root.touchCalibrationState.samples) ? root.touchCalibrationState.samples.length : 0, result: root.touchCalibrationState.result || null },
+        stylus: { phase: String(root.stylusCalibrationState.phase || "idle"), deviceId: String(root.stylusCalibrationState.deviceId || ""), sampleCount: Array.isArray(root.stylusCalibrationState.samples) ? root.stylusCalibrationState.samples.length : 0, analysis: root.stylusCalibrationState.analysis || null },
+        transaction: { phase: String(root.calibrationTransactionState.phase || "idle"), kind: String(root.calibrationTransactionState.kind || ""), targetId: String(root.calibrationTransactionState.targetId || ""), remainingMs: Number(root.calibrationTransactionState.remainingMs || 0) }
+      },
       stylusInput: {
         backend: root.stylusInputState.backend,
         available: root.stylusInputState.available === true,

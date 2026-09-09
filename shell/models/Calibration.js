@@ -426,6 +426,14 @@ function recordStylusSample(previous, sample) {
   return { accepted: true, reason: "sample-recorded", state: next }
 }
 
+function cancelStylusCalibration(previous, reason) {
+  var old = Object.assign(emptyStylusState(), object(previous))
+  old.phase = "cancelled"
+  old.error = string(reason || "calibration-cancelled")
+  old.analysis = null
+  return old
+}
+
 function curvePoints(preset, custom) {
   var name = token(preset || "linear")
   if (name === "linear") return [{ x: 0, y: 0 }, { x: 1, y: 1 }]
@@ -589,6 +597,7 @@ var api = {
   emptyStylusState: emptyStylusState,
   beginStylus: beginStylus,
   recordStylusSample: recordStylusSample,
+  cancelStylusCalibration: cancelStylusCalibration,
   pressureSuggestion: pressureSuggestion,
   stylusAnalysis: stylusAnalysis,
   curvePoints: curvePoints,

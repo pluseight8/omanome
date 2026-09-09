@@ -22,9 +22,9 @@ Item {
 
   function sourceFor(view) {
     var name = String(view || "overview")
-    var known = ["overview", "launcher", "quicksettings", "keyboard", "clipboard", "notifications", "switcher", "settings", "control-center", "forcequit", "onboarding", "workspace-overlay"]
+    var known = ["overview", "launcher", "quicksettings", "keyboard", "clipboard", "notifications", "switcher", "settings", "devices", "control-center", "forcequit", "onboarding", "workspace-overlay"]
     if (known.indexOf(name) < 0) name = "overview"
-    return Qt.resolvedUrl("views/" + ({ overview: "Overview.qml", launcher: "Launcher.qml", quicksettings: "QuickSettings.qml", keyboard: "Osk.qml", clipboard: "Clipboard.qml", notifications: "Notifications.qml", switcher: "Switcher.qml", settings: "Settings.qml", "control-center": "ControlCenter.qml", forcequit: "ForceQuit.qml", onboarding: "Onboarding.qml", "workspace-overlay": "WorkspaceSwitcher.qml" }[name]))
+    return Qt.resolvedUrl("views/" + ({ overview: "Overview.qml", launcher: "Launcher.qml", quicksettings: "QuickSettings.qml", keyboard: "Osk.qml", clipboard: "Clipboard.qml", notifications: "Notifications.qml", switcher: "Switcher.qml", settings: "Settings.qml", devices: "DeviceSettings.qml", "control-center": "ControlCenter.qml", forcequit: "ForceQuit.qml", onboarding: "Onboarding.qml", "workspace-overlay": "WorkspaceSwitcher.qml" }[name]))
   }
 
   function open(payloadJson) {
@@ -144,7 +144,8 @@ Item {
                   { key: "clipboard", icon: "▣", label: "clipboard" },
                   { key: "notifications", icon: "◌", label: "notifications" },
                   { key: "switcher", icon: "⇄", label: "altTab" },
-                  { key: "settings", icon: "⚙", label: "settings" }
+                  { key: "settings", icon: "⚙", label: "settings" },
+                  { key: "devices", icon: "⌁", label: "devices" }
                 ]
                 delegate: ActionButton {
                   required property var modelData
