@@ -51,6 +51,9 @@ jobs:
       - name: Run deterministic polish contract tests
         run: python3 -m unittest tests.test_polish -v
 
+      - name: Run 1.4 lifecycle and surface stress fixture
+        run: make integration-fixture
+
   portable:
     name: Portable validation
     runs-on: ubuntu-latest
