@@ -21,6 +21,7 @@ import "models/Rotation.js" as RotationModel
 import "models/Touch.js" as TouchModel
 import "models/InputDevices.js" as InputDevicesModel
 import "models/DeviceGraph.js" as DeviceGraphModel
+import "models/DeviceTopology.js" as DeviceTopologyModel
 import "models/DeviceProfiles.js" as DeviceProfilesModel
 import "models/KeyboardDevices.js" as KeyboardDevicesModel
 import "models/KeyboardTransitions.js" as KeyboardTransitionsModel
@@ -138,6 +139,9 @@ Item {
   // Device Graph is a sanitized topology view shared by diagnostics and
   // future hardware profiles. It never replaces the existing input state.
   property var deviceGraph: DeviceGraphModel.emptyState()
+  // Topology aggregation is runtime-only. Hotplug events coalesce one bounded
+  // snapshot refresh; only the refreshed graph is used for capability deltas.
+  property var deviceTopologyState: DeviceTopologyModel.emptyState()
   property var deviceProfileStore: DeviceProfilesModel.emptyStore()
   property bool inputDeviceMonitorAvailable: false
   property string inputDeviceMonitorReason: "not-started"
@@ -2456,7 +2460,9 @@ Item {
   function updateDeviceGraph() {
     var source = root.devices && typeof root.devices === "object" && !Array.isArray(root.devices) ? root.devices : {}
     var snapshot = Object.assign({}, source, { monitors: Array.isArray(root.monitors) ? root.monitors : [] })
+    var previousGraph = root.deviceGraph
     root.deviceGraph = DeviceGraphModel.fromSnapshot(snapshot, root.deviceGraph)
+    root.deviceTopologyState = DeviceTopologyModel.reconcile(root.deviceTopologyState, previousGraph, root.deviceGraph, Date.now(), "snapshot-reconciled")
   }
 
   function deviceProfileRows() {
@@ -2529,14 +2535,20 @@ Item {
 
   function updateDeviceEvent(raw) {
     var parsed = parseJson(raw, null)
-    if (!parsed || String(parsed.type || "") !== "device.event") return
-    root.inputDeviceState = InputDevicesModel.applyEvent(root.inputDeviceState, parsed)
+    if (!parsed || ["device.event", "display.event", "topology.event", "hardware.event", "capability.change"].indexOf(String(parsed.type || "")) < 0) return
+    if (String(parsed.type || "") === "device.event") root.inputDeviceState = InputDevicesModel.applyEvent(root.inputDeviceState, parsed)
     root.deviceGraph = DeviceGraphModel.applyEvent(root.deviceGraph, parsed)
+    root.deviceTopologyState = DeviceTopologyModel.noteEvent(root.deviceTopologyState, parsed, Date.now(), {
+      debounceMs: 240,
+      displayDebounceMs: 260,
+      capabilityDebounceMs: 180,
+      disconnectDebounceMs: 180
+    })
     root.keyboardTransitionState = KeyboardTransitionsModel.noteEvent(root.keyboardTransitionState, parsed, Date.now())
     root.updateInputMapping()
     root.refreshStylusInputPolicy()
     root.inputDeviceMonitorAvailable = true
-    root.inputDeviceMonitorReason = "udev-event-stream"
+    root.inputDeviceMonitorReason = String(parsed.type || "") === "device.event" ? "udev-event-stream" : "topology-event-stream"
     deviceRefreshDebounce.restart()
     root.refreshFeatureStates()
     root.stateRevision++
@@ -2562,6 +2574,7 @@ Item {
   function updateSessionEvent(raw) {
     var parsed = parseJson(raw, null)
     if (!parsed || String(parsed.type || "") !== "session.event") return
+    root.deviceTopologyState = DeviceTopologyModel.lifecycle(root.deviceTopologyState, parsed, Date.now(), { debounceMs: 220 })
     var transition = LifecycleModel.transition(root.lifecycleState, parsed, Date.now())
     if (!transition.changed && transition.action === "ignore") return
     root.lifecycleState = transition.state
@@ -2711,6 +2724,7 @@ Item {
         mapping: root.inputDeviceState.devices.map(function(item) { return { id: item.id, role: item.role, output: item.output || "automatic" } })
       },
       deviceGraph: DeviceGraphModel.summary(root.deviceGraph),
+      deviceTopology: DeviceTopologyModel.summary(root.deviceTopologyState),
       deviceProfiles: DeviceProfilesModel.summary(root.deviceProfileStore),
       stylusInput: {
         backend: root.stylusInputState.backend,
