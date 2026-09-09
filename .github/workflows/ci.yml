@@ -119,7 +119,17 @@ jobs:
 
       - name: Install Wayland and xkbcommon development files
         run: |
-          sudo apt-get update
+          # The hosted image may contain unrelated third-party sources (for
+          # example Chrome) whose transient index can fail independently of
+          # this project. Native checks need only Ubuntu packages.
+          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            sudo apt-get \
+              -o Dir::Etc::sourcelist="sources.list.d/ubuntu.sources" \
+              -o Dir::Etc::sourceparts="-" \
+              -o APT::Get::List-Cleanup="0" update
+          else
+            sudo apt-get update -o Acquire::Retries=3
+          fi
           sudo apt-get install -y libwayland-dev libxkbcommon-dev pkg-config
 
       - name: Install stable Rust
