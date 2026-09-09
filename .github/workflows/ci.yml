@@ -166,3 +166,24 @@ jobs:
           assert "barWidget" in manifest["entryPoints"]
           PY
           ! grep -RIn --exclude-dir=.git --exclude='*.md' 'gnome-shell[[:space:]]*--replace\|pkill\|killall' shell input cli
+
+  device-topology-safety:
+    name: Device topology safety
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Run graph, mapping, calibration, and topology gate
+        run: make device-check
+
+      - name: Recheck device privacy and standard bar boundaries
+        run: |
+          python3 -m unittest tests.test_device_graph tests.test_calibration tests.test_calibration_wizard tests.test_device_topology tests.test_docking_continuity tests.test_hardware_policies -v
+          python3 - <<'PY'
+          import json
+          manifest = json.load(open("manifest.json", encoding="utf-8"))
+          assert "bar" not in manifest["kinds"]
+          assert "bar-widget" in manifest["kinds"]
+          assert manifest["entryPoints"]["barWidget"]
+          PY
