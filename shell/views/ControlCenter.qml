@@ -56,6 +56,46 @@ Item {
     if (!canToggle(row)) return
     root.service.toggleFeature(row.id)
   }
+  function compactDeviceStatus() {
+    var revision = root.service ? root.service.stateRevision : 0
+    root.observedRevision = revision
+    return root.service && typeof root.service.compactDeviceStatus === "function" ? root.service.compactDeviceStatus() : { rows: [], topology: {} }
+  }
+  function compactDeviceRows() {
+    var state = root.compactDeviceStatus()
+    return state && Array.isArray(state.rows) ? state.rows : []
+  }
+  function compactDeviceSubtitle() {
+    var state = root.compactDeviceStatus()
+    var topology = state && state.topology ? state.topology : {}
+    if (topology.pendingRefresh === true) return "Hardware change detected · refreshing"
+    if (topology.stale === true) return "Hardware state is settling"
+    if (state && state.unknown > 0) return String(state.unknown) + " status unresolved · open Device Center"
+    return "Verified device state · grouped hotplug events"
+  }
+  function deviceStatusText(row) {
+    if (!row || row.available !== true) return root.text("unavailable", "Unavailable")
+    if (row.key === "mode") return String(row.value || "desktop")
+    var state = String(row.status || "unknown")
+    var label = state === "connected" ? root.text("connected", "Connected") : state === "disconnected" ? root.text("disconnected", "Disconnected") : root.text("unknown", "Unknown")
+    return row.count > 1 && state === "connected" ? label + " · " + String(row.count) : label
+  }
+  function deviceCenterSection(key) {
+    var value = String(key || "displays")
+    if (value === "mode") return "setups"
+    if (value === "keyboard") return "keyboards"
+    if (value === "touch") return "touch"
+    if (value === "stylus") return "stylus"
+    if (value === "external-display") return "displays"
+    return "displays"
+  }
+  function openDeviceCenter(section) {
+    if (!root.panel) return
+    root.panel.contextMenu = false
+    root.panel.transientOverlay = false
+    root.panel.activeView = "devices"
+    root.panel.payloadView = "devices://" + String(section || "displays")
+  }
 
   ColumnLayout {
     anchors.fill: parent
@@ -170,6 +210,50 @@ Item {
         checked: root.service && root.service.suspended === true
         usable: !!root.service
         onClicked: if (root.service) root.service.setSuspended(!root.service.suspended)
+      }
+    }
+
+    ColumnLayout {
+      visible: !root.contextMenu
+      Layout.fillWidth: true
+      spacing: tokens.space(6)
+
+      SectionHeader {
+        Layout.fillWidth: true
+        title: root.text("devices", "Devices")
+        subtitle: root.compactDeviceSubtitle()
+      }
+
+      Flow {
+        Layout.fillWidth: true
+        spacing: tokens.space(6)
+        Repeater {
+          model: root.compactDeviceRows()
+          delegate: ActionButton {
+            required property var modelData
+            width: (parent.width - tokens.space(12)) / 3
+            minimumWidth: tokens.target(96)
+            minimumHeight: tokens.target(52)
+            compact: true
+            text: modelData.label
+            icon: modelData.connected === true ? "✓" : modelData.status === "unknown" ? "?" : modelData.icon
+            subtitle: root.deviceStatusText(modelData)
+            checked: modelData.connected === true
+            usable: !!root.panel
+            accessibleDescription: modelData.reason || root.text("deviceStatus", "Open device status")
+            onClicked: root.openDeviceCenter(root.deviceCenterSection(modelData.key))
+          }
+        }
+      }
+
+      ActionButton {
+        Layout.fillWidth: true
+        minimumHeight: tokens.target(42)
+        compact: true
+        text: root.text("openDeviceCenter", "Open Device Center")
+        icon: "⌁"
+        usable: !!root.panel
+        onClicked: root.openDeviceCenter("displays")
       }
     }
 

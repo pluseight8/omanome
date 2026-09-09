@@ -22,6 +22,7 @@ import "models/Touch.js" as TouchModel
 import "models/InputDevices.js" as InputDevicesModel
 import "models/DeviceGraph.js" as DeviceGraphModel
 import "models/DeviceTopology.js" as DeviceTopologyModel
+import "models/DeviceStatus.js" as DeviceStatusModel
 import "models/DeviceProfiles.js" as DeviceProfilesModel
 import "models/Calibration.js" as CalibrationModel
 import "models/CalibrationWizard.js" as CalibrationWizardModel
@@ -146,6 +147,8 @@ Item {
   // Topology aggregation is runtime-only. Hotplug events coalesce one bounded
   // snapshot refresh; only the refreshed graph is used for capability deltas.
   property var deviceTopologyState: DeviceTopologyModel.emptyState()
+  property var deviceConnectionNotice: DeviceStatusModel.emptyNotice()
+  property var compactDeviceState: DeviceStatusModel.emptyState()
   property var deviceProfileStore: DeviceProfilesModel.emptyStore()
   property var hardwareSetupStore: HardwarePoliciesModel.emptyStore()
   property var hardwarePolicyState: HardwarePoliciesModel.emptyState()
@@ -1917,6 +1920,7 @@ Item {
       root.performanceState = PerformanceModel.snapshot(root.cfg("performance", {}), root.performanceContext())
       root.applyBlurRules()
     }
+    root.updateCompactDeviceState()
     root.refreshFeatureStates()
     root.stateRevision++
     root.stateUpdated()
@@ -1931,6 +1935,8 @@ Item {
     root.hardwareSetupStore = HardwarePoliciesModel.emptyStore()
     root.hardwarePolicyState = HardwarePoliciesModel.emptyState()
     root.dockingContinuityState = DockingContinuityModel.emptyState()
+    root.deviceConnectionNotice = DeviceStatusModel.emptyNotice()
+    root.compactDeviceState = DeviceStatusModel.emptyState()
     root.calibrationWizardState = CalibrationWizardModel.emptyState()
     root.touchCalibrationState = CalibrationModel.emptyTouchState()
     root.stylusCalibrationState = CalibrationModel.emptyStylusState()
@@ -2492,6 +2498,7 @@ Item {
     var previousGraph = root.deviceGraph
     root.deviceGraph = DeviceGraphModel.fromSnapshot(snapshot, root.deviceGraph)
     root.deviceTopologyState = DeviceTopologyModel.reconcile(root.deviceTopologyState, previousGraph, root.deviceGraph, Date.now(), "snapshot-reconciled")
+    root.deviceConnectionNotice = DeviceStatusModel.connectionNotice(previousGraph, root.deviceGraph, root.deviceTopologyState, Date.now(), root.deviceConnectionNotice, { durationMs: root.cfg("controlCenter.osd.durationMs", 2600) })
     root.updateHardwarePolicy()
   }
 
@@ -2739,7 +2746,29 @@ Item {
       docked: root.dockedModeState && root.dockedModeState.active === true,
       system: root.systemState
     })
+    root.updateCompactDeviceState()
     return root.hardwarePolicyState
+  }
+
+  function updateCompactDeviceState() {
+    root.compactDeviceState = DeviceStatusModel.snapshot(root.deviceGraph, root.hardwarePolicyState, {
+      effectiveMode: root.effectiveMode,
+      detectedMode: root.detectedMode,
+      adaptiveProfile: root.adaptiveProfile,
+      hasTouchscreen: root.hasTouchscreen,
+      hasStylus: root.hasStylus,
+      hasPhysicalKeyboard: root.hasPhysicalKeyboard,
+      keyboardDevices: root.keyboardDevices,
+      touchscreenDevices: root.inputDeviceState && Array.isArray(root.inputDeviceState.devices) ? root.inputDeviceState.devices.filter(function(item) { return item && item.role === "touchscreen" }) : [],
+      stylusDevices: root.stylusDevices,
+      topology: root.deviceTopologyState,
+      notice: root.deviceConnectionNotice
+    })
+    return root.compactDeviceState
+  }
+
+  function compactDeviceStatus() {
+    return root.compactDeviceState
   }
 
   function updateDockingContinuity(reason) {
@@ -2835,6 +2864,7 @@ Item {
       disconnectDebounceMs: 180
     })
     root.keyboardTransitionState = KeyboardTransitionsModel.noteEvent(root.keyboardTransitionState, parsed, Date.now())
+    root.updateHardwarePolicy()
     root.updateInputMapping()
     root.refreshStylusInputPolicy()
     root.inputDeviceMonitorAvailable = true
@@ -3016,6 +3046,8 @@ Item {
       },
       deviceGraph: DeviceGraphModel.summary(root.deviceGraph),
       deviceTopology: DeviceTopologyModel.summary(root.deviceTopologyState),
+      compactDevices: root.compactDeviceStatus(),
+      deviceConnectionNotice: root.deviceConnectionNotice,
       deviceProfiles: DeviceProfilesModel.summary(root.deviceProfileStore),
       hardwarePolicies: HardwarePoliciesModel.summary(root.hardwarePolicyState),
       dockingContinuity: DockingContinuityModel.summary(root.dockingContinuityState),
