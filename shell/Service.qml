@@ -24,6 +24,7 @@ import "models/DeviceGraph.js" as DeviceGraphModel
 import "models/DeviceTopology.js" as DeviceTopologyModel
 import "models/DeviceProfiles.js" as DeviceProfilesModel
 import "models/HardwarePolicies.js" as HardwarePoliciesModel
+import "models/DockingContinuity.js" as DockingContinuityModel
 import "models/KeyboardDevices.js" as KeyboardDevicesModel
 import "models/KeyboardTransitions.js" as KeyboardTransitionsModel
 import "models/Responsive.js" as ResponsiveModel
@@ -146,6 +147,7 @@ Item {
   property var deviceProfileStore: DeviceProfilesModel.emptyStore()
   property var hardwareSetupStore: HardwarePoliciesModel.emptyStore()
   property var hardwarePolicyState: HardwarePoliciesModel.emptyState()
+  property var dockingContinuityState: DockingContinuityModel.emptyState()
   property bool inputDeviceMonitorAvailable: false
   property string inputDeviceMonitorReason: "not-started"
   property bool tabletSwitchAvailable: false
@@ -330,6 +332,7 @@ Item {
       reason: String(reason || "adaptive-signal")
     }, Date.now())
     root.dockedModeState = observed.state
+    root.updateDockingContinuity("docked-mode-observation")
     if (observed.pending) {
       dockedModeTimer.interval = Math.max(80, Number(observed.delayMs || 440))
       dockedModeTimer.restart()
@@ -1920,6 +1923,7 @@ Item {
     root.deviceProfileStore = DeviceProfilesModel.emptyStore()
     root.hardwareSetupStore = HardwarePoliciesModel.emptyStore()
     root.hardwarePolicyState = HardwarePoliciesModel.emptyState()
+    root.dockingContinuityState = DockingContinuityModel.emptyState()
     root.masterEnabled = true
     root.suspended = false
     root.adaptiveProfile = "auto"
@@ -2070,6 +2074,7 @@ Item {
     root.systemState = next
     root.quickState = QuickSettingsModel.stateFromSystem(next)
     root.updateHardwarePolicy()
+    root.updateDockingContinuity("system-state-update")
     root.refreshRotationBackend()
     root.performanceState = PerformanceModel.snapshot(root.cfg("performance", {}), root.performanceContext())
     root.reconcileWobblyBackend()
@@ -2499,6 +2504,27 @@ Item {
     return root.hardwarePolicyState
   }
 
+  function updateDockingContinuity(reason) {
+    var keyboard = root.keyboardModeSignals()
+    var displayState = root.hardwarePolicyState && root.hardwarePolicyState.displays ? root.hardwarePolicyState.displays : { rows: [] }
+    var surfaceOutputs = Array.isArray(displayState.rows) ? displayState.rows.filter(function(row) { return row && row.connected === true }).map(function(row) { return row.id }) : []
+    var observed = DockingContinuityModel.observe(root.dockingContinuityState, root.deviceGraph, {
+      mode: root.effectiveMode,
+      orientation: root.orientation,
+      keyboardConnected: keyboard.physicalKeyboard === true,
+      keyboardStable: keyboard.keyboardStable !== false,
+      automatic: root.adaptiveProfile === "auto" && root.cfg("adaptive.automaticTransitions", true) !== false,
+      docked: root.dockedModeState && root.dockedModeState.active === true,
+      primaryDisplayId: displayState.primaryDisplayId,
+      oskOutputId: root.hardwarePolicyState && root.hardwarePolicyState.osk ? root.hardwarePolicyState.osk.outputId : "",
+      surfaceOutputs: surfaceOutputs,
+      setupId: root.hardwarePolicyState ? root.hardwarePolicyState.selected : "auto"
+    }, Date.now(), { debounceMs: Number(root.cfg("adaptive.dockedMode.debounceMs", 180)) })
+    root.dockingContinuityState = observed.state
+    if (reason && observed.state && observed.state.reason === "not-evaluated") root.dockingContinuityState.reason = String(reason)
+    return observed
+  }
+
   function updateDevices(raw) {
     var parsed = parseJson(raw, {})
     root.devices = parsed
@@ -2601,6 +2627,7 @@ Item {
     var parsed = parseJson(raw, null)
     if (!parsed || String(parsed.type || "") !== "session.event") return
     root.deviceTopologyState = DeviceTopologyModel.lifecycle(root.deviceTopologyState, parsed, Date.now(), { debounceMs: 220 })
+    root.dockingContinuityState = DockingContinuityModel.lifecycle(root.dockingContinuityState, parsed, Date.now())
     var transition = LifecycleModel.transition(root.lifecycleState, parsed, Date.now())
     if (!transition.changed && transition.action === "ignore") return
     root.lifecycleState = transition.state
@@ -2753,6 +2780,7 @@ Item {
       deviceTopology: DeviceTopologyModel.summary(root.deviceTopologyState),
       deviceProfiles: DeviceProfilesModel.summary(root.deviceProfileStore),
       hardwarePolicies: HardwarePoliciesModel.summary(root.hardwarePolicyState),
+      dockingContinuity: DockingContinuityModel.summary(root.dockingContinuityState),
       stylusInput: {
         backend: root.stylusInputState.backend,
         available: root.stylusInputState.available === true,
