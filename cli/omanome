@@ -100,6 +100,14 @@ Commands:
   watchdog [--watch]     Notify about sustained owner-only resource pressure
   performance reset      Reset local performance counters/state
   devices [--json]       Print classified, privacy-safe device inventory
+  device info <id>       Show one sanitized device profile and health
+  device test <id>       Run a non-destructive inventory health check
+  device reset <id>      Remove Omanome profile and calibration metadata
+  device rollback <id>   Restore the device last-known-good calibration
+  hardware-setup list    List generic hardware setup presets
+  hardware-setup status  Show selected setup and runtime topology match
+  hardware-setup apply <name>
+                         Select a hardware setup without changing window layout
   hardware graph [--json]
                          Print the sanitized universal device graph
 EOF
@@ -1919,6 +1927,145 @@ hardware_graph_cmd() {
   fi
 }
 
+device_id_is_safe() {
+  [[ "${1:-}" =~ ^(device:[a-z0-9-]+:[0-9a-f]{16}|display:[0-9a-f]{16})$ ]]
+}
+
+device_graph_payload() {
+  hardware_graph_cmd --json
+}
+
+device_info_cmd() {
+  local device_id="" json=0 argument graph config payload
+  for argument in "$@"; do
+    case "$argument" in
+      --json) json=1 ;;
+      --*) die "unsupported device info option: $argument" ;;
+      *) [[ -z "$device_id" ]] || die "device info accepts one device id"; device_id="$argument" ;;
+    esac
+  done
+  [[ -n "$device_id" ]] || die "device info requires a Device Graph id"
+  device_id_is_safe "$device_id" || die "device info requires a sanitized Device Graph id"
+  graph="$(device_graph_payload)"
+  if [[ -f "$(config_file)" ]]; then config="$(jq -c . "$(config_file)" 2>/dev/null || printf '{}')"; else config="$(jq -c . "$repo_dir/config/defaults.json")"; fi
+  payload="$(jq -n --arg id "$device_id" --argjson graph "$graph" --argjson config "$config" '
+    def opaque:
+      if type == "string" and test("^(device:[a-z0-9-]+:[0-9a-f]{16}|display:[0-9a-f]{16})$") then . else "" end;
+    def output_id($value): ($value // "") | if type == "string" and test("^display:[0-9a-f]{16}$") then . else "" end;
+    def output_present($outputs;$value): any($outputs[]?; .id == $value);
+    def mapping($value):
+      ($value // {}) as $m
+      | if ($m | type) != "object" then null else
+          {outputId:output_id($m.outputId // $m.output_id),
+           offset:{x:($m.offset.x // $m.offsetX // 0),y:($m.offset.y // $m.offsetY // 0)},
+           scale:{x:($m.scale.x // $m.scaleX // 1),y:($m.scale.y // $m.scaleY // 1)},
+           rotation:($m.rotation // 0),
+           axis:($m.axis // {swapped:false,invertX:false,invertY:false})}
+          | if .outputId == "" then null else . end
+        end;
+    ($graph.graph // {}) as $g
+    | ([($g.nodes // [])[], ($g.outputs // [])[]] | map(select(.id == $id)) | .[0]) as $node
+    | ($config.deviceProfiles // {}) as $dp
+    | ($dp.profiles[$id] // null) as $profile
+    | ([($dp.calibrations.entries // {}) | to_entries[]? | .value | select(.deviceId == $id)] | map({id:(.id // ""),kind:(.kind // "unknown"),status:(.status // "unknown"),outputId:output_id(.outputId),mapping:mapping(.mapping),lastKnownGood:mapping(.lastKnownGood)})) as $calibrations
+    | {schemaVersion:1,deviceId:$id,present:($node != null),node:(if $node == null then null else $node end),
+       relationships:([($g.relationships // [])[] | select(.from == $id or .to == $id)]),
+       profile:(if ($profile | type) != "object" then null else {enabled:($profile.enabled != false),name:($profile.name // ""),touch:{enabled:($profile.touch.enabled != false),mappingOutput:output_id($profile.touch.mappingOutput),calibrationId:($profile.touch.calibrationId // ""),gestureProfile:($profile.touch.gestureProfile // "auto"),edgeSensitivity:($profile.touch.edgeSensitivity // "auto"),palmPolicy:($profile.touch.palmPolicy // "auto")},stylus:{enabled:($profile.stylus.enabled != false),mappingOutput:output_id($profile.stylus.mappingOutput),calibrationId:($profile.stylus.calibrationId // ""),pressureCurve:($profile.stylus.pressureCurve // "linear"),handedness:($profile.stylus.handedness // "auto"),cursor:($profile.stylus.cursor // "auto"),palmRejection:($profile.stylus.palmRejection // "auto"),handwriting:($profile.stylus.handwriting // "auto"),buttonMap:($profile.stylus.buttonMap // {})},keyboard:{enabled:($profile.keyboard.enabled != false),layout:($profile.keyboard.layout // "auto"),oskPolicy:($profile.keyboard.oskPolicy // "auto"),relation:($profile.keyboard.relation // "auto")}} end),
+       calibrations:$calibrations,
+       health:{graphAvailable:($g.health.available == true),nodePresent:($node != null),connected:($node.connected == true),mappingOutputsPresent:all($calibrations[]?; . as $calibration | ($calibration.outputId == "" or output_present($g.outputs;$calibration.outputId))),customCalibrationCount:($calibrations | length)},
+       privacy:{rawHardwareIdentifiersEmitted:false,serialsEmitted:false,bluetoothMacEmitted:false,eventNodesEmitted:false}}')"
+  if [[ "$json" -eq 1 ]]; then
+    printf '%s\n' "$payload"
+  else
+    jq -r '"Device: \(.deviceId)\nPresent: " + (if .present then "yes" else "no" end) + "\nCategory: " + (.node.category // "unknown") + "\nTransport: " + (.node.transport // "unknown") + "\nConnected: " + (if .health.connected then "yes" else "no" end) + "\nMapped output: " + ((.node.mappedOutput // .profile.touch.mappingOutput // .profile.stylus.mappingOutput // "automatic") | if . == "" then "automatic" else . end) + "\nCalibrations: " + ((.calibrations | length) | tostring)' <<<"$payload"
+  fi
+}
+
+device_test_cmd() {
+  local device_id="" json=0 argument info payload
+  for argument in "$@"; do
+    case "$argument" in
+      --json) json=1 ;;
+      --*) die "unsupported device test option: $argument" ;;
+      *) [[ -z "$device_id" ]] || die "device test accepts one device id"; device_id="$argument" ;;
+    esac
+  done
+  [[ -n "$device_id" ]] || die "device test requires a Device Graph id"
+  device_id_is_safe "$device_id" || die "device test requires a sanitized Device Graph id"
+  info="$(device_info_cmd "$device_id" --json)"
+  payload="$(jq -n --argjson info "$info" '
+    {schemaVersion:1,deviceId:$info.deviceId,kind:"inventory-health",physicalInputTested:false,
+     checks:{graphAvailable:($info.health.graphAvailable == true),nodePresent:($info.health.nodePresent == true),connected:($info.health.connected == true),mappingOutputsPresent:($info.health.mappingOutputsPresent == true)},
+     overall:(($info.health.graphAvailable == true) and ($info.health.nodePresent == true) and ($info.health.connected == true) and ($info.health.mappingOutputsPresent == true)),
+     certification:{status:"Untested",evidence:"inventory-only",realHardwareValidated:false},
+     privacy:$info.privacy}')"
+  if [[ "$json" -eq 1 ]]; then
+    printf '%s\n' "$payload"
+  else
+    jq -r '"Device test: \(.deviceId)\nGraph: " + (if .checks.graphAvailable then "available" else "unavailable" end) + "\nDevice: " + (if .checks.nodePresent then "present" else "not found" end) + "\nConnected: " + (if .checks.connected then "yes" else "no" end) + "\nMapping outputs: " + (if .checks.mappingOutputsPresent then "valid" else "invalid or unavailable" end) + "\nOverall: " + (if .overall then "pass" else "needs attention" end) + "\nCertification: Untested (inventory-only)"' <<<"$payload"
+  fi
+}
+
+device_mutation_cmd() {
+  local action="$1" device_id="" json=0 accept=0 argument result
+  shift || true
+  for argument in "$@"; do
+    case "$argument" in
+      --json) json=1 ;;
+      --yes) accept=1 ;;
+      --*) die "unsupported device $action option: $argument" ;;
+      *) [[ -z "$device_id" ]] || die "device $action accepts one device id"; device_id="$argument" ;;
+    esac
+  done
+  [[ -n "$device_id" ]] || die "device $action requires a Device Graph id"
+  device_id_is_safe "$device_id" || die "device $action requires a sanitized Device Graph id"
+  if [[ "$action" == "reset" && "$accept" -ne 1 ]]; then
+    read -r -p "Remove Omanome profile and calibration metadata for $device_id? [y/N] " argument
+    [[ "$argument" == "y" || "$argument" == "Y" ]] || exit 0
+  fi
+  ensure_dirs
+  if result="$(python3 "$config_tool" device "$action" "$(config_file)" "$device_id" --json)"; then
+    if has omarchy-shell; then omarchy-shell "$plugin_id" reload >/dev/null 2>&1 || true; fi
+    if [[ "$json" -eq 1 ]]; then printf '%s\n' "$result"; else jq -r '"Device \(.deviceId): " + .action + " complete" + (if .calibrationsRemoved != null then (" (" + (.calibrationsRemoved|tostring) + " calibration(s) removed)") elif .restored != null then (" (" + (.restored|length|tostring) + " calibration(s) restored)") else "" end)' <<<"$result"; fi
+  else
+    [[ -n "$result" ]] && { [[ "$json" -eq 1 ]] && printf '%s\n' "$result" || printf '%s\n' "$result" >&2; }
+    return "$EX_CONFIG"
+  fi
+}
+
+hardware_setup_cmd() {
+  local operation="${1:-list}" json=0 setup_id="" argument result graph payload
+  shift || true
+  for argument in "$@"; do
+    case "$argument" in
+      --json) json=1 ;;
+      --*) die "unsupported hardware-setup option: $argument" ;;
+      *) [[ -z "$setup_id" ]] || die "hardware-setup accepts one setup name"; setup_id="$argument" ;;
+    esac
+  done
+  case "$operation" in
+    list|status|apply) ;;
+    *) usage >&2; die "unknown hardware-setup operation: $operation" ;;
+  esac
+  ensure_dirs
+  if [[ "$operation" == "apply" && -z "$setup_id" ]]; then die "hardware-setup apply requires a setup name"; fi
+  if [[ "$operation" != "apply" && -n "$setup_id" ]]; then die "hardware-setup $operation does not accept a setup name"; fi
+  if [[ "$operation" == "apply" ]]; then
+    result="$(python3 "$config_tool" hardware-setup apply "$(config_file)" "$setup_id" --json)" || { [[ -n "$result" ]] && printf '%s\n' "$result" >&2; return "$EX_CONFIG"; }
+    if has omarchy-shell; then omarchy-shell "$plugin_id" reload >/dev/null 2>&1 || true; fi
+    if [[ "$json" -eq 1 ]]; then printf '%s\n' "$result"; else jq -r '"Hardware setup selected: \(.selected)"' <<<"$result"; fi
+    return 0
+  fi
+  result="$(python3 "$config_tool" hardware-setup "$operation" "$(config_file)" --json)" || { [[ -n "$result" ]] && printf '%s\n' "$result" >&2; return "$EX_CONFIG"; }
+  if [[ "$operation" == "status" ]]; then
+    graph="$(device_graph_payload)"
+    payload="$(jq -n --argjson status "$result" --argjson graph "$graph" '$status + {runtime:{source:($graph.source // "unavailable"),graphAvailable:($graph.graph.health.available == true),selected:(($graph.hardwarePolicies.selected // null)),resolvedSource:(($graph.hardwarePolicies.source // null)),preferredAdaptiveProfile:(($graph.hardwarePolicies.preferredAdaptiveProfile // null)),reason:(($graph.hardwarePolicies.reason // null))}}')"
+  else
+    payload="$result"
+  fi
+  if [[ "$json" -eq 1 ]]; then printf '%s\n' "$payload"; else jq -r 'if .setups then (.setups[] | "\(.id): \(.label) (adaptive=\(.preferredAdaptiveProfile))") else "Selected: \(.setup.label)\nAdaptive profile: \(.setup.preferredAdaptiveProfile)\nMatch policy: \(.matchPolicy.mode)\nRuntime source: \(.runtime.source)\nRuntime setup: " + (.runtime.selected // "unknown") end' <<<"$payload"; fi
+}
+
 input_info_cmd() {
   local native_path="${OMANOME_INPUT_BIN:-}" native_version="" native_protocol="" probe='{}' devices='{}'
   local -a candidates=()
@@ -2163,6 +2310,17 @@ case "$command_name" in
   recover) recover_cmd "$@" ;;
   uninstall) uninstall_cmd "$@" ;;
   devices) devices_cmd "$@" ;;
+  device)
+    device_command="${1:-info}"
+    shift || true
+    case "$device_command" in
+      info) device_info_cmd "$@" ;;
+      test) device_test_cmd "$@" ;;
+      reset|rollback) device_mutation_cmd "$device_command" "$@" ;;
+      *) usage >&2; die "unknown device command: $device_command" ;;
+    esac
+    ;;
+  hardware-setup) hardware_setup_cmd "$@" ;;
   hardware)
     hardware_command="${1:-graph}"
     shift || true

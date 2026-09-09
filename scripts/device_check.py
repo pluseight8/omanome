@@ -135,6 +135,15 @@ def source_checks() -> list[dict[str, str]]:
         "display roles, OSK target, power decision, and docking recovery remain policy-only",
     ))
     checks.append(check(
+        "device-management-cli-contract",
+        all(marker in cli for marker in (
+            "device_info_cmd()", "device_test_cmd()", "device_mutation_cmd()",
+            "hardware_setup_cmd()", "device_id_is_safe", "physicalInputTested:false",
+            '"Untested"', '"$config_tool" device', '"$config_tool" hardware-setup',
+        )),
+        "device diagnostics, reset/rollback, setup selection, privacy, and certification boundaries are exposed by the CLI",
+    ))
+    checks.append(check(
         "bar-invariant",
         "bar" not in manifest.get("kinds", [])
         and "bar-widget" in manifest.get("kinds", [])

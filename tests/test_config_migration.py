@@ -125,6 +125,21 @@ class ConfigMigrationTests(unittest.TestCase):
             self.assertFalse(output.exists())
             self.assertEqual(json.loads(source.read_text(encoding="utf-8")), original)
 
+    def test_future_nested_setup_schema_is_not_overwritten(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            source = root / "future-setup.json"
+            output = root / "output.json"
+            original = {"schemaVersion": 2, "hardwareSetupProfiles": {"schemaVersion": 99, "selected": "portable"}}
+            source.write_text(json.dumps(original), encoding="utf-8")
+
+            result = self.run_tool("migrate", str(source), "--output", str(output), "--json")
+
+            self.assertEqual(result.returncode, 78)
+            self.assertEqual(json.loads(result.stdout)["reason"], "future-hardware-setup-schema")
+            self.assertFalse(output.exists())
+            self.assertEqual(json.loads(source.read_text(encoding="utf-8")), original)
+
     def test_qml_migration_reports_release_and_rejects_future_nested_schema(self) -> None:
         node = shutil.which("node")
         if not node:

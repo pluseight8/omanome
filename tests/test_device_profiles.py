@@ -113,6 +113,21 @@ class DeviceProfileTests(unittest.TestCase):
         self.assertEqual(result["removed"], "calibrations-removed")
         self.assertEqual(result["after"], 0)
 
+    def test_calibration_updates_keep_one_persistent_last_known_good_mapping(self) -> None:
+        result = self.run_node(
+            "const P=require('./shell/models/DeviceProfiles.js'); "
+            "const device='device:touchscreen:1111111111111111'; const first='display:2222222222222222'; const second='display:3333333333333333'; "
+            "let store=P.emptyStore(); store=P.setCalibration(store,{deviceId:device,kind:'touchscreen',mapping:{outputId:first,scale:{x:1,y:1},offset:{x:0,y:0},rotation:0}}).store; "
+            "const changed=P.setCalibration(store,{deviceId:device,kind:'touchscreen',mapping:{outputId:second,scale:{x:1.1,y:0.9},offset:{x:0.1,y:-0.1},rotation:90}}); "
+            "const rolled=P.rollbackDevice(changed.store,device); console.log(JSON.stringify({current:changed.calibration,lkg:changed.calibration.lastKnownGood,rolled:rolled.ok&&rolled.calibrations[0],profile:rolled.profile}));"
+        )
+        self.assertEqual(result["current"]["outputId"], "display:3333333333333333")
+        self.assertEqual(result["lkg"]["outputId"], "display:2222222222222222")
+        self.assertTrue(result["rolled"])
+        self.assertEqual(result["rolled"]["outputId"], "display:2222222222222222")
+        self.assertEqual(result["rolled"]["mapping"]["rotation"], 0)
+        self.assertEqual(result["profile"]["touch"]["mappingOutput"], "display:2222222222222222")
+
 
 if __name__ == "__main__":
     unittest.main()

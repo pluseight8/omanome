@@ -554,6 +554,7 @@ Item {
           ActionButton { compact: true; visible: deviceCardItem.row.category === "touchscreen" || deviceCardItem.row.category === "stylus"; text: deviceCardItem.row.category === "touchscreen" ? root.text("calibrateTouch", "Calibrate touch") : root.text("calibrateStylus", "Calibrate stylus"); usable: root.calibrationUsable(deviceCardItem.row) && !!root.service; onClicked: root.startCalibration(deviceCardItem.row) }
           ActionButton { compact: true; visible: deviceCardItem.row.configured === true; text: root.pendingForgetId === deviceCardItem.row.id ? root.text("confirmForget", "Confirm forget") : root.text("forgetDevice", "Forget profile"); checked: root.pendingForgetId === deviceCardItem.row.id; onClicked: root.requestForget(deviceCardItem.row.id) }
           ActionButton { compact: true; visible: deviceCardItem.row.configured === true; text: root.text("resetDevice", "Reset device"); onClicked: if (root.service) root.service.resetDeviceProfile(deviceCardItem.row.id) }
+          ActionButton { compact: true; visible: deviceCardItem.row.calibration && deviceCardItem.row.calibration.hasLastKnownGood === true; text: root.text("restoreCalibration", "Restore calibration"); onClicked: if (root.service) root.service.rollbackDeviceProfile(deviceCardItem.row.id) }
         }
       }
     }

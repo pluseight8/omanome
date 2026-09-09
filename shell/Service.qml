@@ -2823,6 +2823,26 @@ Item {
     return root.updateDeviceProfileStore(DeviceProfilesModel.reset(root.deviceProfileStore, id), "device-profile-not-found")
   }
 
+  function rollbackDeviceProfile(id) {
+    return root.updateDeviceProfileStore(DeviceProfilesModel.rollbackDevice(root.deviceProfileStore, id), "device-profile-rollback-unavailable")
+  }
+
+  function deviceProfileActionJson(action, id) {
+    var requested = String(action || "")
+    var result = requested === "reset"
+      ? DeviceProfilesModel.reset(root.deviceProfileStore, id)
+      : requested === "rollback"
+        ? DeviceProfilesModel.rollbackDevice(root.deviceProfileStore, id)
+        : { ok: false, reason: "invalid-device-action", store: root.deviceProfileStore }
+    if (!result || result.ok !== true) {
+      root.lastError = String(result && result.reason || "device-profile-action-failed")
+      return JSON.stringify({ schemaVersion: 1, ok: false, action: requested, deviceId: DeviceProfilesModel.safeId(id), reason: root.lastError, reloadRequired: false })
+    }
+    root.setConfig("deviceProfiles", result.store)
+    root.lastError = ""
+    return JSON.stringify({ schemaVersion: 1, ok: true, action: requested, deviceId: DeviceProfilesModel.safeId(id), reason: result.reason, calibrationCount: Array.isArray(result.calibrations) ? result.calibrations.length : 0, reloadRequired: true })
+  }
+
   function forgetDeviceProfile(id) {
     return root.updateDeviceProfileStore(DeviceProfilesModel.forget(root.deviceProfileStore, id), "device-profile-not-found")
   }
@@ -6034,6 +6054,8 @@ Item {
       try { root.setConfig(path, JSON.parse(valueJson)); return "ok" } catch (error) { return "invalid value" }
     }
     function reset(): string { root.resetConfig(); return "ok" }
+    function deviceReset(id: string): string { return root.deviceProfileActionJson("reset", id) }
+    function deviceRollback(id: string): string { return root.deviceProfileActionJson("rollback", id) }
     function reload(): string { root.refreshDevices(); return "ok" }
     function recordInput(kind: string): string { root.recordInput(kind); return root.detectedMode }
     function quickAction(action: string): string { return root.quickAction(action) ? "on" : "off" }

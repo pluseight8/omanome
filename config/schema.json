@@ -106,7 +106,26 @@
           "type": "object",
           "properties": {
             "schemaVersion": { "const": 1 },
-            "entries": { "type": "object", "maxProperties": 256 },
+            "entries": {
+              "type": "object",
+              "maxProperties": 256,
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "schemaVersion": { "const": 1 },
+                  "id": { "type": "string", "maxLength": 80 },
+                  "kind": { "enum": ["touchscreen", "stylus"] },
+                  "deviceId": { "type": "string" },
+                  "outputId": { "type": "string" },
+                  "mapping": { "type": "object" },
+                  "lastKnownGood": { "type": ["object", "null"] },
+                  "lastKnownGoodAt": { "type": "integer", "minimum": 0 },
+                  "status": { "enum": ["last-known-good", "confirmed"] },
+                  "revision": { "type": "integer", "minimum": 0 },
+                  "updatedAt": { "type": "integer", "minimum": 0 }
+                }
+              }
+            },
             "revision": { "type": "integer", "minimum": 0 }
           }
         },

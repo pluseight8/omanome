@@ -180,9 +180,11 @@ function normalizeCalibrationEntry(raw, expectedId) {
     deviceId: deviceId,
     outputId: mapping.outputId,
     mapping: mapping,
+    lastKnownGood: normalizeCalibrationMapping(source.lastKnownGood || source.last_known_good),
     status: allowed(source.status, CALIBRATION_STATUS, "last-known-good"),
     revision: Math.max(0, Math.floor(Number(source.revision) || 0)),
-    updatedAt: Math.max(0, Math.floor(Number(source.updatedAt || source.updated_at) || 0))
+    updatedAt: Math.max(0, Math.floor(Number(source.updatedAt || source.updated_at) || 0)),
+    lastKnownGoodAt: Math.max(0, Math.floor(Number(source.lastKnownGoodAt || source.last_known_good_at) || 0))
   }
 }
 
@@ -377,6 +379,17 @@ function setCalibration(store, raw) {
   if (!entry) return { ok: false, reason: "invalid-calibration", store: result }
   if (!result.calibrations.entries[entry.id] && Object.keys(result.calibrations.entries).length >= MAX_CALIBRATIONS)
     return { ok: false, reason: "calibration-limit", store: result }
+  var existing = result.calibrations.entries[entry.id]
+  if (existing && existing.mapping && JSON.stringify(existing.mapping) !== JSON.stringify(entry.mapping)) {
+    entry.lastKnownGood = clone(existing.mapping)
+    entry.lastKnownGoodAt = Math.max(0, Math.floor(Number(existing.updatedAt) || 0))
+  } else if (existing) {
+    entry.lastKnownGood = existing.lastKnownGood ? clone(existing.lastKnownGood) : null
+    entry.lastKnownGoodAt = Math.max(0, Math.floor(Number(existing.lastKnownGoodAt) || 0))
+  } else {
+    entry.lastKnownGood = null
+    entry.lastKnownGoodAt = 0
+  }
   entry.revision = Number(result.calibrations.revision || 0) + 1
   result.calibrations.entries[entry.id] = entry
   result.calibrations.revision = entry.revision
@@ -416,6 +429,58 @@ function removeCalibrationsForDevice(store, deviceId) {
   }
   if (changed) { result.calibrations.revision++; result.revision++ }
   return { ok: true, reason: changed ? "calibrations-removed" : "no-calibration", store: result }
+}
+
+function rollbackCalibration(store, deviceId, kind) {
+  var result = normalizeStore(store)
+  var safe = safeId(deviceId)
+  var wanted = allowed(kind, CALIBRATION_KINDS, "")
+  if (!safe || !wanted) return { ok: false, reason: "invalid-graph-id", store: result }
+  var entry = calibrationFor(result, safe, wanted)
+  if (!entry) return { ok: false, reason: "calibration-not-found", store: result }
+  if (!entry.lastKnownGood) return { ok: false, reason: "no-last-known-good", store: result, calibration: entry }
+  var current = result.calibrations.entries[entry.id]
+  current.mapping = clone(entry.lastKnownGood)
+  current.outputId = current.mapping.outputId
+  current.status = "confirmed"
+  current.lastKnownGood = null
+  current.lastKnownGoodAt = 0
+  current.revision = Number(result.calibrations.revision || 0) + 1
+  result.calibrations.entries[entry.id] = current
+  result.calibrations.revision = current.revision
+  result.revision++
+  return { ok: true, reason: "calibration-rolled-back", store: result, calibration: clone(current) }
+}
+
+function rollbackDevice(store, deviceId) {
+  var result = normalizeStore(store)
+  var safe = safeId(deviceId)
+  if (!safe) return { ok: false, reason: "invalid-graph-id", store: result }
+  var profile = result.profiles[safe] ? clone(result.profiles[safe]) : null
+  var kinds = CALIBRATION_KINDS.slice()
+  var rolledBack = []
+  for (var i = 0; i < kinds.length; i++) {
+    var outcome = rollbackCalibration(result, safe, kinds[i])
+    if (!outcome.ok) {
+      if (outcome.reason === "calibration-not-found") continue
+      if (outcome.reason === "no-last-known-good") continue
+      return outcome
+    }
+    result = outcome.store
+    profile = result.profiles[safe] ? clone(result.profiles[safe]) : (profile || normalizeProfile({ id: safe, category: kinds[i] }))
+    if (kinds[i] === "touchscreen") {
+      profile.touch.mappingOutput = outcome.calibration.outputId
+      profile.touch.calibrationId = outcome.calibration.id
+    } else {
+      profile.stylus.mappingOutput = outcome.calibration.outputId
+      profile.stylus.calibrationId = outcome.calibration.id
+    }
+    rolledBack.push(outcome.calibration)
+  }
+  if (rolledBack.length === 0) return { ok: false, reason: "no-last-known-good", store: result }
+  if (profile) result.profiles[safe] = normalizeProfile(profile, safe)
+  result.revision++
+  return { ok: true, reason: "device-calibration-rolled-back", store: result, calibrations: rolledBack, profile: profile ? clone(result.profiles[safe]) : null }
 }
 
 function rename(store, id, name) {
@@ -482,6 +547,8 @@ function list(graph, store) {
     var id = safeId(node.id)
     if (!id) continue
     var resolution = effective(node, normalizedStore)
+    var calibrationKind = ["touchscreen", "stylus"].indexOf(category(node.category, "")) >= 0 ? category(node.category, "") : ""
+    var calibration = calibrationKind ? calibrationFor(normalizedStore, id, calibrationKind) : null
     result.push({
       id: id,
       category: category(node.category, categoryFromId(id)),
@@ -491,6 +558,7 @@ function list(graph, store) {
       mappedOutput: safeId(node.mappedOutput),
       configured: !!normalizedStore.profiles[id],
       profile: resolution.profile,
+      calibration: calibration ? { id: calibration.id, status: calibration.status, hasLastKnownGood: !!calibration.lastKnownGood } : null,
       source: resolution.source
     })
   }
@@ -528,6 +596,8 @@ var api = {
   calibrationFor: calibrationFor,
   removeCalibration: removeCalibration,
   removeCalibrationsForDevice: removeCalibrationsForDevice,
+  rollbackCalibration: rollbackCalibration,
+  rollbackDevice: rollbackDevice,
   rename: rename,
   forget: forget,
   reset: reset,
