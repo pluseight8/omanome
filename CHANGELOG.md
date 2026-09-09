@@ -1,5 +1,74 @@
 # Changelog
 
+## 1.4.0
+
+### Polish
+
+- Consolidates shared spacing, target, radius, typography, focus, animation,
+  contrast, and transparency tokens across the main panel surfaces.
+- Keeps the Omarchy-first boundary intact: the standard Omarchy bar remains
+  outside Omanome ownership and optional backends still fail closed.
+
+### User Interface
+
+- Adds semantic icon glyphs and shared `ActionButton` focus/keyboard behavior
+  with consistent touch targets and visible focus rings.
+- Applies reduced motion, high contrast, text scale, and reduced transparency
+  at the shared control/surface boundary so unavailable states remain readable.
+
+### Tablet
+
+- Makes adaptive, posture, rotation, and keyboard transitions interruptible;
+  transient previews and overlays are reset when policy or lifecycle changes.
+
+### Input
+
+- Hardens master-off, suspend, reset, and teardown boundaries so native input,
+  fallback input, OSK visibility, and modifiers are released together.
+
+### Multitasking
+
+- Releases live preview resources when a panel closes or enhancements are
+  disabled, while preserving bounded preview and Split/Snap safety behavior.
+
+### Devices
+
+- Keeps Device Graph, calibration, mapping, docking, battery, and setup state
+  additive and privacy-safe during the 1.3 → 1.4 configuration migration.
+
+### Performance
+
+- Adds a deterministic 100-cycle integration/surface fixture covering monitor,
+  preview, process, lifecycle, migration, Snap, and Split invariants.
+
+### Accessibility
+
+- Improves semantic names/descriptions, tab focus, Enter/Return/Space activation,
+  focus visibility, large targets, and live accessibility token propagation.
+
+### Reliability
+
+- Adds idempotent transient-state teardown for adaptive previews, mode changes,
+  posture/orientation debounce, gestures, Snap/Split transactions, launch
+  requests, workspace overlays, and tablet switcher state.
+
+### Fixes
+
+- Adds explicit executable-mode, source UTF-8, version, privacy, config, and
+  deterministic fuzz-lite checks to `make polish-check` and CI.
+- Makes the 1.3 → 1.4 migration stamp persistent while preserving user-owned
+  profiles, calibration, setup, OSK, stylus, accessibility, performance,
+  Control Center, multitasking, and App Pair state.
+
+### Known Limitations
+
+- No physical touchscreen, stylus, detachable keyboard, dock, sensor, or
+  external monitor was attached in this validation environment: hardware is
+  Not Hardware Tested. The committed models and lifecycle fixture are Fixture
+  Tested; GUI runtime interaction is Not Runtime Tested.
+- Live texture previews and some compositor effects remain capability-gated;
+  absent providers are reported as unavailable rather than simulated.
+
 ## 1.3.0
 
 ### Device Intelligence

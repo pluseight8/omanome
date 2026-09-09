@@ -1,4 +1,4 @@
-# Omanome 1.3 hardware validation and certification
+# Omanome 1.4 hardware validation and certification
 
 Omanome separates capability discovery from hardware certification. A static
 fixture can prove that the parser understands a capability; it cannot prove
@@ -21,7 +21,7 @@ Every probe entry has both available (what the backend exposed) and result
 status: available is retained for compatibility with older reports. It is not
 a certification result.
 
-## 1.3 evidence levels
+## 1.4 evidence levels
 
 The release UI and reports distinguish these evidence levels:
 
@@ -69,9 +69,9 @@ contracts. The eight adaptive scenarios are rendered as `Untested` fixture
 rows until an operator runs them against real keyboard, display, and posture
 hardware. No fixture result can set `realHardwareValidated` to true.
 
-## 1.3 device intelligence matrix
+## 1.4 device intelligence matrix
 
-The portable 1.3.0 gate covers the universal Device Graph, opaque identity,
+The portable 1.4.0 gate covers the universal Device Graph, opaque identity,
 Confirmed/Probable/Unknown relationships, calibration transaction rollback,
 mapping ambiguity, topology burst coalescing, multi-source battery privacy,
 diagnostics-only quirks, safe recovery, and the standard-bar invariant. These

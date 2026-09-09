@@ -88,7 +88,7 @@ def main() -> int:
     validate_manifest()
     validate_config()
     print("manifest: ok (no replacement bar declared)")
-    print("config: ok (schemaVersion 2; migrations 0->1->2)")
+    print("config: ok (schemaVersion 2; migrations 0->1->2; additive release stamp)")
     return 0
 
 

@@ -1,4 +1,4 @@
-# Compatibility snapshot (1.3.0)
+# Compatibility snapshot (1.4.0)
 
 The repository was validated in the provided desktop environment on 2026-09-09 with:
 
@@ -11,13 +11,15 @@ The repository was validated in the provided desktop environment on 2026-09-09 w
 
 The machine exposed the expected `touch`, `tablets`, and `switches` keys in `hyprctl devices -j`; no physical touchscreen or stylus was attached during the static validation run, so pressure, tilt, eraser, rotation, and palm-rejection behavior are not marked as hardware-tested.
 
-The 1.3 release retains the 1.1 layer-rule blur, native foreign-toplevel
+The 1.4 release retains the 1.1 layer-rule blur, native foreign-toplevel
 Coverflow, fail-closed companion boundaries, owner-only lifecycle policy, and
-tablet multitasking. It adds the adaptive Control Center, master/suspend
+tablet multitasking. It retains the adaptive Control Center, master/suspend
 boundaries, Auto/Desktop/Tablet/Hybrid profiles, capability-based keyboard
 rules, reversible attach/detach choreography, and Docked mode for external
 monitor plus keyboard combinations. Runtime transitions and profile previews
-remain separate from durable configuration. The transactional updater now
+remain separate from durable configuration. Shared panel tokens, semantic focus
+states, reduced motion/transparency, bounded preview teardown, and transient
+state reset now harden the same surfaces without a second shell. The transactional updater now
 proves that a 1.1-style configuration migrates atomically and that rollback
 restores the exact pre-migration bytes without adaptive state. Status and
 support diagnostics keep device paths, Bluetooth addresses, serials, typed text,
@@ -48,4 +50,5 @@ Portable CI and fixtures prove these contracts but do not certify physical
 touchscreens, styluses, displays, docks, batteries, sensors, or keyboard
 relationships. Hardware evidence remains explicitly classified as Protocol
 Supported, Fixture Tested, Runtime Probed, User Tested, or Certified; the
-current checkout has no User Tested or Certified report.
+current checkout has no User Tested or Certified report. This is Not Hardware
+Tested; the committed models and integration fixture are Fixture Tested.

@@ -22,7 +22,7 @@ class PolishContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
         report = json.loads(result.stdout)
         self.assertTrue(report["passed"])
-        self.assertEqual(report["version"], "1.3.0")
+        self.assertEqual(report["version"], "1.4.0")
         return report
 
     def test_14_polish_gate_covers_all_contracts(self) -> None:

@@ -32,6 +32,8 @@ def main() -> int:
     native_manifest = (ROOT / "input/omanome-input/Cargo.toml").read_text(encoding="utf-8")
     native_lock = (ROOT / "input/omanome-input/Cargo.lock").read_text(encoding="utf-8")
     native_source = (ROOT / "input/omanome-input/src/main.rs").read_text(encoding="utf-8")
+    config_source = (ROOT / "shell/models/Config.js").read_text(encoding="utf-8")
+    config_tool_source = (ROOT / "scripts/config_tool.py").read_text(encoding="utf-8")
     version = str(manifest.get("version", ""))
     errors: list[str] = []
     if not SEMVER.fullmatch(version):
@@ -52,6 +54,12 @@ def main() -> int:
         errors.append("native helper runtime version is out of sync")
     if defaults.get("schemaVersion") != 2 or schema.get("properties", {}).get("schemaVersion", {}).get("const") != 2:
         errors.append("config schema must remain at schemaVersion 2")
+    if defaults.get("releaseVersion") != version:
+        errors.append("config default releaseVersion is out of sync")
+    if f'var CURRENT_RELEASE = "{version}"' not in config_source:
+        errors.append("Config.js release is out of sync")
+    if f'CURRENT_RELEASE = "{version}"' not in config_tool_source:
+        errors.append("config tool release is out of sync")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     readme_ru = (ROOT / "README.ru.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")

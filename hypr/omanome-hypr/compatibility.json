@@ -1,7 +1,7 @@
 {
   "descriptorVersion": 1,
   "protocolVersion": 2,
-  "pluginVersion": "1.3.0",
+  "pluginVersion": "1.4.0",
   "pluginName": "omanome-hypr",
   "requiredApiCheck": "exact-hyprland-api-hash",
   "statusIpc": "hyprctl -j omanome-effects",
@@ -16,7 +16,7 @@
     "hyprlandCommit": "unknown",
     "hyprlandAbi": "unknown",
     "compiler": "unknown",
-    "pluginBuild": "1.3.0",
+    "pluginBuild": "1.4.0",
     "artifactSha256": "unknown"
   },
   "capabilities": {

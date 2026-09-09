@@ -1,5 +1,6 @@
 {
   "schemaVersion": 2,
+  "releaseVersion": "1.4.0",
   "general": {
     "mode": "automatic",
     "profile": "Desktop",

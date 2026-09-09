@@ -1,6 +1,6 @@
 var CURRENT_SCHEMA_VERSION = 2
-var CURRENT_RELEASE = "1.3.0"
-var MIGRATION_SOURCE_RELEASE = "1.2.0"
+var CURRENT_RELEASE = "1.4.0"
+var MIGRATION_SOURCE_RELEASE = "1.3.0"
 var DEVICE_PROFILE_SCHEMA_VERSION = 2
 var HARDWARE_SETUP_SCHEMA_VERSION = 1
 var POWER_SCHEMA_VERSION = 1
@@ -9,6 +9,7 @@ var QUIRKS_SCHEMA_VERSION = 1
 function defaults() {
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
+    releaseVersion: CURRENT_RELEASE,
     general: { mode: "automatic", profile: "Desktop", language: "system", reduceMotion: false, largeUi: false, inputDebounceMs: 320 },
     appearance: { theme: "follow-omarchy", accent: "follow-omarchy", radius: 18, opacity: 0.96, density: "comfortable" },
     controlCenter: { enabled: true, masterEnabled: true, suspended: false, widget: { enabled: true, position: "right", clickAction: "control-center", rightClickAction: "context-menu", longPressAction: "context-menu", showLabel: false }, compactToggles: ["master", "mode", "gestures", "osk", "rotation"], visibleModules: ["touch-mode", "tablet-ui", "osk", "gestures", "snap-assist", "split-view", "dock", "window-controls", "rotation", "stylus", "notifications", "clipboard", "effects"], moduleOrder: ["touch-mode", "tablet-ui", "osk", "gestures", "snap-assist", "split-view", "dock", "window-controls", "rotation", "stylus", "notifications", "clipboard", "effects"], osd: { enabled: true, compact: true, durationMs: 2600 } },
@@ -366,6 +367,29 @@ function nestedFutureSchema(source) {
   return null
 }
 
+function releaseParts(value) {
+  var match = String(value || "").trim().match(/^(\d+)\.(\d+)\.(\d+)$/)
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null
+}
+
+function releaseIsOlder(value) {
+  var parts = releaseParts(value)
+  var current = releaseParts(CURRENT_RELEASE)
+  if (!parts || !current) return true
+  for (var i = 0; i < current.length; i++) {
+    if (parts[i] !== current[i]) return parts[i] < current[i]
+  }
+  return false
+}
+
+function normalizeReleaseMetadata(source, report) {
+  var value = typeof source.releaseVersion === "string" ? source.releaseVersion.trim() : ""
+  if (value === "" || releaseIsOlder(value)) {
+    source.releaseVersion = CURRENT_RELEASE
+    if (report && report.applied.indexOf("release-1.4-metadata") < 0) report.applied.push("release-1.4-metadata")
+  }
+}
+
 function releaseMigration(source, report) {
   var changed = report.applied.indexOf("device-profiles-2.0-defaults") >= 0 ||
     report.applied.indexOf("hardware-setup-profiles-1.0-defaults") >= 0 ||
@@ -385,7 +409,9 @@ function migrateDetailed(raw) {
     return { ok: false, reason: "future-schema", schemaVersion: version, config: null, applied: [] }
   var future = nestedFutureSchema(source)
   if (future) return { ok: false, reason: future.reason, schemaVersion: future.schemaVersion, config: null, applied: [] }
-  var report = { ok: true, from: version, to: CURRENT_SCHEMA_VERSION, releaseFrom: version < 2 ? "legacy" : MIGRATION_SOURCE_RELEASE, releaseTo: CURRENT_RELEASE, applied: [] }
+  var sourceRelease = typeof source.releaseVersion === "string" && source.releaseVersion.trim() !== ""
+    ? source.releaseVersion.trim() : (version < 2 ? "legacy" : MIGRATION_SOURCE_RELEASE)
+  var report = { ok: true, from: version, to: CURRENT_SCHEMA_VERSION, releaseFrom: sourceRelease, releaseTo: CURRENT_RELEASE, applied: [] }
   if (version < 1) migrationStepZeroToOne(source, report)
   if (source.schemaVersion < 2) migrationStepOneToTwo(source, report)
   if (!isObject(source.performance)) source.performance = {}
@@ -401,6 +427,7 @@ function migrateDetailed(raw) {
   normalizeCalibrationConfig(source, report)
   normalizePowerConfig(source, report)
   normalizeQuirksConfig(source, report)
+  normalizeReleaseMetadata(source, report)
   releaseMigration(source, report)
   return { ok: true, config: merge(defaults(), source), from: version, to: CURRENT_SCHEMA_VERSION, releaseFrom: report.releaseFrom, releaseTo: report.releaseTo, applied: report.applied, migrated: report.applied.length > 0 }
 }

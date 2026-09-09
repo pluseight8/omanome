@@ -27,6 +27,7 @@ class ConfigMigrationTests(unittest.TestCase):
 
     def legacy_1_1_config(self) -> dict[str, object]:
         value = copy.deepcopy(DEFAULTS)
+        value["releaseVersion"] = "1.1.0"
         value.pop("controlCenter", None)
         value.pop("adaptive", None)
         value["general"]["profile"] = "Tablet"
@@ -76,12 +77,13 @@ class ConfigMigrationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("schemaVersion 2", result.stdout)
 
-    def test_1_2_to_1_3_additive_migration_preserves_hardware_and_user_intent(self) -> None:
+    def test_1_2_to_1_4_additive_migration_preserves_hardware_and_user_intent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
             source = root / "omanome-1.2.json"
-            output = root / "omanome-1.3.json"
+            output = root / "omanome-1.4.json"
             legacy = copy.deepcopy(DEFAULTS)
+            legacy["releaseVersion"] = "1.2.0"
             legacy.pop("deviceProfiles")
             legacy.pop("hardwareSetupProfiles")
             legacy["adaptive"]["profile"] = "tablet"
@@ -99,7 +101,7 @@ class ConfigMigrationTests(unittest.TestCase):
             migrated = json.loads(output.read_text(encoding="utf-8"))
             migration = report["migration"]
             self.assertEqual(migration["releaseFrom"], "1.2.0")
-            self.assertEqual(migration["releaseTo"], "1.3.0")
+            self.assertEqual(migration["releaseTo"], "1.4.0")
             self.assertIn("device-intelligence-1.3-defaults", migration["applied"])
             self.assertEqual(migrated["adaptive"]["profile"], "tablet")
             self.assertEqual(migrated["multitasking"]["layoutPersistence"]["maxRecent"], 3)
@@ -109,6 +111,68 @@ class ConfigMigrationTests(unittest.TestCase):
             self.assertEqual(migrated["accessibility"]["textScale"], 1.35)
             self.assertEqual(migrated["deviceProfiles"]["schemaVersion"], 2)
             self.assertEqual(migrated["hardwareSetupProfiles"]["schemaVersion"], 1)
+
+    def test_1_3_to_1_4_migration_preserves_every_user_state_section(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            source = root / "omanome-1.3.json"
+            output = root / "omanome-1.4.json"
+            config = copy.deepcopy(DEFAULTS)
+            config["releaseVersion"] = "1.3.0"
+            config["general"].update({"mode": "tablet", "profile": "Travel"})
+            config["appearance"].update({"theme": "light", "accent": "orange", "density": "compact"})
+            config["controlCenter"].update({"masterEnabled": False, "moduleOrder": ["osk", "dock", "rotation"]})
+            config["adaptive"].update({"profile": "custom", "profiles": {"custom": {"mode": "hybrid", "featureOverrides": {"osk": False}, "componentBehavior": {"dock": "compact"}}}})
+            config["deviceProfiles"]["profiles"] = {"tablet": {"id": "tablet-profile", "label": "My tablet"}}
+            config["deviceProfiles"]["calibrations"]["entries"] = {"touch": {"id": "touch-calibration", "kind": "touchscreen", "mapping": {"outputId": "display:1111111111111111"}}}
+            config["hardwareSetupProfiles"]["selected"] = "portable"
+            config["hardwareSetupProfiles"]["profiles"] = {"portable": {"id": "portable-setup", "displayPolicy": {"primaryDisplay": "Internal"}}}
+            config["calibration"].update({"confirmationTimeoutMs": 12000, "autoRollback": False})
+            config["multitasking"].update({
+                "groups": [{"id": "pair-1", "kind": "app-pair", "applications": ["org.example.Editor", "org.example.Browser"]}],
+                "layoutPersistence": {"enabled": True, "maxRecent": 4, "maxSaved": 9, "saved": [{"id": "saved-layout"}], "recent": [{"id": "recent-layout"}]},
+            })
+            config["keyboard"].update({"layout": "ru", "mode": "split", "autoShow": False, "emojiRecent": ["🙂"]})
+            config["stylus"].update({"pressureCurve": "soft", "palmRejection": "native", "buttonMap": {"primary": "annotation", "eraser": "eraser"}})
+            config["accessibility"].update({"textScale": 1.35, "highContrast": True, "reducedMotion": True, "reduceTransparency": True})
+            config["performance"].update({"mode": "performance", "qualityPreset": "performance", "adaptiveQuality": False})
+            source.write_text(json.dumps(config), encoding="utf-8")
+
+            result = self.run_tool("migrate", str(source), "--output", str(output), "--json")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)["migration"]
+            migrated = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(report["releaseFrom"], "1.3.0")
+            self.assertEqual(report["releaseTo"], "1.4.0")
+            self.assertIn("release-1.4-metadata", report["applied"])
+            self.assertEqual(migrated["releaseVersion"], "1.4.0")
+
+            sentinels = {
+                "general.profile": "Travel",
+                "appearance.theme": "light",
+                "controlCenter.masterEnabled": False,
+                "adaptive.profile": "custom",
+                "adaptive.profiles.custom.featureOverrides.osk": False,
+                "deviceProfiles.profiles.tablet.label": "My tablet",
+                "deviceProfiles.calibrations.entries.touch.mapping.outputId": "display:1111111111111111",
+                "hardwareSetupProfiles.selected": "portable",
+                "hardwareSetupProfiles.profiles.portable.id": "portable-setup",
+                "calibration.confirmationTimeoutMs": 12000,
+                "multitasking.groups.0.kind": "app-pair",
+                "multitasking.layoutPersistence.maxRecent": 4,
+                "keyboard.layout": "ru",
+                "keyboard.mode": "split",
+                "stylus.pressureCurve": "soft",
+                "accessibility.textScale": 1.35,
+                "accessibility.highContrast": True,
+                "performance.mode": "performance",
+            }
+            for path, expected in sentinels.items():
+                current: object = migrated
+                for part in path.split("."):
+                    current = current[int(part)] if isinstance(current, list) else current[part]  # type: ignore[index]
+                self.assertEqual(current, expected, path)
 
     def test_future_nested_device_schema_is_not_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -145,15 +209,15 @@ class ConfigMigrationTests(unittest.TestCase):
         if not node:
             self.skipTest("node is not installed")
         result = subprocess.run(
-            [node, "-e", "const C=require('./shell/models/Config.js'); console.log(JSON.stringify({ok:C.migrateDetailed({schemaVersion:2,adaptive:{profile:'tablet'}}),future:C.migrateDetailed({schemaVersion:2,deviceProfiles:{schemaVersion:99}})}));"],
+            [node, "-e", "const C=require('./shell/models/Config.js'); console.log(JSON.stringify({ok:C.migrateDetailed({schemaVersion:2,releaseVersion:'1.3.0',adaptive:{profile:'tablet'}}),future:C.migrateDetailed({schemaVersion:2,deviceProfiles:{schemaVersion:99}})}));"],
             cwd=ROOT,
             capture_output=True,
             text=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["ok"]["releaseFrom"], "1.2.0")
-        self.assertEqual(payload["ok"]["releaseTo"], "1.3.0")
+        self.assertEqual(payload["ok"]["releaseFrom"], "1.3.0")
+        self.assertEqual(payload["ok"]["releaseTo"], "1.4.0")
         self.assertEqual(payload["future"]["reason"], "future-device-profile-schema")
 
 

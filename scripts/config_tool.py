@@ -27,8 +27,8 @@ from typing import Any
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULTS_PATH = ROOT / "config" / "defaults.json"
 CURRENT_SCHEMA_VERSION = 2
-CURRENT_RELEASE = "1.3.0"
-MIGRATION_SOURCE_RELEASE = "1.2.0"
+CURRENT_RELEASE = "1.4.0"
+MIGRATION_SOURCE_RELEASE = "1.3.0"
 DEVICE_PROFILE_SCHEMA_VERSION = 2
 HARDWARE_SETUP_SCHEMA_VERSION = 1
 POWER_SCHEMA_VERSION = 1
@@ -433,6 +433,25 @@ def nested_future_schema(source: dict[str, Any]) -> tuple[str, int] | None:
     return None
 
 
+def release_parts(value: Any) -> tuple[int, int, int] | None:
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", str(value or "").strip())
+    return tuple(int(part) for part in match.groups()) if match else None
+
+
+def release_is_older(value: Any) -> bool:
+    parts = release_parts(value)
+    current = release_parts(CURRENT_RELEASE)
+    return parts is None or current is None or parts < current
+
+
+def normalize_release_metadata(source: dict[str, Any], applied: list[str]) -> None:
+    value = source.get("releaseVersion")
+    if not isinstance(value, str) or not value.strip() or release_is_older(value):
+        source["releaseVersion"] = CURRENT_RELEASE
+        if "release-1.4-metadata" not in applied:
+            applied.append("release-1.4-metadata")
+
+
 def release_migration(applied: list[str]) -> None:
     if ("device-profiles-2.0-defaults" in applied or "hardware-setup-profiles-1.0-defaults" in applied or "power-1.3-defaults" in applied or "quirks-1.3-defaults" in applied) and "device-intelligence-1.3-defaults" not in applied:
         applied.append("device-intelligence-1.3-defaults")
@@ -453,6 +472,11 @@ def migrate(value: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     future = nested_future_schema(source)
     if future is not None:
         raise ConfigError(future[0], f"nested schema {future[1]} is newer than supported")
+    source_release = source.get("releaseVersion")
+    if not isinstance(source_release, str) or not source_release.strip():
+        source_release = "legacy" if version < 2 else MIGRATION_SOURCE_RELEASE
+    else:
+        source_release = source_release.strip()
     applied: list[str] = []
     if version < 1:
         migration_zero_to_one(source, applied)
@@ -465,13 +489,14 @@ def migrate(value: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     migration_calibration_1_3(source, applied)
     migration_power_1_3(source, applied)
     migration_quirks_1_3(source, applied)
+    normalize_release_metadata(source, applied)
     release_migration(applied)
     normalized = deep_merge(load_defaults(), source)
     normalized["schemaVersion"] = CURRENT_SCHEMA_VERSION
     return normalized, {
         "from": version,
         "to": CURRENT_SCHEMA_VERSION,
-        "releaseFrom": "legacy" if version < 2 else MIGRATION_SOURCE_RELEASE,
+        "releaseFrom": source_release,
         "releaseTo": CURRENT_RELEASE,
         "applied": applied,
         "migrated": bool(applied),
@@ -486,7 +511,7 @@ def validate(value: Any) -> list[str]:
         errors.append(f"schemaVersion must be {CURRENT_SCHEMA_VERSION}")
     defaults = load_defaults()
     for key in defaults:
-        if key == "schemaVersion":
+        if key in {"schemaVersion", "releaseVersion"}:
             continue
         if key not in value:
             errors.append(f"missing section: {key}")

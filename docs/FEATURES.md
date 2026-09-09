@@ -1,4 +1,4 @@
-# Omanome 1.3 feature truth matrix
+# Omanome 1.4 feature truth matrix
 
 This document separates implemented contracts from capabilities that require a
 particular compositor, backend, or physical device. The status vocabulary is:
@@ -55,12 +55,22 @@ screen rotation, suspend/resume, multi-monitor behavior, text focus, or a loaded
 optional companion. Those checks are listed in [`HARDWARE.md`](HARDWARE.md) and
 must be performed on the target device.
 
-## 1.3 evidence boundary
+## 1.4 polish evidence boundary
 
 The validation environment has no attached physical touchscreen, stylus,
-external monitor, dock, or loaded optional companion. The 1.3.0 report therefore
+external monitor, dock, or loaded optional companion. The 1.4.0 report therefore
 keeps protocol support and portable contracts separate from Fixture Tested,
 Runtime Probed, User Tested, and Certified evidence. Pressure, palm rejection,
 tilt, eraser buttons, screen rotation, suspend/resume, multi-monitor behavior,
 text focus, battery-source availability, and loaded-companion behavior require
 the corresponding target hardware session.
+
+The 1.4 pass is intentionally refinement-focused. Shared design tokens and
+semantic controls now cover the main panel surfaces; reduced motion and reduced
+transparency are applied at the shared surface/control boundary; preview streams
+are bounded and released on close/disable; keyboard and adaptive transitions are
+cancelled during reset, suspend, and teardown; and the source/fixture gates
+exercise deterministic 100-cycle lifecycle stress. Configuration remains schema
+v2 and the release stamp is additive, so Device Profiles, calibrations, setup
+profiles, adaptive choices, Control Center state, multitasking/App Pairs, OSK,
+stylus, accessibility, and performance preferences survive 1.3 → 1.4.

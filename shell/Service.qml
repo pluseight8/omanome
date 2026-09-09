@@ -1892,7 +1892,7 @@ Item {
       root.config = loaded.config
       root.configLoadStatus = loaded.fresh === true ? "fresh" : (loaded.migrated === true ? "migrated" : "ok")
       root.configLoadError = ""
-      root.configMigration = { applied: loaded.applied || [], from: loaded.from, to: loaded.to, releaseFrom: loaded.releaseFrom || "1.2.0", releaseTo: loaded.releaseTo || Config.CURRENT_RELEASE }
+      root.configMigration = { applied: loaded.applied || [], from: loaded.from, to: loaded.to, releaseFrom: loaded.releaseFrom || "1.3.0", releaseTo: loaded.releaseTo || Config.CURRENT_RELEASE }
       root.safeMode = false
     }
     root.syncDeviceProfiles()
@@ -3348,7 +3348,7 @@ Item {
 
   function statusObject() {
     var result = {
-      version: root.manifest ? String(root.manifest.version || "1.3.0") : "1.3.0",
+      version: root.manifest ? String(root.manifest.version || "1.4.0") : "1.4.0",
       quickshell: String(Quickshell.env("QUICKSHELL_VERSION") || "host-provided"),
       service: "ready",
       safeMode: root.safeMode,
