@@ -551,6 +551,39 @@ Item {
     return ModeTransitionModel.componentState(root.modeTransitionState, component, root.componentPolicy)
   }
 
+  // All interactive enhancement work is transient. A policy change, config
+  // reset, suspend, or teardown must leave no pending gesture, preview,
+  // divider, launch request, or keyboard-mode debounce behind to replay later.
+  function resetTransientState(reason) {
+    var why = String(reason || "transient-state-reset")
+    if (root.adaptivePreviewState && root.adaptivePreviewState.active === true) root.cancelAdaptivePreview(why)
+    else adaptivePreviewTimer.stop()
+    if (root.modeTransitionState && root.modeTransitionState.active === true) root.cancelModeTransition(why)
+    else modeTransitionTimer.stop()
+    postureTransition.stop()
+    orientationTransition.stop()
+    inputModeCommit.stop()
+    root.inputCandidate = ""
+    root.inputCandidateSince = 0
+    if (root.gestureState && GestureCoordinatorModel.active(root.gestureState)) root.cancelGesture(why)
+    if (root.snapAssistState && root.snapAssistState.active === true) root.cancelSnapAssist(why)
+    if (root.splitViewState && ["dragging", "applying"].indexOf(String(root.splitViewState.phase || "")) >= 0)
+      root.rollbackSplitView(why)
+    if (root.multitaskingLaunch || root.multitaskingPairLaunch) {
+      multitaskingLaunchTimeout.stop()
+      root.multitaskingLaunch = null
+      root.multitaskingLaunchTarget = null
+      root.multitaskingPairLaunch = null
+    }
+    if (root.workspaceSwitcherState && root.workspaceSwitcherState.phase === "tracking")
+      root.workspaceSwitcherState = WorkspaceSwitcherModel.end(root.workspaceSwitcherState, 0, 0, root.workspaceSwitcherOptions(), Date.now()).state
+    else if (root.workspaceSwitcherState && root.workspaceSwitcherState.phase !== "idle")
+      root.workspaceSwitcherState = WorkspaceSwitcherModel.emptyState()
+    root.workspaceSwitcherRevision++
+    root.tabletSwitcherState = TabletSwitcherModel.emptyState()
+    return true
+  }
+
   function modeTransitionSummary() {
     return ModeTransitionModel.summary(root.modeTransitionState)
   }
@@ -570,14 +603,13 @@ Item {
   function disableEnhancements(reason) {
     root.releaseOmanomeInput(reason)
     root.releaseLivePreviews(String(reason || "enhancements-disabled"))
+    root.resetTransientState(String(reason || "enhancements-disabled"))
+    root.applyOskPolicyVisibility(false)
+    root.oskPolicyState = { visible: false, pending: false, pendingSince: 0, reason: String(reason || "enhancements-disabled") }
     root.stopClipboardWatchers()
     if (deviceMonitorProcess.running) deviceMonitorProcess.running = false
     if (sessionMonitorProcess.running) sessionMonitorProcess.running = false
     if (powerMonitorProcess.running) powerMonitorProcess.running = false
-    if (root.gestureState && root.gestureState.phase !== "idle") root.cancelGesture(String(reason || "enhancements-disabled"))
-    if (root.snapAssistState && root.snapAssistState.active === true) root.cancelSnapAssist(String(reason || "enhancements-disabled"))
-    if (root.splitViewState && ["dragging", "applying"].indexOf(String(root.splitViewState.phase || "")) >= 0)
-      root.rollbackSplitView(String(reason || "enhancements-disabled"))
     root.annotationVisible = false
     root.requestWobblyBackend(false)
     root.applyTouchIntegration()
@@ -1956,7 +1988,7 @@ Item {
     }
     if (configPath === "multitasking.snapAssist.enabled" && value === false && root.snapAssistState.active === true)
       root.cancelSnapAssist("snap-assist-disabled")
-    if (configPath === "multitasking.splitView.enabled" && value === false && root.splitViewState && root.splitViewState.phase === "dragging")
+    if (configPath === "multitasking.splitView.enabled" && value === false && root.splitViewState && ["dragging", "applying"].indexOf(String(root.splitViewState.phase || "")) >= 0)
       root.rollbackSplitView("split-view-disabled")
     if (configPath.indexOf("stylus.") === 0) root.refreshStylusInputPolicy()
     if (configPath.indexOf("notifications.enabled") === 0) root.refreshIntegrations()
@@ -1982,9 +2014,12 @@ Item {
   }
 
   function resetConfig() {
-    root.adaptivePreviewState = AdaptiveSettingsModel.emptyPreviewState()
-    adaptivePreviewTimer.stop()
+    root.releaseLivePreviews("config-reset")
+    root.resetTransientState("config-reset")
     root.config = Config.defaults()
+    root.safeMode = false
+    root.configLoadStatus = "ok"
+    root.configLoadError = ""
     root.deviceProfileStore = DeviceProfilesModel.emptyStore()
     root.hardwareSetupStore = HardwarePoliciesModel.emptyStore()
     root.hardwarePolicyState = HardwarePoliciesModel.emptyState()
@@ -2000,12 +2035,12 @@ Item {
     root.suspended = false
     root.adaptiveProfile = "auto"
     root.loadWindowGroups()
+    root.loadLayoutPersistence()
     root.saveConfig()
-    root.startClipboardWatchers()
-    root.syncNativeInputLanguage()
     root.detectedMode = root.computeMode()
     root.updateResponsiveContext()
     root.refreshRotationBackend()
+    root.enableEnhancements()
     root.blurRuleSignature = ""
     root.wobblyBackendFailed = false
     root.requestWobblyBackend(false)

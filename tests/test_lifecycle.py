@@ -53,6 +53,12 @@ class LifecycleTests(unittest.TestCase):
         self.assertIn("sameShell", service)
         self.assertIn("root.ownedProcesses = []", service)
         self.assertIn("root.pendingCommands = ({})", service)
+        self.assertIn("function resetTransientState(reason)", service)
+        self.assertIn('root.releaseLivePreviews("config-reset")', service)
+        self.assertIn('root.configLoadStatus = "ok"', service)
+        self.assertIn("root.loadLayoutPersistence()", service)
+        self.assertIn("root.enableEnhancements()", service)
+        self.assertIn('String(root.splitViewState.phase || "")', service)
 
 
 if __name__ == "__main__":
