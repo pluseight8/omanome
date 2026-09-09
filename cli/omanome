@@ -199,9 +199,16 @@ omanome_owned_pids() {
 
 stop_owned_processes() {
   local -a pids=()
-  local pid remaining=0 total=0
-  mapfile -t pids < <(omanome_owned_pids)
-  total="${#pids[@]}"
+  local pid attempt remaining=0 total=0
+  # A just-spawned helper can briefly be between fork/exec while its proc
+  # environment is being published. Retry only the empty result so uninstall
+  # remains bounded without widening the ownership rule.
+  for attempt in 1 2 3 4 5; do
+    mapfile -t pids < <(omanome_owned_pids)
+    total="${#pids[@]}"
+    (( total > 0 )) && break
+    sleep 0.05
+  done
   for pid in "${pids[@]}"; do
     process_is_omanome_owned "$pid" || continue
     kill -TERM -- "$pid" 2>/dev/null || true
