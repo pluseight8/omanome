@@ -70,6 +70,7 @@ Item {
 
       Surface {
         id: card
+        tokens: tokens
         width: root.activeView === "control-center" ? Math.min(parent.width - Style.space(32), Style.space(560)) : root.transientOverlay ? Math.min(parent.width - Style.space(32), Style.space(680)) : Math.min(parent.width - Style.space(32), Style.space(1220))
         height: root.activeView === "control-center" ? Math.min(parent.height - Style.space(32), Style.space(720)) : root.transientOverlay ? Math.min(parent.height - Style.space(32), Style.space(280)) : Math.min(parent.height - Style.space(32), Style.space(800))
         anchors.centerIn: parent
@@ -117,6 +118,7 @@ Item {
               font.pixelSize: Style.font.caption
             }
             ActionButton {
+              tokens: tokens
               compact: true
               minimumWidth: Style.space(72)
               text: root.service ? root.service.tr("close", "Close") : "Close"
@@ -137,18 +139,19 @@ Item {
 
               Repeater {
                 model: [
-                  { key: "overview", icon: "▦", label: "overview" },
-                  { key: "launcher", icon: "⌘", label: "launcher" },
-                  { key: "quicksettings", icon: "☷", label: "quickSettings" },
-                  { key: "keyboard", icon: "⌨", label: "keyboard" },
-                  { key: "clipboard", icon: "▣", label: "clipboard" },
-                  { key: "notifications", icon: "◌", label: "notifications" },
-                  { key: "switcher", icon: "⇄", label: "altTab" },
-                  { key: "settings", icon: "⚙", label: "settings" },
-                  { key: "devices", icon: "⌁", label: "devices" }
+                  { key: "overview", icon: "overview", label: "overview" },
+                  { key: "launcher", icon: "launcher", label: "launcher" },
+                  { key: "quicksettings", icon: "quickSettings", label: "quickSettings" },
+                  { key: "keyboard", icon: "keyboard", label: "keyboard" },
+                  { key: "clipboard", icon: "clipboard", label: "clipboard" },
+                  { key: "notifications", icon: "notifications", label: "notifications" },
+                  { key: "switcher", icon: "switcher", label: "altTab" },
+                  { key: "settings", icon: "settings", label: "settings" },
+                  { key: "devices", icon: "devices", label: "devices" }
                 ]
                 delegate: ActionButton {
                   required property var modelData
+                  tokens: tokens
                   Layout.fillWidth: true
                   Layout.preferredHeight: tokens.target(44)
                   minimumHeight: tokens.target(44)

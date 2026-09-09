@@ -12,8 +12,11 @@ Item {
   property bool compact: false
   property bool focusable: true
   property bool pressed: false
-  property bool reducedMotion: false
-  property real motionDuration: 120
+  property var tokens: null
+  readonly property var hostService: findHostService()
+  property bool reducedMotion: root.tokens ? root.tokens.reducedMotion === true : !!(root.hostService && (root.hostService.cfg("general.reduceMotion", false) === true || root.hostService.cfg("accessibility.reducedMotion", false) === true))
+  property real motionDuration: root.tokens && root.tokens.animationFast !== undefined ? root.tokens.animationFast : Math.max(0, Math.round(120 * Number(root.hostService ? root.hostService.cfg("animations.durationScale", 1) : 1)))
+  property string iconName: ""
   property string accessibleName: ""
   property string accessibleDescription: ""
   property real minimumWidth: 96
@@ -24,8 +27,24 @@ Item {
   signal pressAndHold()
   signal released()
 
-  implicitWidth: Math.max(minimumWidth, content.implicitWidth + Style.space(24))
-  implicitHeight: compact ? Style.space(38) : Math.max(minimumHeight, content.implicitHeight + Style.space(18))
+  function findHostService() {
+    var candidate = root.parent
+    while (candidate) {
+      if (candidate.service !== undefined && candidate.service !== null && typeof candidate.service.cfg === "function") return candidate.service
+      candidate = candidate.parent
+    }
+    return null
+  }
+  function space(value) { return root.tokens && typeof root.tokens.space === "function" ? root.tokens.space(value) : Style.space(value) }
+  function radius(value) { return root.tokens && typeof root.tokens.radius === "function" ? root.tokens.radius(value) : Style.space(value) }
+  function fontSize(role) {
+    var base = role === "title" ? Style.font.title : role === "caption" ? Style.font.caption : Style.font.body
+    var scale = root.tokens && typeof root.tokens.fontSize === "function" ? 1 : Number(root.hostService ? root.hostService.cfg("accessibility.textScale", 1) : 1)
+    return root.tokens && typeof root.tokens.fontSize === "function" ? root.tokens.fontSize(role) : Math.max(1, Math.round(Number(base) * Math.max(0.9, Math.min(1.5, scale))))
+  }
+
+  implicitWidth: Math.max(minimumWidth, content.implicitWidth + root.space(24))
+  implicitHeight: compact ? root.space(38) : Math.max(minimumHeight, content.implicitHeight + root.space(18))
   opacity: usable ? 1 : 0.42
   activeFocusOnTab: root.focusable && root.usable
 
@@ -47,10 +66,10 @@ Item {
   Rectangle {
     id: surface
     anchors.fill: parent
-    radius: Style.space(12)
+    radius: root.radius(12)
     color: root.checked ? Util.alpha(root.accent, 0.22) : (root.pressed ? Util.alpha(root.foreground, 0.15) : (mouse.containsMouse ? Util.alpha(root.foreground, 0.10) : Util.alpha(root.foreground, 0.05)))
     border.width: root.checked || root.pressed ? 1 : (mouse.containsMouse ? 1 : 0)
-    border.color: root.checked ? root.accent : Util.alpha(root.foreground, 0.28)
+    border.color: root.checked ? root.accent : Util.alpha(root.foreground, root.tokens && root.tokens.borderOpacity !== undefined ? root.tokens.borderOpacity : 0.28)
 
     Behavior on color { ColorAnimation { duration: root.reducedMotion ? 0 : root.motionDuration } }
     Behavior on border.color { ColorAnimation { duration: root.reducedMotion ? 0 : root.motionDuration } }
@@ -59,10 +78,10 @@ Item {
       id: focusRing
       objectName: "focusRing"
       anchors.fill: parent
-      anchors.margins: -Style.space(2)
-      radius: Style.space(14)
+      anchors.margins: -root.space(2)
+      radius: root.radius(14)
       color: "transparent"
-      border.width: root.activeFocus ? Style.space(2) : 0
+      border.width: root.activeFocus ? (root.tokens && root.tokens.focusRingWidth !== undefined ? root.tokens.focusRingWidth : root.space(2)) : 0
       border.color: root.accent
       visible: root.activeFocus
     }
@@ -70,39 +89,38 @@ Item {
     Row {
       id: content
       anchors.centerIn: parent
-      spacing: Style.space(8)
+      spacing: root.space(8)
 
-      Text {
-        visible: root.icon !== ""
-        text: root.icon
-        color: root.checked ? root.accent : root.foreground
-        font.family: Style.font.family
-        font.pixelSize: root.compact ? Style.font.body : Style.font.title
-        verticalAlignment: Text.AlignVCenter
+      Icon {
+        visible: root.icon !== "" || root.iconName !== ""
+        name: root.iconName !== "" ? root.iconName : root.icon
+        fallback: root.icon
+        iconColor: root.checked ? root.accent : root.foreground
+        size: root.compact ? root.fontSize("body") : root.fontSize("title")
       }
 
       Column {
-        spacing: 1
+        spacing: root.space(1)
         anchors.verticalCenter: parent.verticalCenter
 
         Text {
           text: root.text
           color: root.checked ? root.accent : root.foreground
           font.family: Style.font.family
-          font.pixelSize: root.compact ? Style.font.caption : Style.font.body
+          font.pixelSize: root.compact ? root.fontSize("caption") : root.fontSize("body")
           font.bold: root.checked
           elide: Text.ElideRight
-          width: Math.min(implicitWidth, Style.space(240))
+          width: Math.min(implicitWidth, root.space(240))
         }
 
         Text {
           visible: root.subtitle !== ""
           text: root.subtitle
-          color: Util.alpha(root.foreground, 0.64)
+          color: Util.alpha(root.foreground, root.tokens && root.tokens.mutedOpacity !== undefined ? root.tokens.mutedOpacity : 0.64)
           font.family: Style.font.family
-          font.pixelSize: Style.font.caption
+          font.pixelSize: root.fontSize("caption")
           elide: Text.ElideRight
-          width: Math.min(implicitWidth, Style.space(240))
+          width: Math.min(implicitWidth, root.space(240))
         }
       }
     }

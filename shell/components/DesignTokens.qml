@@ -7,6 +7,7 @@ import "../models/Responsive.js" as Responsive
 // logical-size and accessibility decisions on top of it.
 QtObject {
   id: root
+  objectName: "omanomeDesignTokens"
 
   property var service: null
   property real viewportWidth: 1280
@@ -34,6 +35,28 @@ QtObject {
   readonly property bool touchLike: context.touchLike === true
   readonly property real densityScale: Number(context.densityScale || 1)
   readonly property real targetSize: Number(context.targetSize || 44)
+  // Keep visual rhythm in one place. Values are logical units and are scaled
+  // once here, so a surface does not mix raw pixels with touch density.
+  readonly property real spacingXs: space(4)
+  readonly property real spacingSm: space(8)
+  readonly property real spacingMd: space(12)
+  readonly property real spacingLg: space(16)
+  readonly property real spacingXl: space(24)
+  readonly property real radiusSm: radius(8)
+  readonly property real radiusMd: radius(12)
+  readonly property real radiusLg: radius(18)
+  readonly property real radiusXl: radius(24)
+  readonly property real targetMouse: target(40)
+  readonly property real targetTouch: target(52)
+  readonly property real targetLarge: target(64)
+  readonly property real focusRingWidth: highContrast ? space(3) : space(2)
+  readonly property real separatorWidth: space(1)
+  readonly property real mutedOpacity: highContrast ? 0.82 : 0.64
+  readonly property real borderOpacity: highContrast ? 0.56 : 0.34
+  readonly property real surfaceOpacity: reduceTransparency ? 1 : 0.96
+  readonly property real animationFast: duration(120)
+  readonly property real animationNormal: duration(220)
+  readonly property real animationSlow: duration(360)
   readonly property var transition: service && typeof service.componentTransition === "function"
                                       ? service.componentTransition(transitionComponent) : ({ active: false, progress: 1, fromMode: mode, toMode: mode, reduceMotion: reducedMotion, reason: "not-available" })
   readonly property real transitionProgress: Math.max(0, Math.min(1, Number(transition.progress || 0)))
@@ -56,4 +79,9 @@ QtObject {
     return Math.max(0, Math.round(Number(value || 0) * Number(service ? service.cfg("animations.durationScale", 1) : 1)))
   }
   function target(value) { return Style.space(Math.max(Number(value || 0), transitionedTargetSize)) }
+  function fontSize(role) {
+    var name = String(role || "body")
+    var base = name === "title" ? Style.font.title : name === "caption" ? Style.font.caption : Style.font.body
+    return Math.max(1, Math.round(Number(base) * Math.max(0.9, Math.min(1.5, textScale))))
+  }
 }
