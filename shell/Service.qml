@@ -23,6 +23,7 @@ import "models/InputDevices.js" as InputDevicesModel
 import "models/DeviceGraph.js" as DeviceGraphModel
 import "models/DeviceTopology.js" as DeviceTopologyModel
 import "models/DeviceProfiles.js" as DeviceProfilesModel
+import "models/HardwarePolicies.js" as HardwarePoliciesModel
 import "models/KeyboardDevices.js" as KeyboardDevicesModel
 import "models/KeyboardTransitions.js" as KeyboardTransitionsModel
 import "models/Responsive.js" as ResponsiveModel
@@ -143,6 +144,8 @@ Item {
   // snapshot refresh; only the refreshed graph is used for capability deltas.
   property var deviceTopologyState: DeviceTopologyModel.emptyState()
   property var deviceProfileStore: DeviceProfilesModel.emptyStore()
+  property var hardwareSetupStore: HardwarePoliciesModel.emptyStore()
+  property var hardwarePolicyState: HardwarePoliciesModel.emptyState()
   property bool inputDeviceMonitorAvailable: false
   property string inputDeviceMonitorReason: "not-started"
   property bool tabletSwitchAvailable: false
@@ -1800,6 +1803,7 @@ Item {
       root.safeMode = false
     }
     root.syncDeviceProfiles()
+    root.syncHardwareSetupStore()
     root.masterEnabled = root.cfg("controlCenter.masterEnabled", true) === true
     root.suspended = root.cfg("controlCenter.suspended", false) === true
     root.adaptiveProfile = FeatureStateModel.normalizedProfile(root.cfg("adaptive.profile", "auto"))
@@ -1836,6 +1840,11 @@ Item {
     if (configPath === "deviceProfiles" || configPath.indexOf("deviceProfiles.") === 0) {
       root.deviceProfileStore = DeviceProfilesModel.normalizeStore(root.cfg("deviceProfiles", {}))
       root.config = Config.set(root.config, "deviceProfiles", root.deviceProfileStore)
+    }
+    if (configPath === "hardwareSetupProfiles" || configPath.indexOf("hardwareSetupProfiles.") === 0) {
+      root.hardwareSetupStore = HardwarePoliciesModel.normalizeStore(root.cfg("hardwareSetupProfiles", {}))
+      root.config = Config.set(root.config, "hardwareSetupProfiles", root.hardwareSetupStore)
+      root.updateHardwarePolicy()
     }
     root.saveConfig()
     root.configUpdated(configPath)
@@ -1909,6 +1918,8 @@ Item {
     adaptivePreviewTimer.stop()
     root.config = Config.defaults()
     root.deviceProfileStore = DeviceProfilesModel.emptyStore()
+    root.hardwareSetupStore = HardwarePoliciesModel.emptyStore()
+    root.hardwarePolicyState = HardwarePoliciesModel.emptyState()
     root.masterEnabled = true
     root.suspended = false
     root.adaptiveProfile = "auto"
@@ -2058,6 +2069,7 @@ Item {
       next.dnd = Boolean(notification.doNotDisturb)
     root.systemState = next
     root.quickState = QuickSettingsModel.stateFromSystem(next)
+    root.updateHardwarePolicy()
     root.refreshRotationBackend()
     root.performanceState = PerformanceModel.snapshot(root.cfg("performance", {}), root.performanceContext())
     root.reconcileWobblyBackend()
@@ -2463,6 +2475,7 @@ Item {
     var previousGraph = root.deviceGraph
     root.deviceGraph = DeviceGraphModel.fromSnapshot(snapshot, root.deviceGraph)
     root.deviceTopologyState = DeviceTopologyModel.reconcile(root.deviceTopologyState, previousGraph, root.deviceGraph, Date.now(), "snapshot-reconciled")
+    root.updateHardwarePolicy()
   }
 
   function deviceProfileRows() {
@@ -2471,6 +2484,19 @@ Item {
 
   function syncDeviceProfiles() {
     root.deviceProfileStore = DeviceProfilesModel.normalizeStore(root.cfg("deviceProfiles", {}))
+  }
+
+  function syncHardwareSetupStore() {
+    root.hardwareSetupStore = HardwarePoliciesModel.normalizeStore(root.cfg("hardwareSetupProfiles", {}))
+  }
+
+  function updateHardwarePolicy() {
+    root.hardwarePolicyState = HardwarePoliciesModel.resolveSetup(root.deviceGraph, root.hardwareSetupStore, {
+      mode: root.effectiveMode,
+      docked: root.dockedModeState && root.dockedModeState.active === true,
+      system: root.systemState
+    })
+    return root.hardwarePolicyState
   }
 
   function updateDevices(raw) {
@@ -2726,6 +2752,7 @@ Item {
       deviceGraph: DeviceGraphModel.summary(root.deviceGraph),
       deviceTopology: DeviceTopologyModel.summary(root.deviceTopologyState),
       deviceProfiles: DeviceProfilesModel.summary(root.deviceProfileStore),
+      hardwarePolicies: HardwarePoliciesModel.summary(root.hardwarePolicyState),
       stylusInput: {
         backend: root.stylusInputState.backend,
         available: root.stylusInputState.available === true,

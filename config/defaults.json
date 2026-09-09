@@ -107,6 +107,18 @@
     "rules": [],
     "revision": 0
   },
+  "hardwareSetupProfiles": {
+    "schemaVersion": 1,
+    "selected": "auto",
+    "profiles": {},
+    "displayPolicy": {
+      "schemaVersion": 1,
+      "primaryDisplay": "",
+      "oskTarget": "focused-display",
+      "roles": {}
+    },
+    "revision": 0
+  },
   "onboarding": {
     "completed": false,
     "skipped": false,

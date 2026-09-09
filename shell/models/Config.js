@@ -10,6 +10,7 @@ function defaults() {
     tabletMode: { enabled: true, touchTarget: 48, autoFromTouch: true, autoFromStylus: true, physicalKeyboardExit: true, transitionDuration: 180, dockPreference: "adaptive", windowControls: "touch", gestures: true, posture: { auto: true, debounceMs: 320, minimumDwellMs: 900, laptopSuppressAutoShow: true, autoRotateInLaptop: false } },
     input: { schemaVersion: 1, nativeBackend: "auto", allowWtypeFallback: true, suppressOskOnPhysicalKeyboard: true, suppressOskOnDetachableKeyboard: true, suppressOskOnBluetoothKeyboard: true, deviceHotplug: true, safeModeDisableNative: false, defaultOutput: "", deviceMappings: {} },
     deviceProfiles: { schemaVersion: 2, enabled: true, profiles: {}, rules: [], revision: 0 },
+    hardwareSetupProfiles: { schemaVersion: 1, selected: "auto", profiles: {}, displayPolicy: { schemaVersion: 1, primaryDisplay: "", oskTarget: "focused-display", roles: {} }, revision: 0 },
     onboarding: { completed: false, skipped: false, version: 1, privacyAcknowledged: false },
     accessibility: { touchTargetSize: "default", textScale: 1.0, highContrast: false, reducedMotion: false, reduceTransparency: false, screenReaderHints: true },
     touch: { enabled: true, edgeWidth: 36, threshold: 96, velocity: 0.35, inertia: true, invert: false, threeFingerAction: "workspace", fourFingerAction: "overview", conflictPolicy: "disable-fullscreen", disableOnFullscreen: true, fullscreenAllowList: [], fullscreenDenyList: [], adaptiveTargetMode: "automatic" },
@@ -239,6 +240,28 @@ function normalizeDeviceProfilesTwo(source, report) {
   if (changed && report && report.applied.indexOf("device-profiles-2.0-defaults") < 0) report.applied.push("device-profiles-2.0-defaults")
 }
 
+function normalizeHardwareSetupProfilesOne(source, report) {
+  var template = defaults().hardwareSetupProfiles
+  var changed = false
+  if (!isObject(source.hardwareSetupProfiles)) {
+    source.hardwareSetupProfiles = clone(template)
+    changed = true
+  } else {
+    if (source.hardwareSetupProfiles.schemaVersion === undefined) { source.hardwareSetupProfiles.schemaVersion = 1; changed = true }
+    if (source.hardwareSetupProfiles.selected === undefined) { source.hardwareSetupProfiles.selected = "auto"; changed = true }
+    if (!isObject(source.hardwareSetupProfiles.profiles)) { source.hardwareSetupProfiles.profiles = {}; changed = true }
+    if (!isObject(source.hardwareSetupProfiles.displayPolicy)) { source.hardwareSetupProfiles.displayPolicy = clone(template.displayPolicy); changed = true }
+    else {
+      if (source.hardwareSetupProfiles.displayPolicy.schemaVersion === undefined) { source.hardwareSetupProfiles.displayPolicy.schemaVersion = 1; changed = true }
+      if (source.hardwareSetupProfiles.displayPolicy.primaryDisplay === undefined) { source.hardwareSetupProfiles.displayPolicy.primaryDisplay = ""; changed = true }
+      if (source.hardwareSetupProfiles.displayPolicy.oskTarget === undefined) { source.hardwareSetupProfiles.displayPolicy.oskTarget = "focused-display"; changed = true }
+      if (!isObject(source.hardwareSetupProfiles.displayPolicy.roles)) { source.hardwareSetupProfiles.displayPolicy.roles = {}; changed = true }
+    }
+    if (source.hardwareSetupProfiles.revision === undefined) { source.hardwareSetupProfiles.revision = 0; changed = true }
+  }
+  if (changed && report && report.applied.indexOf("hardware-setup-profiles-1.0-defaults") < 0) report.applied.push("hardware-setup-profiles-1.0-defaults")
+}
+
 function migrateDetailed(raw) {
   if (!isObject(raw)) return { ok: false, reason: "invalid-root", config: null, applied: [] }
   var source = clone(raw)
@@ -259,6 +282,7 @@ function migrateDetailed(raw) {
   normalizeMultitaskingOneOne(source, report)
   normalizeAdaptiveOneTwo(source, report)
   normalizeDeviceProfilesTwo(source, report)
+  normalizeHardwareSetupProfilesOne(source, report)
   return { ok: true, config: merge(defaults(), source), from: version, to: CURRENT_SCHEMA_VERSION, applied: report.applied, migrated: report.applied.length > 0 }
 }
 

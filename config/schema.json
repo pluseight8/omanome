@@ -105,6 +105,24 @@
         "revision": { "type": "integer", "minimum": 0 }
       }
     },
+    "hardwareSetupProfiles": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "selected": { "enum": ["auto", "tablet", "desk", "travel", "presentation", "drawing"] },
+        "profiles": { "type": "object", "maxProperties": 12 },
+        "displayPolicy": {
+          "type": "object",
+          "properties": {
+            "schemaVersion": { "const": 1 },
+            "primaryDisplay": { "type": "string" },
+            "oskTarget": { "enum": ["focused-display", "primary-touch", "ask", "disabled"] },
+            "roles": { "type": "object", "maxProperties": 256 }
+          }
+        },
+        "revision": { "type": "integer", "minimum": 0 }
+      }
+    },
     "onboarding": { "type": "object" },
     "accessibility": { "type": "object" },
     "touch": { "type": "object" },
