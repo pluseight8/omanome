@@ -42,6 +42,7 @@ def source_checks() -> list[dict[str, str]]:
     wizard = read(ROOT / "shell/models/CalibrationWizard.js")
     service = read(ROOT / "shell/Service.qml")
     policies = read(ROOT / "shell/models/HardwarePolicies.js")
+    profiles = read(ROOT / "shell/models/DeviceProfiles.js")
     docking = read(ROOT / "shell/models/DockingContinuity.js")
     cli = read(ROOT / "cli/omanome")
     manifest = json.loads(read(ROOT / "manifest.json"))
@@ -106,12 +107,24 @@ def source_checks() -> list[dict[str, str]]:
         "hardware-aware state exposes explicit collection limits and budget status",
     ))
     checks.append(check(
+        "calibration-persistence",
+        all(marker in profiles for marker in ("MAX_CALIBRATIONS", "normalizeCalibrationEntry", "setCalibration", "calibrationFor", "removeCalibrationsForDevice")),
+        "validated calibration mappings are bounded and owned by Device Profiles",
+    ))
+    checks.append(check(
+        "setup-profile-expansion",
+        all(marker in policies for marker in ("portable", "custom", "preferredAdaptiveProfile", "inputMappings", "deviceBehavior", "matchTopology", "matchPolicy")),
+        "Hardware Setup Profiles retain explicit adaptive, mapping, behavior, and topology-match policy",
+    ))
+    checks.append(check(
         "service-single-source",
         all(marker in service for marker in (
             "DeviceGraphModel.fromSnapshot", "DeviceGraphModel.applyEvent",
             "DeviceTopologyModel.noteEvent", "DeviceTopologyModel.reconcile",
             "deviceRefreshDebounce.restart()", "CalibrationWizardModel.beginMapping",
-            "PrivacyModel.boundary", "PerformanceBudgetModel.snapshot",
+            "PrivacyModel.boundary", "PerformanceBudgetModel.snapshot", "beginCalibrationTransaction",
+            "confirmCalibrationTransaction", "rollbackCalibrationTransaction", "CalibrationModel.prepareTransaction",
+            "calibrationTransactionTimer",
         )),
         "Service routes graph, topology, and mapping through the shared models",
     ))
@@ -136,6 +149,7 @@ def source_checks() -> list[dict[str, str]]:
         "wizard": wizard,
         "service": service,
         "policies": policies,
+        "profiles": profiles,
         "docking": docking,
         "privacy": privacy,
         "budget": budget,

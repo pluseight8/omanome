@@ -2636,7 +2636,157 @@ Item {
   }
 
   function cancelDeviceMapping(reason) {
+    if (["prepared", "awaiting-confirmation", "rollback-required"].indexOf(String(root.calibrationTransactionState && root.calibrationTransactionState.phase || "")) >= 0)
+      root.rollbackCalibrationTransaction(reason || "mapping-cancelled")
     return root.updateCalibrationState(CalibrationWizardModel.cancel(root.calibrationWizardState, reason || "mapping-cancelled"))
+  }
+
+  function calibrationMappingFor(node) {
+    if (!node || !node.id) return null
+    var kind = String(node.category || "")
+    if (["touchscreen", "stylus"].indexOf(kind) < 0) return null
+    var saved = DeviceProfilesModel.calibrationFor(root.deviceProfileStore, node.id, kind)
+    if (saved && saved.mapping) return saved.mapping
+    var profile = DeviceProfilesModel.effective(node, root.deviceProfileStore).profile || {}
+    var section = kind === "touchscreen" ? profile.touch : profile.stylus
+    var outputId = DeviceProfilesModel.safeId(section && section.mappingOutput)
+    return outputId ? { outputId: outputId, offset: { x: 0, y: 0 }, scale: { x: 1, y: 1 }, rotation: 0, axis: { swapped: false, invertX: false, invertY: false } } : null
+  }
+
+  function updateCalibrationTransaction(state) {
+    root.calibrationTransactionState = state
+    root.stateRevision++
+    root.stateUpdated()
+    return state
+  }
+
+  function beginCalibrationTransaction(kind, targetId, requested) {
+    var node = root.graphNodeById(targetId)
+    var name = String(kind || (node ? node.category : ""))
+    var safeTarget = DeviceProfilesModel.safeId(targetId)
+    if (!node || !safeTarget || ["touchscreen", "stylus"].indexOf(name) < 0) {
+      root.lastError = "calibration-device-unavailable"
+      return root.updateCalibrationTransaction(Object.assign({}, CalibrationModel.emptyTransaction(), { phase: "rejected", kind: name, targetId: safeTarget, error: root.lastError }))
+    }
+    var previous = root.calibrationMappingFor(node)
+    var prepared = CalibrationModel.prepareTransaction(name, safeTarget, previous, requested, Date.now(), { countdownMs: Number(root.cfg("calibration.confirmationTimeoutMs", 8000)) })
+    if (prepared.phase !== "prepared") {
+      root.lastError = String(prepared.error || "unsafe-calibration-mapping")
+      return root.updateCalibrationTransaction(prepared)
+    }
+    var applied = CalibrationModel.applyTransaction(prepared, true, Date.now())
+    applied.application = { mode: "persistent-metadata", backend: "validated-profile-store", compositorTransform: "not-claimed" }
+    root.lastError = ""
+    root.updateCalibrationTransaction(applied)
+    calibrationTransactionTimer.interval = 250
+    calibrationTransactionTimer.restart()
+    return applied
+  }
+
+  function applyCalibrationTransaction() {
+    var state = root.calibrationTransactionState || CalibrationModel.emptyTransaction()
+    var applied = CalibrationModel.applyTransaction(state, true, Date.now())
+    if (applied.phase === "awaiting-confirmation") {
+      root.updateCalibrationTransaction(applied)
+      calibrationTransactionTimer.restart()
+    }
+    return applied
+  }
+
+  function persistCalibrationTransaction(state) {
+    var transaction = state || root.calibrationTransactionState || {}
+    var requested = transaction.requested || {}
+    var node = root.graphNodeById(transaction.targetId)
+    if (!node || !requested.outputId) return false
+    var kind = String(transaction.kind || node.category)
+    var calibrationId = DeviceProfilesModel.calibrationIdFor(node.id, kind)
+    var saved = DeviceProfilesModel.setCalibration(root.deviceProfileStore, {
+      id: calibrationId,
+      kind: kind,
+      deviceId: node.id,
+      mapping: requested,
+      status: "confirmed",
+      updatedAt: Date.now()
+    })
+    if (!saved.ok) {
+      root.lastError = String(saved.reason || "calibration-save-failed")
+      return false
+    }
+    var profile = DeviceProfilesModel.effective(node, saved.store).profile
+    profile.id = node.id
+    profile.category = node.category
+    if (kind === "touchscreen") {
+      profile.touch.mappingOutput = requested.outputId
+      profile.touch.calibrationId = saved.calibration.id
+    } else {
+      profile.stylus.mappingOutput = requested.outputId
+      profile.stylus.calibrationId = saved.calibration.id
+    }
+    var profiled = DeviceProfilesModel.setProfile(saved.store, profile)
+    if (!profiled.ok) {
+      root.lastError = String(profiled.reason || "device-profile-save-failed")
+      return false
+    }
+    root.setConfig("deviceProfiles", profiled.store)
+    root.lastError = ""
+    root.updateInputMapping()
+    root.updateHardwarePolicy()
+    root.updateCompactDeviceState()
+    return true
+  }
+
+  function confirmCalibrationTransaction(confirmed) {
+    var state = root.calibrationTransactionState || CalibrationModel.emptyTransaction()
+    var next = CalibrationModel.confirmTransaction(state, confirmed === true, Date.now())
+    if (next.phase === "committed") {
+      if (!root.persistCalibrationTransaction(next)) next = CalibrationModel.rollbackTransaction(next, "calibration-save-failed")
+    }
+    if (["committed", "rolled-back"].indexOf(next.phase) >= 0) calibrationTransactionTimer.stop()
+    root.updateCalibrationTransaction(next)
+    return next
+  }
+
+  function rollbackCalibrationTransaction(reason) {
+    var state = root.calibrationTransactionState || CalibrationModel.emptyTransaction()
+    var next = CalibrationModel.rollbackTransaction(state, reason || "calibration-rolled-back")
+    calibrationTransactionTimer.stop()
+    root.lastError = ""
+    return root.updateCalibrationTransaction(next)
+  }
+
+  function tickCalibrationTransaction() {
+    var state = root.calibrationTransactionState || CalibrationModel.emptyTransaction()
+    var next = CalibrationModel.tickTransaction(state, Date.now())
+    if (next.phase === "rolled-back") {
+      calibrationTransactionTimer.stop()
+      root.lastError = "Calibration was reverted: " + String(next.error || "confirmation-timeout")
+    }
+    root.updateCalibrationTransaction(next)
+    if (next.phase !== "awaiting-confirmation") calibrationTransactionTimer.stop()
+    return next
+  }
+
+  function handleCalibrationDeviceEvent() {
+    var state = root.calibrationTransactionState || {}
+    if (["prepared", "awaiting-confirmation", "rollback-required"].indexOf(String(state.phase || "")) < 0) return
+    if (!root.graphNodeById(state.targetId) || state.requested && state.requested.outputId && !root.graphOutputById(state.requested.outputId))
+      root.rollbackCalibrationTransaction("device-disconnected")
+  }
+
+  function applyTouchCalibration() {
+    var state = root.touchCalibrationState || {}
+    var result = state.result || {}
+    if (state.phase !== "analyzed" || result.safe !== true || !result.matrix) return false
+    return !!root.beginCalibrationTransaction("touchscreen", state.deviceId, Object.assign({}, result.matrix, { outputId: result.outputId }))
+  }
+
+  function applyStylusCalibration() {
+    var state = root.stylusCalibrationState || {}
+    if (state.phase !== "collecting" || !state.deviceId || !state.analysis || !state.analysis.realSamplesOnly) return false
+    var node = root.graphNodeById(state.deviceId)
+    var mapping = root.calibrationMappingFor(node)
+    if (!mapping) return false
+    return !!root.beginCalibrationTransaction("stylus", state.deviceId, mapping)
   }
 
   function applyDeviceMapping() {
@@ -2651,19 +2801,8 @@ Item {
       root.stateUpdated()
       return false
     }
-    var profile = DeviceProfilesModel.effective(node, root.deviceProfileStore).profile
-    profile.id = node.id
-    profile.category = node.category
-    if (node.category === "touchscreen") profile.touch.mappingOutput = outputId
-    else profile.stylus.mappingOutput = outputId
-    var saved = DeviceProfilesModel.setProfile(root.deviceProfileStore, profile)
-    if (!saved.ok) {
-      root.lastError = String(saved.reason || "mapping-profile-save-failed")
-      return false
-    }
-    root.setConfig("deviceProfiles", saved.store)
-    root.lastError = ""
-    return true
+    var transaction = root.beginCalibrationTransaction(String(node.category), node.id, { outputId: outputId, offset: { x: 0, y: 0 }, scale: { x: 1, y: 1 }, rotation: 0, axis: { swapped: false, invertX: false, invertY: false } })
+    return transaction && transaction.phase === "awaiting-confirmation"
   }
 
   function updateDeviceProfileStore(result, fallbackReason) {
@@ -2725,6 +2864,8 @@ Item {
 
   function cancelCalibration(kind, reason) {
     var name = String(kind || root.activeCalibrationKind || "")
+    if (["prepared", "awaiting-confirmation", "rollback-required"].indexOf(String(root.calibrationTransactionState && root.calibrationTransactionState.phase || "")) >= 0)
+      root.rollbackCalibrationTransaction(reason || "calibration-cancelled")
     if (name === "touch" || name === "touchscreen") root.touchCalibrationState = CalibrationModel.cancelCalibration(root.touchCalibrationState, reason || "calibration-cancelled")
     else if (name === "stylus") root.stylusCalibrationState = CalibrationModel.cancelStylusCalibration(root.stylusCalibrationState, reason || "calibration-cancelled")
     else return false
@@ -2899,6 +3040,7 @@ Item {
     if (!parsed || ["device.event", "display.event", "topology.event", "hardware.event", "capability.change"].indexOf(String(parsed.type || "")) < 0) return
     if (String(parsed.type || "") === "device.event") root.inputDeviceState = InputDevicesModel.applyEvent(root.inputDeviceState, parsed)
     root.deviceGraph = DeviceGraphModel.applyEvent(root.deviceGraph, parsed)
+    root.handleCalibrationDeviceEvent()
     root.deviceTopologyState = DeviceTopologyModel.noteEvent(root.deviceTopologyState, parsed, Date.now(), {
       debounceMs: 240,
       displayDebounceMs: 260,
@@ -2942,6 +3084,8 @@ Item {
     if (!transition.changed && transition.action === "ignore") return
     root.lifecycleState = transition.state
     if (transition.state.phase === "suspended") {
+      if (["prepared", "awaiting-confirmation", "rollback-required"].indexOf(String(root.calibrationTransactionState && root.calibrationTransactionState.phase || "")) >= 0)
+        root.rollbackCalibrationTransaction("session-suspended")
       root.inputTextFocusActive = false
       root.requestAutoOsk(false)
       root.stopNativeInputBackend("suspended")
@@ -2994,6 +3138,7 @@ Item {
       root.applyMonitorRecoveryPlan(recovery)
     root.updateInputMapping()
     root.updateDeviceGraph()
+    root.handleCalibrationDeviceEvent()
     root.updateResponsiveContext()
     root.stateRevision++
     root.stateUpdated()
@@ -5251,6 +5396,15 @@ Item {
   }
 
   Timer {
+    id: calibrationTransactionTimer
+    // One bounded confirmation countdown; it is active only after an
+    // explicit calibration or mapping apply action.
+    interval: 250
+    repeat: true
+    onTriggered: root.tickCalibrationTransaction()
+  }
+
+  Timer {
     id: keyboardTransitionTimer
     interval: 680
     repeat: false
@@ -5823,7 +5977,7 @@ Item {
       keyboardTransitionTimer, modeTransitionTimer, dockedModeTimer, adaptivePreviewTimer, orientationTransition, wobblyConfigDebounce, clipboardRestart, rotationRestart,
       inputBackendRestart, oskPolicyTimer, clipboardMaintenance, integrationRefresh,
       systemRefresh, systemFallbackRefresh, inputFlush, inputModeCommit, effectRefresh,
-      initialConfigSave, deviceRefresh, multitaskingLaunchTimeout
+      initialConfigSave, deviceRefresh, multitaskingLaunchTimeout, calibrationTransactionTimer
     ]
     for (var timerIndex = 0; timerIndex < timers.length; timerIndex++)
       if (timers[timerIndex]) timers[timerIndex].stop()

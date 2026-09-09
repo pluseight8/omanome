@@ -6,10 +6,12 @@
 // surface, so a profile can never become an arbitrary compositor configuration.
 
 var SCHEMA_VERSION = 2
+var CALIBRATION_SCHEMA_VERSION = 1
 var CATEGORIES = ["display", "touchscreen", "stylus", "tablet-pad", "keyboard", "mouse", "touchpad", "gamepad", "sensor", "dock", "battery", "audio"]
 var GRAPH_ID = /^(?:device:[a-z0-9-]+:[0-9a-f]{16}|display:[0-9a-f]{16})$/
 var MAX_PROFILES = 256
 var MAX_RULES = 128
+var MAX_CALIBRATIONS = 256
 var SURFACE_VALUES = ["auto", "primary", "follow-output", "disabled"]
 var OSK_TARGETS = ["focused-display", "primary-touch", "ask", "disabled"]
 var RELATIONS = ["auto", "paired", "separate", "none"]
@@ -17,6 +19,16 @@ var ADAPTIVE_ROLES = ["auto", "primary", "secondary", "drawing", "presentation",
 var ORIENTATIONS = ["auto", "normal", "90", "180", "270"]
 var PRESSURE_CURVES = ["linear", "soft", "firm"]
 var KEYBOARD_OSK_POLICIES = ["auto", "show", "hide", "ask"]
+var KEYBOARD_RELATIONS = ["auto", "built-in", "detachable", "docked", "external", "unknown"]
+var GESTURE_PROFILES = ["auto", "tablet", "desktop", "drawing", "disabled"]
+var EDGE_SENSITIVITY = ["auto", "low", "medium", "high"]
+var PALM_POLICIES = ["auto", "enabled", "disabled"]
+var HANDEDNESS = ["auto", "left", "right"]
+var CURSOR_POLICIES = ["auto", "show", "hide"]
+var HANDWRITING_POLICIES = ["auto", "enabled", "disabled"]
+var BUTTON_ACTIONS = ["none", "left-click", "right-click", "middle-click", "annotation", "eraser", "back", "overview", "workspace"]
+var CALIBRATION_KINDS = ["touchscreen", "stylus"]
+var CALIBRATION_STATUS = ["last-known-good", "confirmed"]
 
 function string(value) {
   return String(value === undefined || value === null ? "" : value)
@@ -84,15 +96,15 @@ function defaultDisplay() {
 }
 
 function defaultTouch() {
-  return { enabled: true, mappingOutput: "auto", calibrationId: "", orientation: "auto" }
+  return { enabled: true, mappingOutput: "auto", calibrationId: "", orientation: "auto", gestureProfile: "auto", edgeSensitivity: "auto", palmPolicy: "auto" }
 }
 
 function defaultStylus() {
-  return { enabled: true, mappingOutput: "auto", calibrationId: "", pressureCurve: "linear", pressureMin: 0, pressureMax: 1, tiltEnabled: true, eraserEnabled: true, buttonTest: false }
+  return { enabled: true, mappingOutput: "auto", calibrationId: "", pressureCurve: "linear", pressureMin: 0, pressureMax: 1, tiltEnabled: true, eraserEnabled: true, handedness: "auto", cursor: "auto", palmRejection: "auto", handwriting: "auto", buttonMap: { primary: "right-click", secondary: "middle-click", tertiary: "annotation", eraser: "eraser" }, buttonTest: false }
 }
 
 function defaultKeyboard() {
-  return { enabled: true, layout: "auto", oskPolicy: "auto", adaptiveRole: "auto" }
+  return { enabled: true, layout: "auto", oskPolicy: "auto", adaptiveRole: "auto", relation: "auto" }
 }
 
 function defaultsFor(categoryName) {
@@ -123,6 +135,57 @@ function normalizeCalibrationId(value) {
   return /^[a-zA-Z0-9_.:-]{1,80}$/.test(id) && !/event[0-9]+|\/dev\//i.test(id) ? id : ""
 }
 
+function safeNumber(value, fallback, minimum, maximum) {
+  var result = Number(value)
+  if (!isFinite(result)) result = fallback
+  return Math.max(minimum, Math.min(maximum, result))
+}
+
+function normalizeButtonMap(value) {
+  var source = object(value)
+  var result = { primary: "right-click", secondary: "middle-click", tertiary: "annotation", eraser: "eraser" }
+  var keys = Object.keys(result)
+  for (var i = 0; i < keys.length; i++) result[keys[i]] = allowed(source[keys[i]], BUTTON_ACTIONS, result[keys[i]])
+  return result
+}
+
+function normalizeCalibrationMapping(value) {
+  var source = object(value)
+  var outputId = safeId(source.outputId || source.output_id)
+  var scale = object(source.scale)
+  var offset = object(source.offset)
+  var rotation = Math.round(Number(source.rotation))
+  if ([0, 90, 180, 270].indexOf(rotation) < 0) rotation = 0
+  var result = {
+    outputId: outputId,
+    offset: { x: safeNumber(offset.x, safeNumber(source.offsetX, 0, -0.5, 0.5), -0.5, 0.5), y: safeNumber(offset.y, safeNumber(source.offsetY, 0, -0.5, 0.5), -0.5, 0.5) },
+    scale: { x: safeNumber(scale.x, safeNumber(source.scaleX, 1, 0.5, 2), 0.5, 2), y: safeNumber(scale.y, safeNumber(source.scaleY, 1, 0.5, 2), 0.5, 2) },
+    rotation: rotation,
+    axis: { swapped: bool(object(source.axis).swapped), invertX: bool(object(source.axis).invertX), invertY: bool(object(source.axis).invertY) }
+  }
+  return outputId ? result : null
+}
+
+function normalizeCalibrationEntry(raw, expectedId) {
+  var source = object(raw)
+  var id = normalizeCalibrationId(expectedId || source.id)
+  var deviceId = safeId(source.deviceId || source.device_id)
+  var kind = allowed(source.kind || source.category, CALIBRATION_KINDS, "")
+  var mapping = normalizeCalibrationMapping(source.mapping || source)
+  if (!id || !deviceId || !kind || !mapping) return null
+  return {
+    schemaVersion: CALIBRATION_SCHEMA_VERSION,
+    id: id,
+    kind: kind,
+    deviceId: deviceId,
+    outputId: mapping.outputId,
+    mapping: mapping,
+    status: allowed(source.status, CALIBRATION_STATUS, "last-known-good"),
+    revision: Math.max(0, Math.floor(Number(source.revision) || 0)),
+    updatedAt: Math.max(0, Math.floor(Number(source.updatedAt || source.updated_at) || 0))
+  }
+}
+
 function normalizeProfile(raw, expectedId) {
   var source = object(raw)
   var id = safeId(expectedId || source.id)
@@ -148,6 +211,9 @@ function normalizeProfile(raw, expectedId) {
   result.touch.mappingOutput = safeId(touch.mappingOutput || touch.mapping_output) || (token(touch.mappingOutput || touch.mapping_output) === "auto" ? "auto" : "")
   result.touch.calibrationId = normalizeCalibrationId(touch.calibrationId || touch.calibration_id)
   result.touch.orientation = allowed(touch.orientation, ORIENTATIONS, "auto")
+  result.touch.gestureProfile = allowed(touch.gestureProfile || touch.gesture_profile, GESTURE_PROFILES, "auto")
+  result.touch.edgeSensitivity = allowed(touch.edgeSensitivity || touch.edge_sensitivity, EDGE_SENSITIVITY, "auto")
+  result.touch.palmPolicy = allowed(touch.palmPolicy || touch.palm_policy, PALM_POLICIES, "auto")
 
   var stylus = object(source.stylus)
   result.stylus.enabled = bool(stylus.enabled, true)
@@ -162,6 +228,11 @@ function normalizeProfile(raw, expectedId) {
   result.stylus.pressureMax = Math.max(result.stylus.pressureMin, Math.min(1, pressureMax))
   result.stylus.tiltEnabled = bool(stylus.tiltEnabled, true)
   result.stylus.eraserEnabled = bool(stylus.eraserEnabled, true)
+  result.stylus.handedness = allowed(stylus.handedness, HANDEDNESS, "auto")
+  result.stylus.cursor = allowed(stylus.cursor, CURSOR_POLICIES, "auto")
+  result.stylus.palmRejection = allowed(stylus.palmRejection || stylus.palm_rejection, PALM_POLICIES, "auto")
+  result.stylus.handwriting = allowed(stylus.handwriting, HANDWRITING_POLICIES, "auto")
+  result.stylus.buttonMap = normalizeButtonMap(stylus.buttonMap || stylus.button_map)
   // A button test is always transient. Never persist a request to execute an
   // action; the UI can set this only for the current test interaction.
   result.stylus.buttonTest = false
@@ -171,6 +242,7 @@ function normalizeProfile(raw, expectedId) {
   result.keyboard.layout = safeName(keyboard.layout, "auto") || "auto"
   result.keyboard.oskPolicy = allowed(keyboard.oskPolicy || keyboard.osk_policy, KEYBOARD_OSK_POLICIES, "auto")
   result.keyboard.adaptiveRole = allowed(keyboard.adaptiveRole || keyboard.adaptive_role, ADAPTIVE_ROLES, "auto")
+  result.keyboard.relation = allowed(keyboard.relation, KEYBOARD_RELATIONS, "auto")
   return result
 }
 
@@ -190,8 +262,28 @@ function normalizeRule(raw) {
   return result
 }
 
+function emptyCalibrationStore() {
+  return { schemaVersion: CALIBRATION_SCHEMA_VERSION, entries: {}, revision: 0 }
+}
+
+function normalizeCalibrationStore(raw) {
+  var source = object(raw)
+  var result = emptyCalibrationStore()
+  var entries = object(source.entries || source.calibrations)
+  var count = 0
+  for (var id in entries) {
+    if (count >= MAX_CALIBRATIONS) break
+    var entry = normalizeCalibrationEntry(entries[id], id)
+    if (!entry) continue
+    result.entries[entry.id] = entry
+    count++
+  }
+  result.revision = Math.max(0, Math.floor(Number(source.revision) || 0))
+  return result
+}
+
 function emptyStore() {
-  return { schemaVersion: SCHEMA_VERSION, enabled: true, profiles: {}, rules: [], revision: 0 }
+  return { schemaVersion: SCHEMA_VERSION, enabled: true, profiles: {}, rules: [], calibrations: emptyCalibrationStore(), revision: 0 }
 }
 
 function normalizeStore(raw) {
@@ -212,6 +304,7 @@ function normalizeStore(raw) {
     var rule = normalizeRule(rules[i])
     if (rule) result.rules.push(rule)
   }
+  result.calibrations = normalizeCalibrationStore(source.calibrations)
   result.revision = Math.max(0, Math.floor(Number(source.revision) || 0))
   return result
 }
@@ -264,6 +357,67 @@ function setProfile(store, raw) {
   return { ok: true, reason: "saved", store: result, profile: clone(profile) }
 }
 
+function calibrationIdFor(deviceId, kind) {
+  var device = safeId(deviceId)
+  var name = allowed(kind, CALIBRATION_KINDS, "")
+  if (!device || !name) return ""
+  // This ID is metadata only; it is deterministic, bounded, and contains no
+  // raw hardware value. The graph ID itself remains the stable owner link.
+  var hash = 2166136261
+  var material = device + "|" + name
+  for (var i = 0; i < material.length; i++) { hash ^= material.charCodeAt(i); hash = Math.imul(hash, 16777619) }
+  return "calibration-" + name + "-" + (hash >>> 0).toString(16)
+}
+
+function setCalibration(store, raw) {
+  var result = normalizeStore(store)
+  var candidate = object(raw)
+  if (!candidate.id) candidate = Object.assign({}, candidate, { id: calibrationIdFor(candidate.deviceId || candidate.device_id, candidate.kind || candidate.category) })
+  var entry = normalizeCalibrationEntry(candidate)
+  if (!entry) return { ok: false, reason: "invalid-calibration", store: result }
+  if (!result.calibrations.entries[entry.id] && Object.keys(result.calibrations.entries).length >= MAX_CALIBRATIONS)
+    return { ok: false, reason: "calibration-limit", store: result }
+  entry.revision = Number(result.calibrations.revision || 0) + 1
+  result.calibrations.entries[entry.id] = entry
+  result.calibrations.revision = entry.revision
+  result.revision++
+  return { ok: true, reason: "calibration-saved", store: result, calibration: clone(entry) }
+}
+
+function calibrationFor(store, deviceId, kind) {
+  var normalized = normalizeStore(store)
+  var device = safeId(deviceId)
+  var wanted = allowed(kind, CALIBRATION_KINDS, "")
+  if (!device || !wanted) return null
+  var entries = normalized.calibrations.entries
+  for (var id in entries) if (entries[id].deviceId === device && entries[id].kind === wanted) return clone(entries[id])
+  return null
+}
+
+function removeCalibration(store, id) {
+  var result = normalizeStore(store)
+  var safe = normalizeCalibrationId(id)
+  if (!safe || !result.calibrations.entries[safe]) return { ok: false, reason: "calibration-not-found", store: result }
+  delete result.calibrations.entries[safe]
+  result.calibrations.revision++
+  result.revision++
+  return { ok: true, reason: "calibration-removed", store: result }
+}
+
+function removeCalibrationsForDevice(store, deviceId) {
+  var result = normalizeStore(store)
+  var safe = safeId(deviceId)
+  if (!safe) return { ok: false, reason: "invalid-graph-id", store: result }
+  var changed = false
+  for (var id in result.calibrations.entries) {
+    if (result.calibrations.entries[id].deviceId !== safe) continue
+    delete result.calibrations.entries[id]
+    changed = true
+  }
+  if (changed) { result.calibrations.revision++; result.revision++ }
+  return { ok: true, reason: changed ? "calibrations-removed" : "no-calibration", store: result }
+}
+
 function rename(store, id, name) {
   var result = normalizeStore(store)
   var safe = safeId(id)
@@ -281,6 +435,8 @@ function forget(store, id) {
   if (!safe || !result.profiles[safe]) return { ok: false, reason: "profile-not-found", store: result }
   delete result.profiles[safe]
   result.rules = result.rules.filter(function(rule) { return rule.profileId !== safe })
+  for (var calibrationId in result.calibrations.entries) if (result.calibrations.entries[calibrationId].deviceId === safe) delete result.calibrations.entries[calibrationId]
+  result.calibrations.revision++
   result.revision++
   return { ok: true, reason: "forgotten", store: result }
 }
@@ -290,6 +446,8 @@ function reset(store, id) {
   var safe = safeId(id)
   if (!safe || !result.profiles[safe]) return { ok: false, reason: "profile-not-found", store: result }
   delete result.profiles[safe]
+  for (var calibrationId in result.calibrations.entries) if (result.calibrations.entries[calibrationId].deviceId === safe) delete result.calibrations.entries[calibrationId]
+  result.calibrations.revision++
   result.revision++
   return { ok: true, reason: "reset", store: result }
 }
@@ -346,20 +504,30 @@ function summary(store) {
     var categoryName = normalized.profiles[id].category
     categories[categoryName] = Number(categories[categoryName] || 0) + 1
   }
-  return { schemaVersion: SCHEMA_VERSION, enabled: normalized.enabled, profileCount: Object.keys(normalized.profiles).length, ruleCount: normalized.rules.length, categories: categories, revision: normalized.revision }
+  return { schemaVersion: SCHEMA_VERSION, enabled: normalized.enabled, profileCount: Object.keys(normalized.profiles).length, ruleCount: normalized.rules.length, calibrationCount: Object.keys(normalized.calibrations.entries).length, categories: categories, revision: normalized.revision }
 }
 
 var api = {
   SCHEMA_VERSION: SCHEMA_VERSION,
   CATEGORIES: CATEGORIES,
+  CALIBRATION_SCHEMA_VERSION: CALIBRATION_SCHEMA_VERSION,
+  MAX_CALIBRATIONS: MAX_CALIBRATIONS,
   defaultsFor: defaultsFor,
   safeId: safeId,
   normalizeProfile: normalizeProfile,
   normalizeRule: normalizeRule,
+  normalizeCalibrationEntry: normalizeCalibrationEntry,
+  emptyCalibrationStore: emptyCalibrationStore,
+  normalizeCalibrationStore: normalizeCalibrationStore,
+  calibrationIdFor: calibrationIdFor,
   emptyStore: emptyStore,
   normalizeStore: normalizeStore,
   effective: effective,
   setProfile: setProfile,
+  setCalibration: setCalibration,
+  calibrationFor: calibrationFor,
+  removeCalibration: removeCalibration,
+  removeCalibrationsForDevice: removeCalibrationsForDevice,
   rename: rename,
   forget: forget,
   reset: reset,

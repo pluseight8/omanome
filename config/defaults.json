@@ -105,6 +105,11 @@
     "enabled": true,
     "profiles": {},
     "rules": [],
+    "calibrations": {
+      "schemaVersion": 1,
+      "entries": {},
+      "revision": 0
+    },
     "revision": 0
   },
   "hardwareSetupProfiles": {
@@ -117,7 +122,20 @@
       "oskTarget": "focused-display",
       "roles": {}
     },
+    "matchPolicy": {
+      "schemaVersion": 1,
+      "mode": "ask",
+      "autoApply": false,
+      "promptOnce": true
+    },
+    "matches": [],
     "revision": 0
+  },
+  "calibration": {
+    "confirmationTimeoutMs": 8000,
+    "autoRollback": true,
+    "preserveLastKnownGood": true,
+    "safeModeIgnoreCustom": true
   },
   "onboarding": {
     "completed": false,

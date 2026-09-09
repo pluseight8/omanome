@@ -9,6 +9,9 @@
 var SCHEMA_VERSION = 1
 var MAX_SETUP_PROFILES = 12
 var MAX_DISPLAY_ROLES = 256
+var MAX_SETUP_MATCHES = 32
+var MAX_SETUP_DEVICES = 256
+var MAX_SETUP_OUTPUTS = 32
 var DISPLAY_ID = /^(?:device:[a-z0-9-]+:[0-9a-f]{16}|display:[0-9a-f]{16})$/
 var DISPLAY_ROLES = ["auto", "internal", "external", "primary", "presentation", "unknown"]
 var OSK_TARGETS = ["focused-display", "primary-touch", "ask", "disabled"]
@@ -16,7 +19,10 @@ var POWER_POLICIES = ["follow-system", "balanced", "performance", "power-saver"]
 var DOCK_POLICIES = ["auto", "show", "hide", "follow-display"]
 var ORIENTATIONS = ["auto", "normal", "90", "180", "270"]
 var SURFACE_VALUES = ["auto", "primary", "follow-output", "disabled"]
-var SETUP_IDS = ["auto", "tablet", "desk", "travel", "presentation", "drawing"]
+var SETUP_IDS = ["auto", "tablet", "desk", "portable", "travel", "presentation", "drawing", "custom"]
+var ADAPTIVE_PROFILES = ["auto", "desktop", "tablet", "hybrid", "presentation", "gaming", "custom"]
+var DOCK_TARGETS = ["auto", "active-display", "primary-display", "external-display", "disabled"]
+var MATCH_MODES = ["ask", "auto-apply", "manual"]
 var BATTERY_STATES = ["charging", "discharging", "fully-charged", "pending-charge", "unknown"]
 var POWER_PROFILES = ["balanced", "performance", "power-saver", "unknown"]
 
@@ -81,15 +87,20 @@ function defaultSurfaces() {
 
 function setupDefaults(id) {
   var name = SETUP_IDS.indexOf(token(id)) >= 0 ? token(id) : "auto"
+  var preferred = name === "tablet" ? "tablet" : name === "desk" ? "desktop" : name === "portable" || name === "travel" ? "hybrid" : name === "presentation" ? "presentation" : name === "drawing" ? "tablet" : name === "custom" ? "custom" : "auto"
   var result = {
     id: name,
-    label: name === "tablet" ? "Tablet" : name === "desk" ? "Desk" : name === "travel" ? "Travel" : name === "presentation" ? "Presentation" : name === "drawing" ? "Drawing" : "Automatic",
+    label: name === "tablet" ? "Tablet" : name === "desk" ? "Desk" : name === "portable" ? "Portable" : name === "travel" ? "Travel" : name === "presentation" ? "Presentation" : name === "drawing" ? "Drawing" : name === "custom" ? "Custom" : "Automatic",
+    preferredAdaptiveProfile: preferred,
     displayRole: name === "presentation" ? "presentation" : name === "desk" ? "external" : "auto",
     oskTarget: name === "drawing" ? "primary-touch" : name === "desk" || name === "presentation" ? "disabled" : "focused-display",
+    dockTarget: name === "desk" || name === "presentation" ? "external-display" : "auto",
     powerPolicy: name === "travel" ? "power-saver" : "follow-system",
     dockPolicy: name === "presentation" ? "hide" : "auto",
     orientation: "auto",
-    surfaces: defaultSurfaces()
+    surfaces: defaultSurfaces(),
+    inputMappings: {},
+    deviceBehavior: {}
   }
   if (name === "tablet") result.surfaces.dock = "follow-output"
   if (name === "drawing") result.surfaces.osk = "primary"
@@ -102,6 +113,143 @@ function normalizeSurfaces(value) {
   var names = Object.keys(result)
   for (var i = 0; i < names.length; i++) result[names[i]] = allowed(source[names[i]], SURFACE_VALUES, "auto")
   return result
+}
+
+function safeIdList(value, limit) {
+  var list = array(value)
+  var result = []
+  var maximum = Math.max(0, Math.floor(Number(limit) || 0))
+  for (var i = 0; i < list.length && result.length < maximum; i++) {
+    var id = safeId(list[i])
+    if (id && result.indexOf(id) < 0) result.push(id)
+  }
+  return result
+}
+
+function normalizeInputMappings(value) {
+  var source = object(value)
+  var result = {}
+  var count = 0
+  for (var deviceId in source) {
+    if (count >= MAX_SETUP_DEVICES) break
+    var device = safeId(deviceId)
+    var output = safeId(source[deviceId])
+    if (!device || !output) continue
+    result[device] = output
+    count++
+  }
+  return result
+}
+
+function normalizeDeviceBehavior(value) {
+  var source = object(value)
+  var result = {}
+  var count = 0
+  for (var deviceId in source) {
+    if (count >= MAX_SETUP_DEVICES) break
+    var device = safeId(deviceId)
+    var policy = object(source[deviceId])
+    if (!device) continue
+    var row = {}
+    if (policy.enabled !== undefined) row.enabled = bool(policy.enabled)
+    if (policy.ignored !== undefined) row.ignored = bool(policy.ignored)
+    if (policy.profileId !== undefined || policy.profile_id !== undefined) row.profileId = safeId(policy.profileId || policy.profile_id)
+    if (policy.adaptiveRole !== undefined || policy.adaptive_role !== undefined) row.adaptiveRole = allowed(policy.adaptiveRole || policy.adaptive_role, ["auto", "primary", "secondary", "drawing", "presentation", "none"], "auto")
+    if (policy.oskPolicy !== undefined || policy.osk_policy !== undefined) row.oskPolicy = allowed(policy.oskPolicy || policy.osk_policy, ["auto", "show", "hide", "ask"], "auto")
+    result[device] = row
+    count++
+  }
+  return result
+}
+
+function normalizeTopologyMatch(raw, expectedSetupId) {
+  var source = object(raw)
+  var setupId = token(expectedSetupId || source.setupId || source.setup_id)
+  if (SETUP_IDS.indexOf(setupId) < 0) return null
+  var required = object(source.required || source.requires)
+  var devices = safeIdList(source.devices || source.deviceIds || required.devices || required.deviceIds, MAX_SETUP_DEVICES)
+  var outputs = safeIdList(source.outputs || source.outputIds || required.outputs || required.outputIds, MAX_SETUP_OUTPUTS)
+  var minimumDevicesValue = source.minimumDevices !== undefined ? source.minimumDevices : source.minimum_devices
+  var minimumOutputsValue = source.minimumOutputs !== undefined ? source.minimumOutputs : source.minimum_outputs
+  var minimumDevices = Math.max(0, Math.min(MAX_SETUP_DEVICES, Math.floor(number(minimumDevicesValue, devices.length))))
+  var minimumOutputs = Math.max(0, Math.min(MAX_SETUP_OUTPUTS, Math.floor(number(minimumOutputsValue, outputs.length))))
+  if (devices.length === 0 && outputs.length === 0 && minimumDevices === 0 && minimumOutputs === 0) return null
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    setupId: setupId,
+    devices: devices,
+    outputs: outputs,
+    minimumDevices: minimumDevices,
+    minimumOutputs: minimumOutputs,
+    confidence: allowed(source.confidence, ["confirmed", "probable", "unknown"], "unknown"),
+    source: "user"
+  }
+}
+
+function normalizeMatchPolicy(value) {
+  var source = object(value)
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    mode: allowed(source.mode, MATCH_MODES, "ask"),
+    autoApply: bool(source.autoApply, false),
+    promptOnce: source.promptOnce !== false
+  }
+}
+
+function connectedIds(graph, field) {
+  var source = object(graph)
+  var rows = array(source[field])
+  var result = {}
+  for (var i = 0; i < rows.length; i++) {
+    var id = safeId(rows[i] && rows[i].id)
+    if (id && rows[i].connected !== false) result[id] = true
+  }
+  return result
+}
+
+function topologyMatch(graph, match) {
+  var source = object(match)
+  var devices = connectedIds(graph, "nodes")
+  var outputs = connectedIds(graph, "outputs")
+  var requiredDevices = safeIdList(source.devices, MAX_SETUP_DEVICES)
+  var requiredOutputs = safeIdList(source.outputs, MAX_SETUP_OUTPUTS)
+  var missingDevices = requiredDevices.filter(function(id) { return !devices[id] })
+  var missingOutputs = requiredOutputs.filter(function(id) { return !outputs[id] })
+  var deviceCount = Object.keys(devices).length
+  var outputCount = Object.keys(outputs).length
+  var minimumDevices = Math.max(requiredDevices.length, Math.floor(number(source.minimumDevices, requiredDevices.length)))
+  var minimumOutputs = Math.max(requiredOutputs.length, Math.floor(number(source.minimumOutputs, requiredOutputs.length)))
+  var complete = missingDevices.length === 0 && missingOutputs.length === 0 && deviceCount >= minimumDevices && outputCount >= minimumOutputs
+  return {
+    setupId: token(source.setupId),
+    complete: complete,
+    partial: !complete && (requiredDevices.length > 0 || requiredOutputs.length > 0),
+    missingDevices: missingDevices,
+    missingOutputs: missingOutputs,
+    score: (requiredDevices.length - missingDevices.length) + (requiredOutputs.length - missingOutputs.length),
+    confidence: allowed(source.confidence, ["confirmed", "probable", "unknown"], "unknown")
+  }
+}
+
+function matchTopology(graph, store) {
+  var normalized = normalizeStore(store)
+  var candidates = []
+  for (var i = 0; i < normalized.matches.length; i++) {
+    var result = topologyMatch(graph, normalized.matches[i])
+    result.source = "user"
+    if (SETUP_IDS.indexOf(result.setupId) >= 0) candidates.push(result)
+  }
+  candidates.sort(function(a, b) { return Number(b.complete) - Number(a.complete) || b.score - a.score })
+  var best = candidates.length > 0 ? candidates[0] : null
+  return {
+    status: best ? best.complete ? "matched" : "partial" : "unknown",
+    setupId: best && best.complete ? best.setupId : "",
+    suggestion: best && best.complete ? best.setupId : "",
+    confidence: best ? best.confidence : "unknown",
+    complete: best ? best.complete : false,
+    partial: best ? best.partial : false,
+    candidates: candidates.slice(0, MAX_SETUP_MATCHES)
+  }
 }
 
 function normalizeDisplayPolicy(value) {
@@ -129,17 +277,21 @@ function normalizeSetupProfile(raw, expectedId) {
   var result = setupDefaults(id)
   result.id = id
   result.label = safeLabel(source.label || source.name, result.label)
+  result.preferredAdaptiveProfile = allowed(source.preferredAdaptiveProfile || source.preferred_adaptive_profile || source.adaptiveProfile || source.adaptive_profile, ADAPTIVE_PROFILES, result.preferredAdaptiveProfile)
   result.displayRole = allowed(source.displayRole || source.display_role, DISPLAY_ROLES, result.displayRole)
   result.oskTarget = allowed(source.oskTarget || source.osk_target, OSK_TARGETS, result.oskTarget)
+  result.dockTarget = allowed(source.dockTarget || source.dock_target, DOCK_TARGETS, result.dockTarget)
   result.powerPolicy = allowed(source.powerPolicy || source.power_policy, POWER_POLICIES, result.powerPolicy)
   result.dockPolicy = allowed(source.dockPolicy || source.dock_policy, DOCK_POLICIES, result.dockPolicy)
   result.orientation = allowed(source.orientation, ORIENTATIONS, result.orientation)
   result.surfaces = normalizeSurfaces(source.surfaces)
+  result.inputMappings = normalizeInputMappings(source.inputMappings || source.input_mappings)
+  result.deviceBehavior = normalizeDeviceBehavior(source.deviceBehavior || source.device_behavior || source.devicePolicies || source.device_policies)
   return result
 }
 
 function emptyStore() {
-  return { schemaVersion: SCHEMA_VERSION, selected: "auto", profiles: {}, displayPolicy: defaultDisplayPolicy(), revision: 0 }
+  return { schemaVersion: SCHEMA_VERSION, selected: "auto", profiles: {}, displayPolicy: defaultDisplayPolicy(), matchPolicy: normalizeMatchPolicy({}), matches: [], revision: 0 }
 }
 
 function normalizeStore(raw) {
@@ -155,6 +307,12 @@ function normalizeStore(raw) {
     if (!profile) continue
     result.profiles[profile.id] = profile
     count++
+  }
+  result.matchPolicy = normalizeMatchPolicy(source.matchPolicy || source.match_policy)
+  var matches = array(source.matches || source.topologyMatches || source.topology_matches)
+  for (var m = 0; m < matches.length && result.matches.length < MAX_SETUP_MATCHES; m++) {
+    var match = normalizeTopologyMatch(matches[m])
+    if (match) result.matches.push(match)
   }
   result.revision = Math.max(0, Math.floor(number(source.revision, 0)))
   return result
@@ -336,9 +494,14 @@ function resolveSetup(graph, store, context) {
   var source = object(context)
   var requested = normalized.selected
   var mode = token(source.mode || "desktop")
+  var matching = matchTopology(graph, normalized)
   var selected = requested
+  var selectionSource = requested === "auto" ? "runtime-mode" : "user"
   if (selected === "auto") {
-    if (source.docked === true) selected = "desk"
+    if (matching.complete && (normalized.matchPolicy.autoApply === true || normalized.matchPolicy.mode === "auto-apply")) {
+      selected = matching.setupId
+      selectionSource = "topology-match"
+    } else if (source.docked === true) selected = "desk"
     else if (mode === "tablet") selected = "tablet"
     else if (mode === "hybrid") selected = "travel"
     else if (mode === "presentation") selected = "presentation"
@@ -348,19 +511,22 @@ function resolveSetup(graph, store, context) {
   var profile = normalized.profiles[selected] || setupDefaults(selected)
   var displays = displayRows(graph, normalized.displayPolicy)
   var primaryInput = nodeById(graph, source.primaryInputId)
+  if (primaryInput && profile.inputMappings && profile.inputMappings[primaryInput.id]) primaryInput = Object.assign({}, primaryInput, { mappedOutput: profile.inputMappings[primaryInput.id] })
   var osk = resolveOskTarget(graph, primaryInput, normalized.displayPolicy, { oskTarget: profile.oskTarget, focusedDisplayId: source.focusedDisplayId })
   var power = powerDecision(source.system || source.power, profile, source)
   return {
     schemaVersion: SCHEMA_VERSION,
     selected: selected,
     requested: requested,
-    source: requested === "auto" ? "runtime-mode" : "user",
+    source: selectionSource,
     profile: clone(profile),
     displays: displays,
     osk: osk,
     power: power,
+    matching: matching,
+    matchPolicy: normalized.matchPolicy,
     revision: normalized.revision,
-    reason: osk.status === "unavailable" ? osk.reason : power.reason
+    reason: selectionSource === "topology-match" ? "known-hardware-setup-matched" : osk.status === "unavailable" ? osk.reason : power.reason
   }
 }
 
@@ -385,6 +551,30 @@ function setSelected(store, id) {
   result.selected = selected
   result.revision++
   return { ok: true, reason: "setup-selected", store: result }
+}
+
+function setMatchPolicy(store, value) {
+  var result = normalizeStore(store)
+  result.matchPolicy = normalizeMatchPolicy(value)
+  result.revision++
+  return { ok: true, reason: "setup-match-policy-saved", store: result }
+}
+
+function saveTopologyMatch(store, raw) {
+  var result = normalizeStore(store)
+  var match = normalizeTopologyMatch(raw)
+  if (!match) return { ok: false, reason: "invalid-topology-match", store: result }
+  var replaced = false
+  for (var i = 0; i < result.matches.length; i++) {
+    if (result.matches[i].setupId !== match.setupId) continue
+    result.matches[i] = match
+    replaced = true
+    break
+  }
+  if (!replaced && result.matches.length >= MAX_SETUP_MATCHES) return { ok: false, reason: "topology-match-limit", store: result }
+  if (!replaced) result.matches.push(match)
+  result.revision++
+  return { ok: true, reason: "topology-match-saved", store: result, match: clone(match) }
 }
 
 function setProfile(store, raw) {
@@ -412,6 +602,7 @@ function summary(resolved) {
     unknownDisplayRoles: Number(displays.unknownCount || 0),
     osk: { requested: allowed(osk.requested, OSK_TARGETS, "focused-display"), status: string(osk.status || "unavailable"), outputId: safeId(osk.outputId), reason: string(osk.reason || "") },
     power: { available: power.available === true, requested: allowed(power.requested, POWER_POLICIES, "follow-system"), desired: allowed(power.desired, POWER_PROFILES, ""), current: allowed(power.current, POWER_PROFILES, "unknown"), batteryState: allowed(power.batteryState, BATTERY_STATES, "unknown"), batteryPercent: number(power.batteryPercent, -1), applyAllowed: power.applyAllowed === true, reason: string(power.reason || "") },
+    preferredAdaptiveProfile: allowed(source.profile && source.profile.preferredAdaptiveProfile, ADAPTIVE_PROFILES, "auto"),
     revision: Number(source.revision || 0),
     reason: string(source.reason || "")
   }
@@ -423,6 +614,10 @@ var api = {
   OSK_TARGETS: OSK_TARGETS,
   POWER_POLICIES: POWER_POLICIES,
   SETUP_IDS: SETUP_IDS,
+  ADAPTIVE_PROFILES: ADAPTIVE_PROFILES,
+  DOCK_TARGETS: DOCK_TARGETS,
+  MATCH_MODES: MATCH_MODES,
+  MAX_SETUP_MATCHES: MAX_SETUP_MATCHES,
   defaultDisplayPolicy: defaultDisplayPolicy,
   setupDefaults: setupDefaults,
   normalizeDisplayPolicy: normalizeDisplayPolicy,
@@ -435,9 +630,14 @@ var api = {
   resolveOskTarget: resolveOskTarget,
   normalizePowerState: normalizePowerState,
   powerDecision: powerDecision,
+  normalizeTopologyMatch: normalizeTopologyMatch,
+  topologyMatch: topologyMatch,
+  matchTopology: matchTopology,
   resolveSetup: resolveSetup,
   emptyState: emptyState,
   setSelected: setSelected,
+  setMatchPolicy: setMatchPolicy,
+  saveTopologyMatch: saveTopologyMatch,
   setProfile: setProfile,
   summary: summary
 }

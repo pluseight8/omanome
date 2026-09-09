@@ -40,6 +40,11 @@ class DeviceSettingsUiTests(unittest.TestCase):
             "function forgetDeviceProfile",
             "CalibrationWizardModel.beginMapping",
             "DeviceProfilesModel.setProfile",
+            "beginCalibrationTransaction",
+            "confirmCalibrationTransaction",
+            "rollbackCalibrationTransaction",
+            "persistCalibrationTransaction",
+            "calibrationTransactionTimer",
         ]:
             self.assertIn(marker, service)
 

@@ -106,6 +106,37 @@ class HardwarePolicyTests(unittest.TestCase):
         self.assertIn("hardwareSetupProfiles", defaults)
         self.assertEqual(schema["properties"]["hardwareSetupProfiles"]["properties"]["schemaVersion"]["const"], 1)
 
+    def test_setup_profiles_store_policy_and_match_complete_topology_only(self) -> None:
+        result = self.run_node(
+            "const G=require('./shell/models/DeviceGraph.js'); const H=require('./shell/models/HardwarePolicies.js'); "
+            "const graph=G.fromSnapshot({monitors:[{id:'panel',name:'Panel',builtin:true,role:'internal'}],devices:[{id:'kbd',type:'keyboard',capabilities:{keyboard:true}}]}); "
+            "const display=graph.outputs[0].id; const keyboard=graph.nodes.find(row=>row.category==='keyboard').id; "
+            "let store=H.emptyStore(); const saved=H.saveTopologyMatch(store,{setupId:'desk',devices:[keyboard],outputs:[display],confidence:'confirmed'}); store=saved.store; store=H.setMatchPolicy(store,{mode:'auto-apply'}).store; "
+            "const resolved=H.resolveSetup(graph,store,{mode:'tablet'}); const partial=H.matchTopology(G.fromSnapshot({monitors:[],devices:[{id:'kbd',type:'keyboard',capabilities:{keyboard:true}}]}),store); "
+            "const custom=H.normalizeSetupProfile({id:'custom',preferredAdaptiveProfile:'gaming',dockTarget:'primary-display',inputMappings:{[keyboard]:display},deviceBehavior:{[keyboard]:{ignored:true}}}); "
+            "console.log(JSON.stringify({ids:H.SETUP_IDS,resolved,partial,custom}));"
+        )
+        self.assertIn("portable", result["ids"])
+        self.assertIn("custom", result["ids"])
+        self.assertEqual(result["resolved"]["selected"], "desk")
+        self.assertEqual(result["resolved"]["source"], "topology-match")
+        self.assertEqual(result["resolved"]["profile"]["preferredAdaptiveProfile"], "desktop")
+        self.assertEqual(result["partial"]["status"], "partial")
+        self.assertFalse(result["partial"]["complete"])
+        self.assertEqual(result["custom"]["preferredAdaptiveProfile"], "gaming")
+        self.assertEqual(len(result["custom"]["inputMappings"]), 1)
+        self.assertTrue(next(iter(result["custom"]["inputMappings"].values())).startswith("display:"))
+        self.assertTrue(next(iter(result["custom"]["deviceBehavior"].values()))["ignored"])
+
+    def test_topology_match_preserves_explicit_zero_minimums(self) -> None:
+        result = self.run_node(
+            "const H=require('./shell/models/HardwarePolicies.js'); "
+            "const match=H.normalizeTopologyMatch({setupId:'portable',devices:['device:keyboard:0123456789abcdef'],outputs:['display:0123456789abcdef'],minimumDevices:0,minimumOutputs:0}); "
+            "console.log(JSON.stringify(match));"
+        )
+        self.assertEqual(result["minimumDevices"], 0)
+        self.assertEqual(result["minimumOutputs"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

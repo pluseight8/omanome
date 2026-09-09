@@ -13,8 +13,9 @@ function defaults() {
     adaptive: { enabled: true, profile: "auto", automaticTransitions: true, externalKeyboardPolicy: "hybrid", unknownKeyboardPolicy: "hybrid", transition: { enabled: true, debounceMs: 260, stabilityMs: 420, durationMs: 260, oskPolicy: "hide-on-attach", showOsd: true, animationPreset: "smooth" }, profiles: { custom: { mode: "auto", featureOverrides: {}, componentBehavior: {} } }, deviceRules: [], dockedMode: { enabled: true, trigger: "external-monitor-and-keyboard", profile: "desktop", keepTouch: true, restoreAutoState: true, rotation: "preserve", debounceMs: 180, stabilityMs: 260 } },
     tabletMode: { enabled: true, touchTarget: 48, autoFromTouch: true, autoFromStylus: true, physicalKeyboardExit: true, transitionDuration: 180, dockPreference: "adaptive", windowControls: "touch", gestures: true, posture: { auto: true, debounceMs: 320, minimumDwellMs: 900, laptopSuppressAutoShow: true, autoRotateInLaptop: false } },
     input: { schemaVersion: 1, nativeBackend: "auto", allowWtypeFallback: true, suppressOskOnPhysicalKeyboard: true, suppressOskOnDetachableKeyboard: true, suppressOskOnBluetoothKeyboard: true, deviceHotplug: true, safeModeDisableNative: false, defaultOutput: "", deviceMappings: {} },
-    deviceProfiles: { schemaVersion: 2, enabled: true, profiles: {}, rules: [], revision: 0 },
-    hardwareSetupProfiles: { schemaVersion: 1, selected: "auto", profiles: {}, displayPolicy: { schemaVersion: 1, primaryDisplay: "", oskTarget: "focused-display", roles: {} }, revision: 0 },
+    deviceProfiles: { schemaVersion: 2, enabled: true, profiles: {}, rules: [], calibrations: { schemaVersion: 1, entries: {}, revision: 0 }, revision: 0 },
+    hardwareSetupProfiles: { schemaVersion: 1, selected: "auto", profiles: {}, displayPolicy: { schemaVersion: 1, primaryDisplay: "", oskTarget: "focused-display", roles: {} }, matchPolicy: { schemaVersion: 1, mode: "ask", autoApply: false, promptOnce: true }, matches: [], revision: 0 },
+    calibration: { confirmationTimeoutMs: 8000, autoRollback: true, preserveLastKnownGood: true, safeModeIgnoreCustom: true },
     onboarding: { completed: false, skipped: false, version: 1, privacyAcknowledged: false },
     accessibility: { touchTargetSize: "default", textScale: 1.0, highContrast: false, reducedMotion: false, reduceTransparency: false, screenReaderHints: true },
     touch: { enabled: true, edgeWidth: 36, threshold: 96, velocity: 0.35, inertia: true, invert: false, threeFingerAction: "workspace", fourFingerAction: "overview", conflictPolicy: "disable-fullscreen", disableOnFullscreen: true, fullscreenAllowList: [], fullscreenDenyList: [], adaptiveTargetMode: "automatic" },
@@ -240,6 +241,12 @@ function normalizeDeviceProfilesTwo(source, report) {
     if (source.deviceProfiles.enabled === undefined) { source.deviceProfiles.enabled = true; changed = true }
     if (!isObject(source.deviceProfiles.profiles)) { source.deviceProfiles.profiles = {}; changed = true }
     if (!Array.isArray(source.deviceProfiles.rules)) { source.deviceProfiles.rules = []; changed = true }
+    if (!isObject(source.deviceProfiles.calibrations)) { source.deviceProfiles.calibrations = clone(template.calibrations); changed = true }
+    else {
+      if (source.deviceProfiles.calibrations.schemaVersion === undefined) { source.deviceProfiles.calibrations.schemaVersion = 1; changed = true }
+      if (!isObject(source.deviceProfiles.calibrations.entries)) { source.deviceProfiles.calibrations.entries = {}; changed = true }
+      if (source.deviceProfiles.calibrations.revision === undefined) { source.deviceProfiles.calibrations.revision = 0; changed = true }
+    }
     if (source.deviceProfiles.revision === undefined) { source.deviceProfiles.revision = 0; changed = true }
   }
   if (changed && report && report.applied.indexOf("device-profiles-2.0-defaults") < 0) report.applied.push("device-profiles-2.0-defaults")
@@ -262,9 +269,37 @@ function normalizeHardwareSetupProfilesOne(source, report) {
       if (source.hardwareSetupProfiles.displayPolicy.oskTarget === undefined) { source.hardwareSetupProfiles.displayPolicy.oskTarget = "focused-display"; changed = true }
       if (!isObject(source.hardwareSetupProfiles.displayPolicy.roles)) { source.hardwareSetupProfiles.displayPolicy.roles = {}; changed = true }
     }
+    if (!isObject(source.hardwareSetupProfiles.matchPolicy)) { source.hardwareSetupProfiles.matchPolicy = clone(template.matchPolicy); changed = true }
+    else {
+      if (source.hardwareSetupProfiles.matchPolicy.schemaVersion === undefined) { source.hardwareSetupProfiles.matchPolicy.schemaVersion = 1; changed = true }
+      if (source.hardwareSetupProfiles.matchPolicy.mode === undefined) { source.hardwareSetupProfiles.matchPolicy.mode = "ask"; changed = true }
+      if (source.hardwareSetupProfiles.matchPolicy.autoApply === undefined) { source.hardwareSetupProfiles.matchPolicy.autoApply = false; changed = true }
+      if (source.hardwareSetupProfiles.matchPolicy.promptOnce === undefined) { source.hardwareSetupProfiles.matchPolicy.promptOnce = true; changed = true }
+    }
+    if (!Array.isArray(source.hardwareSetupProfiles.matches)) { source.hardwareSetupProfiles.matches = []; changed = true }
     if (source.hardwareSetupProfiles.revision === undefined) { source.hardwareSetupProfiles.revision = 0; changed = true }
   }
   if (changed && report && report.applied.indexOf("hardware-setup-profiles-1.0-defaults") < 0) report.applied.push("hardware-setup-profiles-1.0-defaults")
+}
+
+function normalizeCalibrationConfig(source, report) {
+  var template = defaults().calibration
+  var changed = false
+  if (!isObject(source.calibration)) {
+    source.calibration = clone(template)
+    changed = true
+  } else {
+    var timeout = Number(source.calibration.confirmationTimeoutMs)
+    if (!isFinite(timeout)) { source.calibration.confirmationTimeoutMs = template.confirmationTimeoutMs; changed = true }
+    else {
+      var bounded = Math.max(1000, Math.min(15000, Math.floor(timeout)))
+      if (bounded !== timeout) { source.calibration.confirmationTimeoutMs = bounded; changed = true }
+    }
+    if (source.calibration.autoRollback === undefined) { source.calibration.autoRollback = true; changed = true }
+    if (source.calibration.preserveLastKnownGood === undefined) { source.calibration.preserveLastKnownGood = true; changed = true }
+    if (source.calibration.safeModeIgnoreCustom === undefined) { source.calibration.safeModeIgnoreCustom = true; changed = true }
+  }
+  if (changed && report && report.applied.indexOf("calibration-1.3-defaults") < 0) report.applied.push("calibration-1.3-defaults")
 }
 
 function nestedFutureSchema(source) {
@@ -272,12 +307,16 @@ function nestedFutureSchema(source) {
   var setupProfiles = isObject(source.hardwareSetupProfiles) ? Number(source.hardwareSetupProfiles.schemaVersion) : 0
   var displayPolicy = isObject(source.hardwareSetupProfiles) && isObject(source.hardwareSetupProfiles.displayPolicy)
     ? Number(source.hardwareSetupProfiles.displayPolicy.schemaVersion) : 0
+  var calibrationStore = isObject(source.deviceProfiles) && isObject(source.deviceProfiles.calibrations)
+    ? Number(source.deviceProfiles.calibrations.schemaVersion) : 0
   if (isFinite(deviceProfiles) && deviceProfiles > DEVICE_PROFILE_SCHEMA_VERSION)
     return { reason: "future-device-profile-schema", schemaVersion: deviceProfiles }
   if (isFinite(setupProfiles) && setupProfiles > HARDWARE_SETUP_SCHEMA_VERSION)
     return { reason: "future-hardware-setup-schema", schemaVersion: setupProfiles }
   if (isFinite(displayPolicy) && displayPolicy > HARDWARE_SETUP_SCHEMA_VERSION)
     return { reason: "future-display-policy-schema", schemaVersion: displayPolicy }
+  if (isFinite(calibrationStore) && calibrationStore > 1)
+    return { reason: "future-calibration-schema", schemaVersion: calibrationStore }
   return null
 }
 
@@ -311,6 +350,7 @@ function migrateDetailed(raw) {
   normalizeAdaptiveOneTwo(source, report)
   normalizeDeviceProfilesTwo(source, report)
   normalizeHardwareSetupProfilesOne(source, report)
+  normalizeCalibrationConfig(source, report)
   releaseMigration(source, report)
   return { ok: true, config: merge(defaults(), source), from: version, to: CURRENT_SCHEMA_VERSION, releaseFrom: report.releaseFrom, releaseTo: report.releaseTo, applied: report.applied, migrated: report.applied.length > 0 }
 }

@@ -91,6 +91,11 @@ Item {
     return root.service && root.service.calibrationWizardState ? root.service.calibrationWizardState : { phase: "idle", inputs: [], outputs: [], error: "" }
   }
 
+  function calibrationTransaction() {
+    var revision = root.observedRevision
+    return root.service && root.service.calibrationTransactionState ? root.service.calibrationTransactionState : { phase: "idle", kind: "", targetId: "", remainingMs: 0, error: "" }
+  }
+
   function nodeLabel(id) {
     var wanted = String(id || "")
     if (!wanted) return root.text("unresolved", "Unresolved")
@@ -126,7 +131,7 @@ Item {
 
   function phaseText(value) {
     var name = String(value || "idle")
-    var labels = { idle: "Idle", collecting: "Collecting real samples", analyzed: "Analysis ready", unavailable: "Unavailable", cancelled: "Cancelled", confirm: "Confirmation required", complete: "Ready to apply", ambiguous: "Choice required" }
+    var labels = { idle: "Idle", collecting: "Collecting real samples", analyzed: "Analysis ready", unavailable: "Unavailable", cancelled: "Cancelled", confirm: "Confirmation required", complete: "Ready to apply", ambiguous: "Choice required", prepared: "Preparing safe change", "awaiting-confirmation": "Keep these settings?", committed: "Saved", "rolled-back": "Reverted", rejected: "Rejected" }
     return labels[name] || name
   }
 
@@ -145,7 +150,7 @@ Item {
 
   function mappingCanApply() {
     var state = root.calibrationState()
-    return state.phase === "complete" && ["touchscreen", "stylus"].indexOf(root.selectedMappingCategory()) >= 0
+    return state.phase === "complete" && ["touchscreen", "stylus"].indexOf(root.selectedMappingCategory()) >= 0 && root.calibrationTransaction().phase !== "awaiting-confirmation"
   }
 
   function requestForget(id) {
@@ -450,8 +455,37 @@ Item {
               spacing: tokens.space(6)
               Text { text: root.text("activeCalibration", "Calibration session active"); color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true }
               Text { Layout.fillWidth: true; text: root.service && root.service.activeCalibrationKind === "touchscreen" ? "Touch: " + root.phaseText(root.service.touchCalibrationState.phase) + " · " + String(root.service.touchCalibrationState.samples.length || 0) + "/5 targets" : "Stylus: " + root.phaseText(root.service.stylusCalibrationState.phase) + " · " + String(root.service.stylusCalibrationState.samples.length || 0) + " real samples"; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+              Text { visible: root.service && root.service.activeCalibrationKind === "touchscreen" && root.service.touchCalibrationState.phase === "analyzed"; Layout.fillWidth: true; text: root.service && root.service.touchCalibrationState.result ? "Touch result: " + (root.service.touchCalibrationState.result.safe ? "safe candidate" : String(root.service.touchCalibrationState.result.suggestion || "needs attention")) + " · RMS " + String(root.service.touchCalibrationState.result.rmsError || "?") : ""; color: root.service && root.service.touchCalibrationState.result && root.service.touchCalibrationState.result.safe ? Color.accent : Color.urgent; font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+              Text { visible: root.service && root.service.activeCalibrationKind === "stylus" && root.service.stylusCalibrationState.analysis; Layout.fillWidth: true; text: root.service && root.service.stylusCalibrationState.analysis ? "Stylus capabilities observed from real samples: " + JSON.stringify(root.service.stylusCalibrationState.observed || {}) : ""; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
               Text { Layout.fillWidth: true; text: root.text("calibrationApplyBoundary", "Applying is withheld until the result is safe and explicitly confirmed. Cancel always leaves the previous profile untouched."); color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+              ActionButton { Layout.fillWidth: true; text: root.text("applyCalibration", "Preview calibration"); subtitle: root.text("applyCalibrationHint", "Save only after the confirmation countdown"); visible: root.service && root.service.activeCalibrationKind === "touchscreen" && root.service.touchCalibrationState.phase === "analyzed"; usable: !!root.service && root.service.touchCalibrationState.result && root.service.touchCalibrationState.result.safe === true; onClicked: if (root.service) root.service.applyTouchCalibration() }
+              ActionButton { Layout.fillWidth: true; text: root.text("applyCalibration", "Preview calibration"); subtitle: root.text("applyCalibrationHint", "Save only after the confirmation countdown"); visible: root.service && root.service.activeCalibrationKind === "stylus" && root.service.stylusCalibrationState.analysis; usable: !!root.service; onClicked: if (root.service) root.service.applyStylusCalibration() }
               ActionButton { Layout.fillWidth: true; text: root.text("cancelCalibration", "Cancel calibration"); onClicked: root.resetCalibration() }
+            }
+          }
+
+          Rectangle {
+            visible: ["prepared", "awaiting-confirmation", "committed", "rolled-back", "rejected"].indexOf(root.calibrationTransaction().phase) >= 0 && root.calibrationTransaction().phase !== "idle"
+            width: parent.width
+            implicitHeight: transactionBody.implicitHeight + tokens.space(20)
+            radius: tokens.radius(12)
+            color: root.calibrationTransaction().phase === "awaiting-confirmation" ? Util.alpha(Color.accent, 0.10) : Util.alpha(Color.foreground, 0.05)
+            border.width: 1
+            border.color: root.calibrationTransaction().phase === "awaiting-confirmation" ? Util.alpha(Color.accent, 0.30) : Util.alpha(Color.foreground, 0.12)
+            ColumnLayout {
+              id: transactionBody
+              anchors.fill: parent
+              anchors.margins: tokens.space(10)
+              spacing: tokens.space(6)
+              Text { text: root.text("calibrationTransaction", "Calibration change"); color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true }
+              Text { Layout.fillWidth: true; text: root.phaseText(root.calibrationTransaction().phase) + " · " + String(root.calibrationTransaction().kind || "device") + " · " + (Number(root.calibrationTransaction().remainingMs || 0) > 0 ? Math.ceil(Number(root.calibrationTransaction().remainingMs) / 1000) + "s" : String(root.calibrationTransaction().error || "")); color: root.calibrationTransaction().phase === "awaiting-confirmation" ? Color.accent : Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+              Text { visible: root.calibrationTransaction().phase === "awaiting-confirmation"; Layout.fillWidth: true; text: root.text("calibrationKeepHint", "Keep applies the validated Omanome metadata. Revert restores the previous mapping."); color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+              RowLayout {
+                Layout.fillWidth: true
+                visible: root.calibrationTransaction().phase === "awaiting-confirmation"
+                ActionButton { Layout.fillWidth: true; text: root.text("keep", "Keep"); usable: !!root.service; onClicked: if (root.service) root.service.confirmCalibrationTransaction(true) }
+                ActionButton { Layout.fillWidth: true; text: root.text("revert", "Revert"); usable: !!root.service; onClicked: if (root.service) root.service.rollbackCalibrationTransaction("calibration-reverted-by-user") }
+              }
             }
           }
         }

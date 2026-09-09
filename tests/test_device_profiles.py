@@ -94,6 +94,25 @@ class DeviceProfileTests(unittest.TestCase):
         self.assertIn("DeviceProfilesModel.list(root.deviceGraph, root.deviceProfileStore)", service)
         self.assertIn("deviceProfiles: DeviceProfilesModel.summary(root.deviceProfileStore)", service)
 
+    def test_device_controls_and_calibration_store_are_whitelisted_and_reversible(self) -> None:
+        result = self.run_node(
+            "const P=require('./shell/models/DeviceProfiles.js'); "
+            "const device='device:stylus:1111111111111111'; const output='display:2222222222222222'; "
+            "const profile=P.normalizeProfile({id:device,category:'stylus',stylus:{handedness:'left',cursor:'hide',palmRejection:'enabled',handwriting:'disabled',buttonMap:{primary:'annotation'},buttonTest:true},keyboard:{relation:'docked'}}); "
+            "let store=P.emptyStore(); const saved=P.setCalibration(store,{deviceId:device,kind:'stylus',mapping:{outputId:output,scale:{x:1.1,y:0.9},offset:{x:0.1,y:-0.1},rotation:90}}); store=saved.store; "
+            "const removed=P.removeCalibrationsForDevice(store,device); "
+            "console.log(JSON.stringify({profile, saved:saved.ok, calibration:saved.calibration, count:Object.keys(store.calibrations.entries).length, removed:removed.reason, after:Object.keys(removed.store.calibrations.entries).length}));"
+        )
+        self.assertEqual(result["profile"]["stylus"]["handedness"], "left")
+        self.assertEqual(result["profile"]["stylus"]["cursor"], "hide")
+        self.assertEqual(result["profile"]["stylus"]["buttonMap"]["primary"], "annotation")
+        self.assertFalse(result["profile"]["stylus"]["buttonTest"])
+        self.assertTrue(result["saved"])
+        self.assertEqual(result["calibration"]["mapping"]["rotation"], 90)
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["removed"], "calibrations-removed")
+        self.assertEqual(result["after"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
