@@ -20,6 +20,7 @@ import "models/Lifecycle.js" as LifecycleModel
 import "models/Rotation.js" as RotationModel
 import "models/Touch.js" as TouchModel
 import "models/InputDevices.js" as InputDevicesModel
+import "models/DeviceGraph.js" as DeviceGraphModel
 import "models/KeyboardDevices.js" as KeyboardDevicesModel
 import "models/KeyboardTransitions.js" as KeyboardTransitionsModel
 import "models/Responsive.js" as ResponsiveModel
@@ -133,6 +134,9 @@ Item {
   property bool hasDetachableKeyboard: false
   property bool hasBluetoothKeyboard: false
   property var inputDeviceState: InputDevicesModel.emptyState()
+  // Device Graph is a sanitized topology view shared by diagnostics and
+  // future hardware profiles. It never replaces the existing input state.
+  property var deviceGraph: DeviceGraphModel.emptyState()
   property bool inputDeviceMonitorAvailable: false
   property string inputDeviceMonitorReason: "not-started"
   property bool tabletSwitchAvailable: false
@@ -2441,6 +2445,12 @@ Item {
     }
   }
 
+  function updateDeviceGraph() {
+    var source = root.devices && typeof root.devices === "object" && !Array.isArray(root.devices) ? root.devices : {}
+    var snapshot = Object.assign({}, source, { monitors: Array.isArray(root.monitors) ? root.monitors : [] })
+    root.deviceGraph = DeviceGraphModel.fromSnapshot(snapshot, root.deviceGraph)
+  }
+
   function updateDevices(raw) {
     var parsed = parseJson(raw, {})
     root.devices = parsed
@@ -2496,6 +2506,7 @@ Item {
     root.updateResponsiveContext()
     root.reconcileOskPolicy()
     root.refreshFeatureStates()
+    root.updateDeviceGraph()
     root.stateRevision++
     root.stateUpdated()
   }
@@ -2504,6 +2515,7 @@ Item {
     var parsed = parseJson(raw, null)
     if (!parsed || String(parsed.type || "") !== "device.event") return
     root.inputDeviceState = InputDevicesModel.applyEvent(root.inputDeviceState, parsed)
+    root.deviceGraph = DeviceGraphModel.applyEvent(root.deviceGraph, parsed)
     root.keyboardTransitionState = KeyboardTransitionsModel.noteEvent(root.keyboardTransitionState, parsed, Date.now())
     root.updateInputMapping()
     root.refreshStylusInputPolicy()
@@ -2589,6 +2601,7 @@ Item {
     if (root.cfg("multitasking.multiMonitor.enabled", true) !== false && root.cfg("multitasking.multiMonitor.hotplugRecovery", true) !== false && recovery.commands.length > 0)
       root.applyMonitorRecoveryPlan(recovery)
     root.updateInputMapping()
+    root.updateDeviceGraph()
     root.updateResponsiveContext()
     root.stateRevision++
     root.stateUpdated()
@@ -2681,6 +2694,7 @@ Item {
         lastEvent: root.inputDeviceState.hotplug,
         mapping: root.inputDeviceState.devices.map(function(item) { return { id: item.id, role: item.role, output: item.output || "automatic" } })
       },
+      deviceGraph: DeviceGraphModel.summary(root.deviceGraph),
       stylusInput: {
         backend: root.stylusInputState.backend,
         available: root.stylusInputState.available === true,
