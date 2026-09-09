@@ -71,6 +71,21 @@ class DeviceGraphTests(unittest.TestCase):
         self.assertEqual(touch["parent"], dock["id"])
         self.assertEqual(touch["relation"], "attached-to")
 
+    def test_explicit_output_mapping_is_a_confirmed_relation_but_automatic_is_not(self) -> None:
+        result = self.run_node(
+            "const G=require('./shell/models/DeviceGraph.js'); "
+            "const graph=G.fromSnapshot({monitors:[{id:'display-1',name:'Panel',builtin:true}],devices:["
+            "{id:'touch-1',type:'touchscreen',output:'Panel',capabilities:{touchscreen:true}},"
+            "{id:'keyboard-1',type:'keyboard',capabilities:{keyboard:true}}]}); "
+            "console.log(JSON.stringify(graph));"
+        )
+        mapped = [row for row in result["relationships"] if row["type"] == "mapped-to"]
+        self.assertEqual(len(mapped), 1)
+        self.assertEqual(mapped[0]["confidence"], "confirmed")
+        self.assertEqual(mapped[0]["source"], "explicit-mapping")
+        keyboard = next(row for row in result["nodes"] if row["category"] == "keyboard")
+        self.assertEqual(keyboard["mappingStatus"], "automatic")
+
     def test_nested_inventories_deduplicate_outputs_and_preserve_public_summary(self) -> None:
         result = self.run_node(
             "const G=require('./shell/models/DeviceGraph.js'); "

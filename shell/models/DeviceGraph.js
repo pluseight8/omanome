@@ -461,6 +461,26 @@ function relationConfidence(value) {
   return confidence(value, "unknown")
 }
 
+function relationReference(value) {
+  if (value && typeof value === "object") {
+    return string(value.id || value.stableId || value.stable_id || value.nodeId || value.node_id || value.deviceId || value.device_id || value.identifier).trim()
+  }
+  return string(value).trim()
+}
+
+function addRelationship(result, seen, from, to, type, confidenceValue, sourceName) {
+  if (!from || !to || from === to) return
+  var key = [from, to, type].join("|")
+  if (seen[key]) return
+  seen[key] = true
+  result.push({ from: from, to: to, type: type, confidence: confidenceValue, source: sourceName })
+}
+
+function nodeParentReference(source) {
+  var item = object(source)
+  return relationReference(item.parentId || item.parent_id || item.parentDeviceId || item.parent_device_id || item.parent || item.attachedTo || item.attached_to || item.belongsTo || item.belongs_to)
+}
+
 function rawReference(source) {
   var item = object(source)
   var value = item.id || item.stableId || item.stable_id || item.nodeId || item.node_id || item.deviceId || item.device_id || item.identifier
@@ -477,21 +497,48 @@ function findRecordByReference(records, reference) {
   return null
 }
 
-function explicitRelations(snapshot, records) {
+function explicitRelations(snapshot, records, outputs) {
   var source = object(snapshot)
   var values = array(source.relationships)
   if (values.length === 0) values = array(source.relations)
   var result = []
+  var seen = {}
   for (var i = 0; i < values.length; i++) {
     var relation = object(values[i])
-    var from = findRecordByReference(records, relation.from || relation.child || relation.device || relation.source)
-    var to = findRecordByReference(records, relation.to || relation.parent || relation.target || relation.destination)
+    var from = findRecordByReference(records, relationReference(relation.from || relation.child || relation.device || relation.source))
+    var to = findRecordByReference(records, relationReference(relation.to || relation.parent || relation.target || relation.destination))
     if (!from || !to || from.node.id === to.node.id) continue
     var type = relationName(relation.type || relation.relation || relation.kind)
     var confidenceValue = relationConfidence(relation.confidence || relation.relationConfidence || relation.relation_confidence)
     from.node.parent = type === "parent" || type === "attached-to" ? to.node.id : from.node.parent
     from.node.relation = type
-    result.push({ from: from.node.id, to: to.node.id, type: type, confidence: confidenceValue, source: "explicit" })
+    addRelationship(result, seen, from.node.id, to.node.id, type, confidenceValue, "explicit")
+  }
+  // Device records may carry an explicit parent/attachment reference even
+  // when the adapter has no top-level relationship list. Resolve only that
+  // reference; never infer a relation from names, vendors, or proximity.
+  for (var r = 0; r < records.length; r++) {
+    var record = records[r]
+    var parentReference = nodeParentReference(record.raw)
+    if (!parentReference) continue
+    var parent = findRecordByReference(records, parentReference)
+    if (!parent || parent.node.id === record.node.id) continue
+    var relationType = relationName(object(record.raw).relation || object(record.raw).relationType || (object(record.raw).attachedTo || object(record.raw).attached_to ? "attached-to" : "parent"))
+    var recordConfidence = relationConfidence(object(record.raw).relationConfidence || object(record.raw).relation_confidence || "confirmed")
+    record.node.parent = relationType === "parent" || relationType === "attached-to" ? parent.node.id : record.node.parent
+    record.node.relation = relationType
+    addRelationship(result, seen, record.node.id, parent.node.id, relationType, recordConfidence, "device-record")
+  }
+  // A mapped output is an explicit user/compositor fact, so expose it as a
+  // confirmed relation. Automatic mapping remains unconnected until a later
+  // policy layer resolves it.
+  for (var m = 0; m < records.length; m++) {
+    var mapped = normalizeMappedOutput(records[m].raw, outputs)
+    if (mapped.status !== "mapped" || !mapped.output) continue
+    var outputRecord = null
+    for (var o = 0; o < records.length; o++) if (records[o].node.id === mapped.output) { outputRecord = records[o]; break }
+    if (outputRecord && outputRecord.node.id !== records[m].node.id)
+      addRelationship(result, seen, records[m].node.id, outputRecord.node.id, "mapped-to", "confirmed", "explicit-mapping")
   }
   return result
 }
@@ -561,7 +608,7 @@ function fromSnapshot(snapshot, previous, options) {
     records.push({ raw: rawOutputs[d], node: displayNode })
     nodes.push(displayNode)
   }
-  var relationships = explicitRelations(source, records)
+  var relationships = explicitRelations(source, records, outputs)
   var confidenceCounts = { confirmed: 0, probable: 0, unknown: 0 }
   for (var n = 0; n < nodes.length; n++) confidenceCounts[confidence(nodes[n].confidence, "unknown")]++
   var backend = first(source, ["backend", "source", "provider"]) || (nodes.length > 0 ? "snapshot" : "unavailable")
