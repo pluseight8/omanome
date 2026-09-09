@@ -10,6 +10,47 @@ permissions:
   contents: read
 
 jobs:
+  polish-regression-safety:
+    name: "Polish & regression safety"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Run the aggregate 1.4 polish gate
+        run: make polish-check
+
+      - name: Verify executable modes in the Git tree
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          import subprocess
+
+          expected = []
+          errors = []
+          for line in subprocess.check_output(["git", "ls-files", "-s"], text=True).splitlines():
+              mode, remainder = line.split(" ", 1)
+              path = remainder.split("\t", 1)[1]
+              rel = pathlib.PurePosixPath(path)
+              should_execute = rel == pathlib.PurePosixPath("cli/omanome") or (
+                  rel.parts and rel.parts[0] == "input" and rel.suffix == ".sh"
+              ) or (
+                  rel.parts and rel.parts[0] == "scripts" and rel.suffix == ".py"
+              )
+              if should_execute:
+                  expected.append(path)
+              if should_execute and mode != "100755":
+                  errors.append(f"{path}: expected 100755, found {mode}")
+              if not should_execute and mode == "100755":
+                  errors.append(f"{path}: unexpected executable mode")
+          if errors:
+              raise SystemExit("\n".join(errors))
+          print(f"verified {len(expected)} executable files")
+          PY
+
+      - name: Run deterministic polish contract tests
+        run: python3 -m unittest tests.test_polish -v
+
   portable:
     name: Portable validation
     runs-on: ubuntu-latest
