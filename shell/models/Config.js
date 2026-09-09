@@ -9,6 +9,7 @@ function defaults() {
     adaptive: { enabled: true, profile: "auto", automaticTransitions: true, externalKeyboardPolicy: "hybrid", unknownKeyboardPolicy: "hybrid", transition: { enabled: true, debounceMs: 260, stabilityMs: 420, durationMs: 260, oskPolicy: "hide-on-attach", showOsd: true, animationPreset: "smooth" }, profiles: { custom: { mode: "auto", featureOverrides: {}, componentBehavior: {} } }, deviceRules: [], dockedMode: { enabled: true, trigger: "external-monitor-and-keyboard", profile: "desktop", keepTouch: true, restoreAutoState: true, rotation: "preserve", debounceMs: 180, stabilityMs: 260 } },
     tabletMode: { enabled: true, touchTarget: 48, autoFromTouch: true, autoFromStylus: true, physicalKeyboardExit: true, transitionDuration: 180, dockPreference: "adaptive", windowControls: "touch", gestures: true, posture: { auto: true, debounceMs: 320, minimumDwellMs: 900, laptopSuppressAutoShow: true, autoRotateInLaptop: false } },
     input: { schemaVersion: 1, nativeBackend: "auto", allowWtypeFallback: true, suppressOskOnPhysicalKeyboard: true, suppressOskOnDetachableKeyboard: true, suppressOskOnBluetoothKeyboard: true, deviceHotplug: true, safeModeDisableNative: false, defaultOutput: "", deviceMappings: {} },
+    deviceProfiles: { schemaVersion: 2, enabled: true, profiles: {}, rules: [], revision: 0 },
     onboarding: { completed: false, skipped: false, version: 1, privacyAcknowledged: false },
     accessibility: { touchTargetSize: "default", textScale: 1.0, highContrast: false, reducedMotion: false, reduceTransparency: false, screenReaderHints: true },
     touch: { enabled: true, edgeWidth: 36, threshold: 96, velocity: 0.35, inertia: true, invert: false, threeFingerAction: "workspace", fourFingerAction: "overview", conflictPolicy: "disable-fullscreen", disableOnFullscreen: true, fullscreenAllowList: [], fullscreenDenyList: [], adaptiveTargetMode: "automatic" },
@@ -222,6 +223,22 @@ function normalizeAdaptiveOneTwo(source, report) {
   if (changed && report && report.applied.indexOf("adaptive-1.2-defaults") < 0) report.applied.push("adaptive-1.2-defaults")
 }
 
+function normalizeDeviceProfilesTwo(source, report) {
+  var template = defaults().deviceProfiles
+  var changed = false
+  if (!isObject(source.deviceProfiles)) {
+    source.deviceProfiles = clone(template)
+    changed = true
+  } else {
+    if (source.deviceProfiles.schemaVersion === undefined) { source.deviceProfiles.schemaVersion = 2; changed = true }
+    if (source.deviceProfiles.enabled === undefined) { source.deviceProfiles.enabled = true; changed = true }
+    if (!isObject(source.deviceProfiles.profiles)) { source.deviceProfiles.profiles = {}; changed = true }
+    if (!Array.isArray(source.deviceProfiles.rules)) { source.deviceProfiles.rules = []; changed = true }
+    if (source.deviceProfiles.revision === undefined) { source.deviceProfiles.revision = 0; changed = true }
+  }
+  if (changed && report && report.applied.indexOf("device-profiles-2.0-defaults") < 0) report.applied.push("device-profiles-2.0-defaults")
+}
+
 function migrateDetailed(raw) {
   if (!isObject(raw)) return { ok: false, reason: "invalid-root", config: null, applied: [] }
   var source = clone(raw)
@@ -241,6 +258,7 @@ function migrateDetailed(raw) {
   normalizeInputConfig(source, report)
   normalizeMultitaskingOneOne(source, report)
   normalizeAdaptiveOneTwo(source, report)
+  normalizeDeviceProfilesTwo(source, report)
   return { ok: true, config: merge(defaults(), source), from: version, to: CURRENT_SCHEMA_VERSION, applied: report.applied, migrated: report.applied.length > 0 }
 }
 

@@ -21,6 +21,7 @@ import "models/Rotation.js" as RotationModel
 import "models/Touch.js" as TouchModel
 import "models/InputDevices.js" as InputDevicesModel
 import "models/DeviceGraph.js" as DeviceGraphModel
+import "models/DeviceProfiles.js" as DeviceProfilesModel
 import "models/KeyboardDevices.js" as KeyboardDevicesModel
 import "models/KeyboardTransitions.js" as KeyboardTransitionsModel
 import "models/Responsive.js" as ResponsiveModel
@@ -137,6 +138,7 @@ Item {
   // Device Graph is a sanitized topology view shared by diagnostics and
   // future hardware profiles. It never replaces the existing input state.
   property var deviceGraph: DeviceGraphModel.emptyState()
+  property var deviceProfileStore: DeviceProfilesModel.emptyStore()
   property bool inputDeviceMonitorAvailable: false
   property string inputDeviceMonitorReason: "not-started"
   property bool tabletSwitchAvailable: false
@@ -1793,6 +1795,7 @@ Item {
       root.configMigration = { applied: loaded.applied || [], from: loaded.from, to: loaded.to }
       root.safeMode = false
     }
+    root.syncDeviceProfiles()
     root.masterEnabled = root.cfg("controlCenter.masterEnabled", true) === true
     root.suspended = root.cfg("controlCenter.suspended", false) === true
     root.adaptiveProfile = FeatureStateModel.normalizedProfile(root.cfg("adaptive.profile", "auto"))
@@ -1826,6 +1829,10 @@ Item {
   function setConfig(path, value) {
     var configPath = String(path)
     root.config = Config.set(root.config, configPath, value)
+    if (configPath === "deviceProfiles" || configPath.indexOf("deviceProfiles.") === 0) {
+      root.deviceProfileStore = DeviceProfilesModel.normalizeStore(root.cfg("deviceProfiles", {}))
+      root.config = Config.set(root.config, "deviceProfiles", root.deviceProfileStore)
+    }
     root.saveConfig()
     root.configUpdated(configPath)
     if (configPath === "controlCenter.masterEnabled") {
@@ -1897,6 +1904,7 @@ Item {
     root.adaptivePreviewState = AdaptiveSettingsModel.emptyPreviewState()
     adaptivePreviewTimer.stop()
     root.config = Config.defaults()
+    root.deviceProfileStore = DeviceProfilesModel.emptyStore()
     root.masterEnabled = true
     root.suspended = false
     root.adaptiveProfile = "auto"
@@ -2451,6 +2459,14 @@ Item {
     root.deviceGraph = DeviceGraphModel.fromSnapshot(snapshot, root.deviceGraph)
   }
 
+  function deviceProfileRows() {
+    return DeviceProfilesModel.list(root.deviceGraph, root.deviceProfileStore)
+  }
+
+  function syncDeviceProfiles() {
+    root.deviceProfileStore = DeviceProfilesModel.normalizeStore(root.cfg("deviceProfiles", {}))
+  }
+
   function updateDevices(raw) {
     var parsed = parseJson(raw, {})
     root.devices = parsed
@@ -2695,6 +2711,7 @@ Item {
         mapping: root.inputDeviceState.devices.map(function(item) { return { id: item.id, role: item.role, output: item.output || "automatic" } })
       },
       deviceGraph: DeviceGraphModel.summary(root.deviceGraph),
+      deviceProfiles: DeviceProfilesModel.summary(root.deviceProfileStore),
       stylusInput: {
         backend: root.stylusInputState.backend,
         available: root.stylusInputState.available === true,

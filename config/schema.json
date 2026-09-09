@@ -95,6 +95,16 @@
         "deviceMappings": { "type": "object" }
       }
     },
+    "deviceProfiles": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "enabled": { "type": "boolean" },
+        "profiles": { "type": "object", "maxProperties": 256 },
+        "rules": { "type": "array", "maxItems": 128 },
+        "revision": { "type": "integer", "minimum": 0 }
+      }
+    },
     "onboarding": { "type": "object" },
     "accessibility": { "type": "object" },
     "touch": { "type": "object" },
